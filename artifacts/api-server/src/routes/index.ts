@@ -5,6 +5,7 @@ import signalRouter from "./signal";
 import botRouter from "./bot";
 import riskRouter from "./risk";
 import historyRouter from "./history";
+import liquidationsRouter from "./liquidations";
 
 const router: IRouter = Router();
 
@@ -14,5 +15,6 @@ router.use(signalRouter);
 router.use(botRouter);
 router.use(riskRouter);
 router.use(historyRouter);
+router.use(liquidationsRouter);
 
 export default router;

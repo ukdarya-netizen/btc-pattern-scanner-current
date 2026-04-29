@@ -2,6 +2,7 @@ import { logger } from "../../lib/logger";
 import { bybitConnector } from "./bybitConnector";
 import { bingxConnector } from "./bingxConnector";
 import { okxConnector } from "./okxConnector";
+import { liquidationService } from "../liquidationService";
 import type { IExchangeConnector, ExchangeTicker, ExchangeOrderbook, ExchangeTrade, ExchangeBalance, ExchangePosition } from "./types";
 
 export interface AggregatedTicker {
@@ -58,6 +59,8 @@ class ExchangeAggregator {
         logger.info({ exchange: c.name }, "Exchange skipped (no API key)");
       }
     }
+
+    bybitConnector.onLiquidation(liq => liquidationService.addEvent(liq));
   }
 
   private connectorHasKey(c: IExchangeConnector): boolean {

@@ -232,6 +232,51 @@ paths:
               schema:
                 $ref: "#/components/schemas/PnlChartData"
 
+  /liquidations/heatmap:
+    get:
+      operationId: getLiquidationHeatmap
+      tags: [liquidations]
+      summary: Real-time liquidation heatmap aggregated by price bucket (30min window)
+      responses:
+        "200":
+          description: Heatmap buckets and live summary
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/LiquidationHeatmap"
+
+  /liquidations/events:
+    get:
+      operationId: getLiquidationEvents
+      tags: [liquidations]
+      summary: Recent raw liquidation events from exchange WS
+      parameters:
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 50
+      responses:
+        "200":
+          description: List of recent liquidation events
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/LiquidationEventList"
+
+  /liquidations/info:
+    get:
+      operationId: getLiquidationInfo
+      tags: [liquidations]
+      summary: CoinGlass aggregated liquidation volumes by timeframe
+      responses:
+        "200":
+          description: CoinGlass liquidation summary
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/LiquidationInfo"
+
   /account/balance:
     get:
       operationId: getAccountBalance
@@ -646,3 +691,115 @@ components:
               available:
                 type: number
       required: [total, available, currency]
+
+    LiqBucket:
+      type: object
+      properties:
+        price:
+          type: number
+        longUsd:
+          type: number
+        shortUsd:
+          type: number
+        totalUsd:
+          type: number
+      required: [price, longUsd, shortUsd, totalUsd]
+
+    LiqWindowSummary:
+      type: object
+      properties:
+        longUsd:
+          type: number
+        shortUsd:
+          type: number
+        count:
+          type: number
+      required: [longUsd, shortUsd, count]
+
+    LiqSummary:
+      type: object
+      properties:
+        last5m:
+          $ref: "#/components/schemas/LiqWindowSummary"
+        last15m:
+          $ref: "#/components/schemas/LiqWindowSummary"
+        last30m:
+          $ref: "#/components/schemas/LiqWindowSummary"
+        last1h:
+          $ref: "#/components/schemas/LiqWindowSummary"
+      required: [last5m, last15m, last30m, last1h]
+
+    LiquidationHeatmap:
+      type: object
+      properties:
+        buckets:
+          type: array
+          items:
+            $ref: "#/components/schemas/LiqBucket"
+        summary:
+          $ref: "#/components/schemas/LiqSummary"
+      required: [buckets, summary]
+
+    LiquidationEvent:
+      type: object
+      properties:
+        exchange:
+          type: string
+        side:
+          type: string
+          enum: [long, short]
+        price:
+          type: number
+        size:
+          type: number
+        valueUsd:
+          type: number
+        timestamp:
+          type: number
+      required: [exchange, side, price, size, valueUsd, timestamp]
+
+    LiquidationEventList:
+      type: object
+      properties:
+        events:
+          type: array
+          items:
+            $ref: "#/components/schemas/LiquidationEvent"
+      required: [events]
+
+    LiquidationInfo:
+      type: object
+      properties:
+        longVolUsd1h:
+          type: number
+        shortVolUsd1h:
+          type: number
+        longVolUsd4h:
+          type: number
+        shortVolUsd4h:
+          type: number
+        longVolUsd12h:
+          type: number
+        shortVolUsd12h:
+          type: number
+        longVolUsd24h:
+          type: number
+        shortVolUsd24h:
+          type: number
+        h1TotalVolUsd:
+          type: number
+        h4TotalVolUsd:
+          type: number
+        h12TotalVolUsd:
+          type: number
+        h24TotalVolUsd:
+          type: number
+        h1Amount:
+          type: number
+        h4Amount:
+          type: number
+        h12Amount:
+          type: number
+        h24Amount:
+          type: number
+      required: [longVolUsd1h, shortVolUsd1h, longVolUsd4h, shortVolUsd4h, longVolUsd12h, shortVolUsd12h, longVolUsd24h, shortVolUsd24h, h1TotalVolUsd, h4TotalVolUsd, h12TotalVolUsd, h24TotalVolUsd, h1Amount, h4Amount, h12Amount, h24Amount]

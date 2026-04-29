@@ -23,9 +23,13 @@ import type {
   CvdSeries,
   ExchangeStatusList,
   FundingData,
+  GetLiquidationEventsParams,
   GetPnlChartParams,
   GetTradeHistoryParams,
   HealthStatus,
+  LiquidationEventList,
+  LiquidationHeatmap,
+  LiquidationInfo,
   Orderbook,
   PnlChartData,
   PositionList,
@@ -1191,6 +1195,256 @@ export function useGetPnlChart<
   },
 ): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
   const queryOptions = getGetPnlChartQueryOptions(params, options);
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+/**
+ * @summary Real-time liquidation heatmap aggregated by price bucket (30min window)
+ */
+export const getGetLiquidationHeatmapUrl = () => {
+  return `/api/liquidations/heatmap`;
+};
+
+export const getLiquidationHeatmap = async (
+  options?: RequestInit,
+): Promise<LiquidationHeatmap> => {
+  return customFetch<LiquidationHeatmap>(getGetLiquidationHeatmapUrl(), {
+    ...options,
+    method: "GET",
+  });
+};
+
+export const getGetLiquidationHeatmapQueryKey = () => {
+  return [`/api/liquidations/heatmap`] as const;
+};
+
+export const getGetLiquidationHeatmapQueryOptions = <
+  TData = Awaited<ReturnType<typeof getLiquidationHeatmap>>,
+  TError = ErrorType<unknown>,
+>(options?: {
+  query?: UseQueryOptions<
+    Awaited<ReturnType<typeof getLiquidationHeatmap>>,
+    TError,
+    TData
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey = queryOptions?.queryKey ?? getGetLiquidationHeatmapQueryKey();
+
+  const queryFn: QueryFunction<
+    Awaited<ReturnType<typeof getLiquidationHeatmap>>
+  > = ({ signal }) => getLiquidationHeatmap({ signal, ...requestOptions });
+
+  return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<
+    Awaited<ReturnType<typeof getLiquidationHeatmap>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type GetLiquidationHeatmapQueryResult = NonNullable<
+  Awaited<ReturnType<typeof getLiquidationHeatmap>>
+>;
+export type GetLiquidationHeatmapQueryError = ErrorType<unknown>;
+
+/**
+ * @summary Real-time liquidation heatmap aggregated by price bucket (30min window)
+ */
+
+export function useGetLiquidationHeatmap<
+  TData = Awaited<ReturnType<typeof getLiquidationHeatmap>>,
+  TError = ErrorType<unknown>,
+>(options?: {
+  query?: UseQueryOptions<
+    Awaited<ReturnType<typeof getLiquidationHeatmap>>,
+    TError,
+    TData
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getGetLiquidationHeatmapQueryOptions(options);
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+/**
+ * @summary Recent raw liquidation events from exchange WS
+ */
+export const getGetLiquidationEventsUrl = (
+  params?: GetLiquidationEventsParams,
+) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? "null" : value.toString());
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0
+    ? `/api/liquidations/events?${stringifiedParams}`
+    : `/api/liquidations/events`;
+};
+
+export const getLiquidationEvents = async (
+  params?: GetLiquidationEventsParams,
+  options?: RequestInit,
+): Promise<LiquidationEventList> => {
+  return customFetch<LiquidationEventList>(getGetLiquidationEventsUrl(params), {
+    ...options,
+    method: "GET",
+  });
+};
+
+export const getGetLiquidationEventsQueryKey = (
+  params?: GetLiquidationEventsParams,
+) => {
+  return [`/api/liquidations/events`, ...(params ? [params] : [])] as const;
+};
+
+export const getGetLiquidationEventsQueryOptions = <
+  TData = Awaited<ReturnType<typeof getLiquidationEvents>>,
+  TError = ErrorType<unknown>,
+>(
+  params?: GetLiquidationEventsParams,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof getLiquidationEvents>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey =
+    queryOptions?.queryKey ?? getGetLiquidationEventsQueryKey(params);
+
+  const queryFn: QueryFunction<
+    Awaited<ReturnType<typeof getLiquidationEvents>>
+  > = ({ signal }) =>
+    getLiquidationEvents(params, { signal, ...requestOptions });
+
+  return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<
+    Awaited<ReturnType<typeof getLiquidationEvents>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type GetLiquidationEventsQueryResult = NonNullable<
+  Awaited<ReturnType<typeof getLiquidationEvents>>
+>;
+export type GetLiquidationEventsQueryError = ErrorType<unknown>;
+
+/**
+ * @summary Recent raw liquidation events from exchange WS
+ */
+
+export function useGetLiquidationEvents<
+  TData = Awaited<ReturnType<typeof getLiquidationEvents>>,
+  TError = ErrorType<unknown>,
+>(
+  params?: GetLiquidationEventsParams,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof getLiquidationEvents>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getGetLiquidationEventsQueryOptions(params, options);
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+/**
+ * @summary CoinGlass aggregated liquidation volumes by timeframe
+ */
+export const getGetLiquidationInfoUrl = () => {
+  return `/api/liquidations/info`;
+};
+
+export const getLiquidationInfo = async (
+  options?: RequestInit,
+): Promise<LiquidationInfo> => {
+  return customFetch<LiquidationInfo>(getGetLiquidationInfoUrl(), {
+    ...options,
+    method: "GET",
+  });
+};
+
+export const getGetLiquidationInfoQueryKey = () => {
+  return [`/api/liquidations/info`] as const;
+};
+
+export const getGetLiquidationInfoQueryOptions = <
+  TData = Awaited<ReturnType<typeof getLiquidationInfo>>,
+  TError = ErrorType<unknown>,
+>(options?: {
+  query?: UseQueryOptions<
+    Awaited<ReturnType<typeof getLiquidationInfo>>,
+    TError,
+    TData
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey = queryOptions?.queryKey ?? getGetLiquidationInfoQueryKey();
+
+  const queryFn: QueryFunction<
+    Awaited<ReturnType<typeof getLiquidationInfo>>
+  > = ({ signal }) => getLiquidationInfo({ signal, ...requestOptions });
+
+  return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<
+    Awaited<ReturnType<typeof getLiquidationInfo>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type GetLiquidationInfoQueryResult = NonNullable<
+  Awaited<ReturnType<typeof getLiquidationInfo>>
+>;
+export type GetLiquidationInfoQueryError = ErrorType<unknown>;
+
+/**
+ * @summary CoinGlass aggregated liquidation volumes by timeframe
+ */
+
+export function useGetLiquidationInfo<
+  TData = Awaited<ReturnType<typeof getLiquidationInfo>>,
+  TError = ErrorType<unknown>,
+>(options?: {
+  query?: UseQueryOptions<
+    Awaited<ReturnType<typeof getLiquidationInfo>>,
+    TError,
+    TData
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getGetLiquidationInfoQueryOptions(options);
 
   const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
     queryKey: QueryKey;

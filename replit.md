@@ -51,6 +51,13 @@ A Bitcoin futures scalping bot dashboard with real-time data from multiple excha
 - `/` — Terminal: ticker (multi-exchange prices), CVD chart, order book, recent trades (tagged by exchange), signal gauge, bot controls
 - `/risk` — Risk manager: equity curve (DB), account balance per exchange, open positions, trade history from DB, stats (Win Rate, Sharpe, Drawdown)
 - `/signal` — Signal breakdown: component scores, radar chart
+- `/liquidations` — Liquidation map: CoinGlass 1h/4h/12h/24h long/short volumes, live Bybit WS heatmap by price level, live event feed
+
+### CoinGlass Integration
+- **`services/coinglassService.ts`** — Polls `/public/v2/liquidation_info` (1-min cache); uses `coinglassSecret` header
+- **`services/liquidationService.ts`** — Aggregates Bybit WS liquidation events into price buckets (30min window, heatmap)
+- Routes: `GET /api/liquidations/heatmap`, `GET /api/liquidations/events`, `GET /api/liquidations/info`
+- COINGLASS_API_KEY secret configured
 
 ## Exchange Status
 - **Bybit** ✅ WebSocket connected (public data) — BYBIT_API_KEY + BYBIT_API_SECRET configured

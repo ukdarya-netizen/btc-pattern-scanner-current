@@ -82,6 +82,16 @@ export interface OrderResult {
   status: string;
 }
 
+export interface ExchangeLiquidation {
+  exchange: string;
+  symbol: string;
+  side: "long" | "short";
+  price: number;
+  size: number;
+  valueUsd: number;
+  timestamp: number;
+}
+
 export interface IExchangeConnector {
   readonly name: string;
   readonly connected: boolean;

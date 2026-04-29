@@ -265,10 +265,79 @@ export interface AccountBalance {
   byExchange?: AccountBalanceByExchange;
 }
 
+export interface LiqBucket {
+  price: number;
+  longUsd: number;
+  shortUsd: number;
+  totalUsd: number;
+}
+
+export interface LiqWindowSummary {
+  longUsd: number;
+  shortUsd: number;
+  count: number;
+}
+
+export interface LiqSummary {
+  last5m: LiqWindowSummary;
+  last15m: LiqWindowSummary;
+  last30m: LiqWindowSummary;
+  last1h: LiqWindowSummary;
+}
+
+export interface LiquidationHeatmap {
+  buckets: LiqBucket[];
+  summary: LiqSummary;
+}
+
+export type LiquidationEventSide =
+  (typeof LiquidationEventSide)[keyof typeof LiquidationEventSide];
+
+export const LiquidationEventSide = {
+  long: "long",
+  short: "short",
+} as const;
+
+export interface LiquidationEvent {
+  exchange: string;
+  side: LiquidationEventSide;
+  price: number;
+  size: number;
+  valueUsd: number;
+  timestamp: number;
+}
+
+export interface LiquidationEventList {
+  events: LiquidationEvent[];
+}
+
+export interface LiquidationInfo {
+  longVolUsd1h: number;
+  shortVolUsd1h: number;
+  longVolUsd4h: number;
+  shortVolUsd4h: number;
+  longVolUsd12h: number;
+  shortVolUsd12h: number;
+  longVolUsd24h: number;
+  shortVolUsd24h: number;
+  h1TotalVolUsd: number;
+  h4TotalVolUsd: number;
+  h12TotalVolUsd: number;
+  h24TotalVolUsd: number;
+  h1Amount: number;
+  h4Amount: number;
+  h12Amount: number;
+  h24Amount: number;
+}
+
 export type GetTradeHistoryParams = {
   limit?: number;
 };
 
 export type GetPnlChartParams = {
   hours?: number;
+};
+
+export type GetLiquidationEventsParams = {
+  limit?: number;
 };

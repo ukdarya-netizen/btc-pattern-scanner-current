@@ -6,6 +6,7 @@ import NotFound from "@/pages/not-found";
 import Terminal from "@/pages/terminal";
 import Risk from "@/pages/risk";
 import Signal from "@/pages/signal";
+import Liquidations from "@/pages/liquidations";
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -21,6 +22,7 @@ function Router() {
       <Route path="/" component={Terminal} />
       <Route path="/risk" component={Risk} />
       <Route path="/signal" component={Signal} />
+      <Route path="/liquidations" component={Liquidations} />
       <Route component={NotFound} />
     </Switch>
   );

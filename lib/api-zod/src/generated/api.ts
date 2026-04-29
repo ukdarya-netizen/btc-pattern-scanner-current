@@ -284,6 +284,86 @@ export const GetPnlChartResponse = zod.object({
 });
 
 /**
+ * @summary Real-time liquidation heatmap aggregated by price bucket (30min window)
+ */
+export const GetLiquidationHeatmapResponse = zod.object({
+  buckets: zod.array(
+    zod.object({
+      price: zod.number(),
+      longUsd: zod.number(),
+      shortUsd: zod.number(),
+      totalUsd: zod.number(),
+    }),
+  ),
+  summary: zod.object({
+    last5m: zod.object({
+      longUsd: zod.number(),
+      shortUsd: zod.number(),
+      count: zod.number(),
+    }),
+    last15m: zod.object({
+      longUsd: zod.number(),
+      shortUsd: zod.number(),
+      count: zod.number(),
+    }),
+    last30m: zod.object({
+      longUsd: zod.number(),
+      shortUsd: zod.number(),
+      count: zod.number(),
+    }),
+    last1h: zod.object({
+      longUsd: zod.number(),
+      shortUsd: zod.number(),
+      count: zod.number(),
+    }),
+  }),
+});
+
+/**
+ * @summary Recent raw liquidation events from exchange WS
+ */
+export const getLiquidationEventsQueryLimitDefault = 50;
+
+export const GetLiquidationEventsQueryParams = zod.object({
+  limit: zod.coerce.number().default(getLiquidationEventsQueryLimitDefault),
+});
+
+export const GetLiquidationEventsResponse = zod.object({
+  events: zod.array(
+    zod.object({
+      exchange: zod.string(),
+      side: zod.enum(["long", "short"]),
+      price: zod.number(),
+      size: zod.number(),
+      valueUsd: zod.number(),
+      timestamp: zod.number(),
+    }),
+  ),
+});
+
+/**
+ * @summary CoinGlass aggregated liquidation volumes by timeframe
+ */
+export const GetLiquidationInfoResponse = zod.object({
+  longVolUsd1h: zod.number(),
+  shortVolUsd1h: zod.number(),
+  longVolUsd4h: zod.number(),
+  shortVolUsd4h: zod.number(),
+  longVolUsd12h: zod.number(),
+  shortVolUsd12h: zod.number(),
+  longVolUsd24h: zod.number(),
+  shortVolUsd24h: zod.number(),
+  h1TotalVolUsd: zod.number(),
+  h4TotalVolUsd: zod.number(),
+  h12TotalVolUsd: zod.number(),
+  h24TotalVolUsd: zod.number(),
+  h1Amount: zod.number(),
+  h4Amount: zod.number(),
+  h12Amount: zod.number(),
+  h24Amount: zod.number(),
+});
+
+/**
  * @summary Real account balance from exchanges
  */
 export const GetAccountBalanceResponse = zod.object({

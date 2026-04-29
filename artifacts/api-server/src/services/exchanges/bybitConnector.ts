@@ -5,6 +5,7 @@ import { hmacSha256, computeImbalance } from "./utils";
 import type {
   IExchangeConnector, ExchangeTicker, ExchangeOrderbook, ExchangeTrade,
   ExchangeBalance, ExchangePosition, PlaceOrderParams, OrderResult, OrderbookLevel,
+  ExchangeLiquidation,
 } from "./types";
 
 const REST_BASE = "https://api.bybit.com";
@@ -89,6 +90,11 @@ export class BybitConnector implements IExchangeConnector {
   private asksMap = new Map<string, number>();
   private _orderbook: ExchangeOrderbook | null = null;
   private _trades: ExchangeTrade[] = [];
+  private _liquidationCallbacks: Array<(liq: ExchangeLiquidation) => void> = [];
+
+  onLiquidation(cb: (liq: ExchangeLiquidation) => void) {
+    this._liquidationCallbacks.push(cb);
+  }
 
   private apiKey = process.env["BYBIT_API_KEY"] ?? "";
   private apiSecret = process.env["BYBIT_API_SECRET"] ?? "";
@@ -129,7 +135,12 @@ export class BybitConnector implements IExchangeConnector {
   private subscribe() {
     this.ws?.send(JSON.stringify({
       op: "subscribe",
-      args: [`tickers.${SYMBOL}`, `orderbook.50.${SYMBOL}`, `publicTrade.${SYMBOL}`],
+      args: [
+        `tickers.${SYMBOL}`,
+        `orderbook.50.${SYMBOL}`,
+        `publicTrade.${SYMBOL}`,
+        `allLiquidation.${SYMBOL}`,
+      ],
     }));
   }
 
@@ -160,6 +171,7 @@ export class BybitConnector implements IExchangeConnector {
     if (topic === `tickers.${SYMBOL}`) this.handleTicker(msg["data"] as Record<string, string>);
     else if (topic.startsWith("orderbook.")) this.handleOrderbook(msg["data"] as Record<string, unknown>, msg["type"] as string);
     else if (topic === `publicTrade.${SYMBOL}`) this.handleTrades(msg["data"] as Array<Record<string, string>>);
+    else if (topic === `allLiquidation.${SYMBOL}`) this.handleLiquidation(msg["data"] as Record<string, unknown>);
   }
 
   private handleTicker(d: Record<string, string>) {
@@ -239,6 +251,27 @@ export class BybitConnector implements IExchangeConnector {
       });
     }
     if (this._trades.length > MAX_TRADES) this._trades = this._trades.slice(0, MAX_TRADES);
+  }
+
+  private handleLiquidation(data: Record<string, unknown>) {
+    const side = data["side"] as string;
+    const price = parseFloat(String(data["price"] ?? "0"));
+    const size = parseFloat(String(data["size"] ?? "0"));
+    if (!price || !size) return;
+
+    const liq: ExchangeLiquidation = {
+      exchange: "Bybit",
+      symbol: SYMBOL,
+      side: side === "Buy" ? "short" : "long",
+      price,
+      size,
+      valueUsd: price * size,
+      timestamp: Date.now(),
+    };
+
+    for (const cb of this._liquidationCallbacks) {
+      try { cb(liq); } catch {}
+    }
   }
 
   getTicker() { return this._ticker; }
