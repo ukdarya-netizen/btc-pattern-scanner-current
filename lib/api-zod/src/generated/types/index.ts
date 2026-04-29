@@ -13,6 +13,8 @@ export * from "./botStateMode";
 export * from "./cvdPoint";
 export * from "./cvdSeries";
 export * from "./cvdSeriesTrend";
+export * from "./exchangeStatus";
+export * from "./exchangeStatusList";
 export * from "./fundingData";
 export * from "./healthStatus";
 export * from "./orderbook";

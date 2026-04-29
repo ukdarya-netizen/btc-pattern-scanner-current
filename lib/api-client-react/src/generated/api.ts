@@ -20,6 +20,7 @@ import type {
   BotStartRequest,
   BotState,
   CvdSeries,
+  ExchangeStatusList,
   FundingData,
   HealthStatus,
   Orderbook,
@@ -459,6 +460,81 @@ export function useGetFunding<
   request?: SecondParameter<typeof customFetch>;
 }): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
   const queryOptions = getGetFundingQueryOptions(options);
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+/**
+ * @summary Status of all connected exchanges
+ */
+export const getGetExchangeStatusUrl = () => {
+  return `/api/market/exchanges`;
+};
+
+export const getExchangeStatus = async (
+  options?: RequestInit,
+): Promise<ExchangeStatusList> => {
+  return customFetch<ExchangeStatusList>(getGetExchangeStatusUrl(), {
+    ...options,
+    method: "GET",
+  });
+};
+
+export const getGetExchangeStatusQueryKey = () => {
+  return [`/api/market/exchanges`] as const;
+};
+
+export const getGetExchangeStatusQueryOptions = <
+  TData = Awaited<ReturnType<typeof getExchangeStatus>>,
+  TError = ErrorType<unknown>,
+>(options?: {
+  query?: UseQueryOptions<
+    Awaited<ReturnType<typeof getExchangeStatus>>,
+    TError,
+    TData
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey = queryOptions?.queryKey ?? getGetExchangeStatusQueryKey();
+
+  const queryFn: QueryFunction<
+    Awaited<ReturnType<typeof getExchangeStatus>>
+  > = ({ signal }) => getExchangeStatus({ signal, ...requestOptions });
+
+  return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<
+    Awaited<ReturnType<typeof getExchangeStatus>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type GetExchangeStatusQueryResult = NonNullable<
+  Awaited<ReturnType<typeof getExchangeStatus>>
+>;
+export type GetExchangeStatusQueryError = ErrorType<unknown>;
+
+/**
+ * @summary Status of all connected exchanges
+ */
+
+export function useGetExchangeStatus<
+  TData = Awaited<ReturnType<typeof getExchangeStatus>>,
+  TError = ErrorType<unknown>,
+>(options?: {
+  query?: UseQueryOptions<
+    Awaited<ReturnType<typeof getExchangeStatus>>,
+    TError,
+    TData
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getGetExchangeStatusQueryOptions(options);
 
   const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
     queryKey: QueryKey;

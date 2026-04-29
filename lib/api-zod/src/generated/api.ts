@@ -100,6 +100,21 @@ export const GetFundingResponse = zod.object({
 });
 
 /**
+ * @summary Status of all connected exchanges
+ */
+export const GetExchangeStatusResponse = zod.object({
+  exchanges: zod.array(
+    zod.object({
+      name: zod.string(),
+      connected: zod.boolean(),
+      hasApiKey: zod.boolean(),
+      price: zod.number().nullable(),
+      latency: zod.number(),
+    }),
+  ),
+});
+
+/**
  * @summary Current composite signal score
  */
 export const GetCurrentSignalResponse = zod.object({

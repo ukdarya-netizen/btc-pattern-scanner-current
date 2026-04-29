@@ -1,5 +1,5 @@
 import { logger } from "../lib/logger";
-import { bybitService } from "./bybit";
+import { aggregator } from "./exchanges/aggregator";
 import { riskManager, type Position } from "./riskManager";
 import { signalEngine } from "./signal";
 import { telegramService } from "./telegram";
@@ -31,14 +31,11 @@ class BotEngine {
   private startedAt: Date | null = null;
   private tradesExecuted = 0;
   private tickInterval: ReturnType<typeof setInterval> | null = null;
-  private lastTradeAt = 0;
   private priceUpdateInterval: ReturnType<typeof setInterval> | null = null;
+  private lastTradeAt = 0;
 
   start(config: BotConfig) {
-    if (this.running) {
-      logger.warn("Bot already running");
-      return;
-    }
+    if (this.running) { logger.warn("Bot already running"); return; }
     this.running = true;
     this.mode = config.mode;
     this.maxLeverage = config.maxLeverage;
@@ -48,12 +45,15 @@ class BotEngine {
 
     this.tickInterval = setInterval(() => this.tick(), 5000);
     this.priceUpdateInterval = setInterval(() => {
-      const price = bybitService.ticker.lastPrice;
+      const price = aggregator.getPrimaryPrice();
       if (price > 0) riskManager.updatePositionPrices(price);
     }, 1000);
 
-    logger.info({ mode: config.mode, maxLeverage: config.maxLeverage }, "Bot started");
-    telegramService.notify(`Bot started in ${config.mode.toUpperCase()} mode. Max leverage: ${config.maxLeverage}x, Risk/trade: ${config.riskPct}%`);
+    const exchanges = aggregator.getActiveExchanges().join(", ");
+    logger.info({ mode: config.mode, maxLeverage: config.maxLeverage, exchanges }, "Bot started");
+    telegramService.notify(
+      `Bot started in ${config.mode.toUpperCase()} mode\nLeverage: ${config.maxLeverage}x | Risk/trade: ${config.riskPct}%\nExchanges: ${exchanges}`
+    );
   }
 
   stop() {
@@ -67,25 +67,18 @@ class BotEngine {
 
     const stats = riskManager.getStats();
     logger.info({ trades: this.tradesExecuted, dailyPnl: stats.dailyPnl }, "Bot stopped");
-    telegramService.notify(`Bot stopped. Trades: ${this.tradesExecuted}, Daily P&L: $${stats.dailyPnl.toFixed(2)}`);
+    telegramService.notify(`Bot stopped\nTrades: ${this.tradesExecuted} | Daily P&L: $${stats.dailyPnl.toFixed(2)}`);
   }
 
   private async tick() {
     if (!this.running) return;
-
-    if (riskManager.checkCircuitBreaker()) {
-      const cooldown = riskManager.getCooldownUntil();
-      logger.warn({ cooldown }, "Circuit breaker active, skipping tick");
-      return;
-    }
+    if (riskManager.checkCircuitBreaker()) return;
 
     const now = Date.now();
-    if (now - this.lastTradeAt < MIN_TRADE_INTERVAL_MS) return;
-
-    const openPositions = riskManager.getPositions();
-    const price = bybitService.ticker.lastPrice;
+    const price = aggregator.getPrimaryPrice();
     if (price === 0) return;
 
+    const openPositions = riskManager.getPositions();
     for (const pos of openPositions) {
       const hitSl = pos.side === "long" ? price <= pos.stopLoss : price >= pos.stopLoss;
       const hitTp = pos.side === "long" ? price >= pos.takeProfit : price <= pos.takeProfit;
@@ -95,13 +88,30 @@ class BotEngine {
         if (trade) {
           this.tradesExecuted++;
           const reason = hitTp ? "Take Profit" : "Stop Loss";
+          const emoji = hitTp ? "✅" : "🔴";
           telegramService.notify(
-            `${reason} hit! ${pos.side.toUpperCase()} closed at $${price.toFixed(2)}. P&L: $${trade.pnl.toFixed(2)} (${(trade.pnlPct * 100).toFixed(2)}%)`
+            `${emoji} ${reason} | ${pos.side.toUpperCase()} @ $${price.toFixed(2)}\nP&L: $${trade.pnl.toFixed(2)} (${(trade.pnlPct * 100).toFixed(2)}%)`
           );
+
+          if (this.mode === "live") {
+            try {
+              const connector = aggregator.getBestConnectorForTrading();
+              await connector.placeOrder({
+                symbol: "BTCUSDT",
+                side: pos.side === "long" ? "Sell" : "Buy",
+                orderType: "Market",
+                qty: pos.size,
+                reduceOnly: true,
+              });
+            } catch (e) {
+              logger.error({ err: e }, "Failed to close live position");
+            }
+          }
         }
       }
     }
 
+    if (now - this.lastTradeAt < MIN_TRADE_INTERVAL_MS) return;
     if (openPositions.length >= 2) return;
 
     const signal = signalEngine.compute();
@@ -109,6 +119,7 @@ class BotEngine {
 
     const leverage = Math.min(this.maxLeverage, signal.suggestedLeverage);
     const positionSizeUsd = 10000 * (this.riskPct / 100) * leverage;
+    const sizeInBtc = positionSizeUsd / price;
 
     const newPos: Position = {
       id: `${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
@@ -116,7 +127,7 @@ class BotEngine {
       side: signal.direction as "long" | "short",
       entryPrice: price,
       currentPrice: price,
-      size: positionSizeUsd / price,
+      size: sizeInBtc,
       leverage,
       pnl: 0,
       pnlPct: 0,
@@ -131,12 +142,34 @@ class BotEngine {
 
     const slPct = Math.abs((newPos.stopLoss - price) / price * 100).toFixed(2);
     const tpPct = Math.abs((newPos.takeProfit - price) / price * 100).toFixed(2);
+    const prefix = this.mode === "paper" ? "[PAPER] " : "[LIVE] ";
+    const connector = aggregator.getBestConnectorForTrading();
 
     telegramService.notify(
-      `${this.mode === "paper" ? "[PAPER] " : ""}Signal: ${signal.direction.toUpperCase()} (score: ${signal.score.toFixed(3)}, conf: ${(signal.confidence * 100).toFixed(0)}%)\n` +
-      `Entry: $${price.toFixed(2)} | Lev: ${leverage}x\n` +
+      `${prefix}${signal.direction.toUpperCase()} signal (score: ${signal.score.toFixed(3)}, ${(signal.confidence * 100).toFixed(0)}%)\n` +
+      `Entry: $${price.toFixed(2)} | ${leverage}x | Exchange: ${connector.name}\n` +
       `SL: $${newPos.stopLoss.toFixed(2)} (-${slPct}%) | TP: $${newPos.takeProfit.toFixed(2)} (+${tpPct}%)`
     );
+
+    if (this.mode === "live") {
+      try {
+        await connector.placeOrder({
+          symbol: "BTCUSDT",
+          side: signal.direction === "long" ? "Buy" : "Sell",
+          orderType: "Market",
+          qty: sizeInBtc,
+          leverage,
+          stopLoss: signal.suggestedSl,
+          takeProfit: signal.suggestedTp,
+        });
+        logger.info({ exchange: connector.name, side: signal.direction, price }, "Live order placed");
+      } catch (e) {
+        logger.error({ err: e }, "Failed to place live order");
+        telegramService.notify(`ОШИБКА размещения ордера: ${(e as Error).message}`);
+        riskManager.closePosition(newPos.id, price);
+        this.tradesExecuted--;
+      }
+    }
   }
 
   getState(): BotState {

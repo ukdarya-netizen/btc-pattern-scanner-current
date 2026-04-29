@@ -1,4 +1,4 @@
-import { bybitService, type BybitTrade } from "./bybit";
+import { aggregator } from "./exchanges/aggregator";
 
 export interface CvdPoint {
   timestamp: string;
@@ -28,18 +28,16 @@ class CvdService {
     const now = Date.now();
     const windowStart = this.lastProcessed || now - 2000;
 
-    const newTrades = bybitService.trades.filter(
-      (t) =>
-        t.timestamp >= windowStart &&
-        !this.processedTradeIds.has(t.id)
+    const trades = aggregator.getPrimaryTrades().filter(
+      t => t.timestamp >= windowStart && !this.processedTradeIds.has(t.id)
     );
 
-    if (newTrades.length === 0) return;
+    if (trades.length === 0) return;
 
     let delta = 0;
-    let lastPrice = bybitService.ticker.lastPrice;
+    let lastPrice = aggregator.getPrimaryPrice();
 
-    for (const t of newTrades) {
+    for (const t of trades) {
       delta += t.side === "buy" ? t.size : -t.size;
       this.processedTradeIds.add(t.id);
       lastPrice = t.price;

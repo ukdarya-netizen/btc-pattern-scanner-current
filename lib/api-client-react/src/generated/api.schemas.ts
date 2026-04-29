@@ -190,3 +190,15 @@ export interface Position {
 export interface PositionList {
   positions: Position[];
 }
+
+export interface ExchangeStatus {
+  name: string;
+  connected: boolean;
+  hasApiKey: boolean;
+  price: number | null;
+  latency: number;
+}
+
+export interface ExchangeStatusList {
+  exchanges: ExchangeStatus[];
+}

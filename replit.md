@@ -1,72 +1,63 @@
 # BTC Scalping Bot
 
 ## Overview
-A Bitcoin futures scalping bot dashboard with real-time data from Bybit, signal engine, risk management, and Telegram notifications.
+A Bitcoin futures scalping bot dashboard with real-time data from multiple exchanges (Bybit, BingX, OKX), signal engine, risk management, and Telegram notifications.
 
 ## Architecture
 
 ### Artifacts
 - **`artifacts/dashboard`** — React/Vite frontend trading terminal (preview path: `/`)
-- **`artifacts/api-server`** — Express backend with WebSocket exchange connector
+- **`artifacts/api-server`** — Express backend with multi-exchange WebSocket/REST connectors
+
+### Multi-Exchange Layer (api-server)
+- **`services/exchanges/types.ts`** — Shared interfaces: IExchangeConnector, ExchangeTicker, ExchangeOrderbook, ExchangeTrade, etc.
+- **`services/exchanges/utils.ts`** — Shared utilities: hmacSha256, buildQueryString, computeImbalance
+- **`services/exchanges/bybitConnector.ts`** — Bybit: public WebSocket (tickers, orderbook, trades) + private REST (orders, positions, balance)
+- **`services/exchanges/bingxConnector.ts`** — BingX: public WebSocket with REST polling fallback + private REST (orders, positions, balance)
+- **`services/exchanges/okxConnector.ts`** — OKX: public WebSocket + private REST (needs OKX_API_KEY, OKX_API_SECRET, OKX_PASSPHRASE secrets)
+- **`services/exchanges/aggregator.ts`** — Aggregates data from all exchanges: best bid/ask, merged orderbook, cross-exchange spread, best connector for trading
 
 ### Services (api-server)
-- **`services/bybit.ts`** — WebSocket connector to Bybit (tickers, order book, trades)
-- **`services/cvd.ts`** — Cumulative Volume Delta calculator (ticks every 1s)
-- **`services/signal.ts`** — Signal engine: composite score [-1, +1] from 5 components
-- **`services/riskManager.ts`** — Risk management, circuit breaker, P&L tracking
-- **`services/botEngine.ts`** — Bot state machine (paper/live mode)
+- **`services/cvd.ts`** — Cumulative Volume Delta from aggregated trades (ticks every 1s)
+- **`services/signal.ts`** — Signal engine: composite score [-1, +1] from 5 components using aggregated data
+- **`services/riskManager.ts`** — Risk management, circuit breaker (3% daily loss), P&L tracking
+- **`services/botEngine.ts`** — Bot state machine (paper/live), uses aggregator for price & best exchange for orders
 - **`services/telegram.ts`** — Telegraf Telegram bot with commands and notifications
 
 ### API Routes
-- `GET /api/market/ticker` — Live BTC/USDT ticker
-- `GET /api/market/orderbook` — Top 20 order book levels with imbalance
-- `GET /api/market/trades` — Last 50 trades
+- `GET /api/market/ticker` — Aggregated BTC/USDT ticker (avg price + per-exchange prices)
+- `GET /api/market/orderbook` — Merged order book (all exchanges, or ?exchange=Bybit for single)
+- `GET /api/market/trades` — Last 50 trades (all exchanges, with exchange tag)
 - `GET /api/market/cvd` — CVD time series (120 points)
 - `GET /api/market/funding` — Funding rate, open interest
+- `GET /api/market/exchanges` — Status of each exchange (connected, price, hasApiKey)
 - `GET /api/signal/current` — Signal score with component breakdown
 - `GET /api/bot/state` — Bot status
 - `POST /api/bot/start` — Start bot `{ mode, maxLeverage, riskPct }`
 - `POST /api/bot/stop` — Stop bot
 - `GET /api/risk/stats` — Daily P&L, win rate, Sharpe, drawdown
-- `GET /api/risk/positions` — Open paper positions
+- `GET /api/risk/positions` — Open positions
+- `GET /api/risk/trades` — Closed trade history
 
 ### Dashboard Pages
-- `/` — Main terminal: price, CVD chart, signal gauge, bot controls, order book, trades
-- `/risk` — Risk & performance: stats grid, open positions table
-- `/signal` — Signal explorer: component breakdown with scores
+- `/` — Terminal: ticker (multi-exchange prices), CVD chart, order book, recent trades (tagged by exchange), signal gauge, bot controls
+- `/risk` — Risk manager: circuit breaker, P&L chart, position monitor
+- `/signal` — Signal breakdown: component scores, radar chart
 
-## Signal Components
-1. **Order Book Imbalance** (weight 0.25) — bid/ask volume pressure
-2. **CVD Trend** (weight 0.30) — cumulative volume delta direction
-3. **Funding Rate** (weight 0.15) — funding rate sentiment reversal
-4. **Trade Momentum** (weight 0.20) — buy/sell aggression from recent trades
-5. **Open Interest** (weight 0.10) — OI context
+## Exchange Status
+- **Bybit** ✅ WebSocket connected (public data) — BYBIT_API_KEY + BYBIT_API_SECRET configured
+- **BingX** ✅ REST polling (WebSocket blocked in Replit; use VPS for production) — BINGX_API_KEY + BINGX_API_SECRET configured
+- **OKX** ⏳ Ready but waiting for OKX_API_KEY, OKX_API_SECRET, OKX_PASSPHRASE secrets
 
-Signal threshold for trade: |score| > 0.35
+## Environment Secrets
+- `BYBIT_API_KEY`, `BYBIT_API_SECRET` — Bybit exchange
+- `BINGX_API_KEY`, `BINGX_API_SECRET` — BingX exchange
+- `OKX_API_KEY`, `OKX_API_SECRET`, `OKX_PASSPHRASE` — OKX exchange (not yet added)
+- `SESSION_SECRET` — Express session
+- `TELEGRAM_BOT_TOKEN` — Telegram bot
 
-## Risk Management
-- Circuit breaker: daily loss > 3% → pause + 60min cooldown
-- Adaptive leverage based on signal confidence
-- SL always set (TP = 2x SL in terms of %)
-- Max 2 concurrent paper positions
-
-## Tech Stack
-- **Frontend**: React 19, Vite, Tailwind CSS v4, Recharts, TanStack Query, Wouter
-- **Backend**: Node.js, Express 5, TypeScript, ws (WebSocket), Telegraf
-- **Codegen**: Orval from OpenAPI spec
-
-## Environment Variables
-- `TELEGRAM_BOT_TOKEN` — Telegram bot token (secret)
-- `SESSION_SECRET` — Session secret
-
-## Telegram Commands
-Send `/start` to the bot to register your chat, then:
-- `/status` — bot state
-- `/signal` — current signal
-- `/positions` — open positions
-- `/stop` — emergency stop
-
-## Notes
-- **Replit is for development only** — for production use a VPS near Bybit/Binance servers (Tokyo/Singapore), latency < 10ms is critical for scalping
-- Currently paper trading only (no real exchange orders)
-- Live mode wiring to exchange order API is not yet implemented
+## Key Notes
+- BingX WebSocket doesn't upgrade in Replit sandbox — uses REST polling fallback (works fine in production VPS)
+- On a Tokyo/Singapore VPS: all 3 exchange WebSockets connect natively with <10ms latency
+- Live trading execution: uses `getBestConnectorForTrading()` which prefers Bybit > OKX > BingX
+- Signal threshold for trading: 0.35 score required, min 30s between trades

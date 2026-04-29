@@ -97,6 +97,19 @@ paths:
               schema:
                 $ref: "#/components/schemas/FundingData"
 
+  /market/exchanges:
+    get:
+      operationId: getExchangeStatus
+      tags: [market]
+      summary: Status of all connected exchanges
+      responses:
+        "200":
+          description: Exchange status list
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ExchangeStatusList"
+
   /signal/current:
     get:
       operationId: getCurrentSignal
@@ -457,3 +470,28 @@ components:
           items:
             $ref: "#/components/schemas/Position"
       required: [positions]
+
+    ExchangeStatus:
+      type: object
+      properties:
+        name:
+          type: string
+        connected:
+          type: boolean
+        hasApiKey:
+          type: boolean
+        price:
+          type: number
+          nullable: true
+        latency:
+          type: number
+      required: [name, connected, hasApiKey, price, latency]
+
+    ExchangeStatusList:
+      type: object
+      properties:
+        exchanges:
+          type: array
+          items:
+            $ref: "#/components/schemas/ExchangeStatus"
+      required: [exchanges]
