@@ -458,9 +458,15 @@ components:
           type: number
         suggestedTp:
           type: number
+        atrPct:
+          type: number
+          description: "ATR as % of price — drives adaptive leverage"
+        vwap:
+          type: number
+          description: "Current day VWAP price"
         updatedAt:
           type: string
-      required: [score, direction, confidence, components, suggestedLeverage, suggestedSl, suggestedTp, updatedAt]
+      required: [score, direction, confidence, components, suggestedLeverage, suggestedSl, suggestedTp, atrPct, vwap, updatedAt]
 
     BotStartRequest:
       type: object

@@ -50,7 +50,7 @@ A Bitcoin futures scalping bot dashboard with real-time data from multiple excha
 ### Dashboard Pages
 - `/` — Terminal: ticker (multi-exchange prices), CVD chart, order book, recent trades (tagged by exchange), signal gauge, bot controls
 - `/risk` — Risk manager: equity curve (DB), account balance per exchange, open positions, trade history from DB, stats (Win Rate, Sharpe, Drawdown)
-- `/signal` — Signal breakdown: component scores, radar chart
+- `/signal` — Signal breakdown: 7 components (OB Imbalance, CVD, Funding, Momentum, OI, VWAP, EMA 9/21), ATR/VWAP cards, adaptive leverage display
 - `/liquidations` — Liquidation map: CoinGlass 1h/4h/12h/24h long/short volumes, live Bybit WS heatmap by price level, live event feed
 
 ### CoinGlass Integration

@@ -18,5 +18,9 @@ export interface SignalResult {
   suggestedLeverage: number;
   suggestedSl: number;
   suggestedTp: number;
+  /** ATR as % of price — drives adaptive leverage */
+  atrPct: number;
+  /** Current day VWAP price */
+  vwap: number;
   updatedAt: string;
 }
