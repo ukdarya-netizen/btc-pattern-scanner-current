@@ -3,6 +3,7 @@ import { logger } from "./lib/logger";
 import { aggregator } from "./services/exchanges/aggregator";
 import { cvdService } from "./services/cvd";
 import { telegramService } from "./services/telegram";
+import { botEngine } from "./services/botEngine";
 
 const rawPort = process.env["PORT"];
 
@@ -18,6 +19,10 @@ if (Number.isNaN(port) || port <= 0) {
 aggregator.init();
 cvdService.start();
 telegramService.init();
+
+setTimeout(() => {
+  botEngine.initChannelBroadcast();
+}, 15000);
 
 app.listen(port, (err) => {
   if (err) {

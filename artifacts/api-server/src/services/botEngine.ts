@@ -25,6 +25,7 @@ export interface BotState extends BotConfig {
 const SIGNAL_THRESHOLD = 0.35;
 const MIN_TRADE_INTERVAL_MS = 30000;
 const SNAPSHOT_INTERVAL_MS = 60000;
+const CHANNEL_BROADCAST_INTERVAL_MS = 5 * 60 * 1000;
 
 class BotEngine {
   private running = false;
@@ -37,7 +38,35 @@ class BotEngine {
   private priceInterval: ReturnType<typeof setInterval> | null = null;
   private snapshotInterval: ReturnType<typeof setInterval> | null = null;
   private balanceInterval: ReturnType<typeof setInterval> | null = null;
+  private channelBroadcastInterval: ReturnType<typeof setInterval> | null = null;
   private lastTradeAt = 0;
+
+  initChannelBroadcast() {
+    this.broadcastToChannel();
+    this.channelBroadcastInterval = setInterval(() => this.broadcastToChannel(), CHANNEL_BROADCAST_INTERVAL_MS);
+    logger.info({ interval: CHANNEL_BROADCAST_INTERVAL_MS }, "Channel signal broadcast started");
+  }
+
+  private broadcastToChannel() {
+    try {
+      const price = aggregator.getPrimaryPrice();
+      if (price === 0) return;
+      const s = signalEngine.compute();
+      const exchange = aggregator.getBestConnectorForTrading().name;
+      telegramService.maybePublishSignal({
+        score: s.score,
+        direction: s.direction,
+        confidence: s.confidence,
+        price,
+        suggestedLeverage: s.suggestedLeverage,
+        suggestedSl: s.suggestedSl,
+        suggestedTp: s.suggestedTp,
+        exchange,
+      });
+    } catch (e) {
+      logger.warn({ err: e }, "Channel broadcast failed");
+    }
+  }
 
   async start(config: BotConfig) {
     if (this.running) { logger.warn("Bot already running"); return; }
@@ -128,6 +157,8 @@ class BotEngine {
     if (price === 0) return;
 
     const openPositions = riskManager.getPositions();
+    const connector = aggregator.getBestConnectorForTrading();
+
     for (const pos of openPositions) {
       const hitSl = pos.side === "long" ? price <= pos.stopLoss : price >= pos.stopLoss;
       const hitTp = pos.side === "long" ? price >= pos.takeProfit : price <= pos.takeProfit;
@@ -137,15 +168,25 @@ class BotEngine {
         const trade = riskManager.closePosition(pos.id, price, reason);
         if (trade) {
           this.tradesExecuted++;
-          const emoji = hitTp ? "✅" : "🔴";
+
+          telegramService.publishTrade({
+            action: "close",
+            side: pos.side,
+            price,
+            size: pos.size,
+            leverage: pos.leverage,
+            pnl: trade.pnl,
+            pnlPct: trade.pnlPct,
+            closeReason: reason,
+            exchange: connector.name,
+          });
           telegramService.notify(
-            `${emoji} ${hitTp ? "Take Profit" : "Stop Loss"} | ${pos.side.toUpperCase()} @ $${price.toFixed(2)}\n` +
+            `${hitTp ? "✅ TP" : "🔴 SL"} | ${pos.side.toUpperCase()} @ $${price.toFixed(2)}\n` +
             `P&L: $${trade.pnl.toFixed(2)} (${(trade.pnlPct * 100).toFixed(2)}%)`
           );
 
           if (this.mode === "live") {
             try {
-              const connector = aggregator.getBestConnectorForTrading();
               await connector.placeOrder({
                 symbol: "BTCUSDT", side: pos.side === "long" ? "Sell" : "Buy",
                 orderType: "Market", qty: pos.size, reduceOnly: true,
@@ -188,7 +229,15 @@ class BotEngine {
     this.tradesExecuted++;
     this.lastTradeAt = now;
 
-    const connector = aggregator.getBestConnectorForTrading();
+    telegramService.publishTrade({
+      action: "open",
+      side: signal.direction,
+      price,
+      size: sizeInBtc,
+      leverage,
+      exchange: connector.name,
+    });
+
     const slPct = Math.abs((newPos.stopLoss - price) / price * 100).toFixed(2);
     const tpPct = Math.abs((newPos.takeProfit - price) / price * 100).toFixed(2);
     const prefix = this.mode === "paper" ? "[PAPER]" : "[LIVE]";
