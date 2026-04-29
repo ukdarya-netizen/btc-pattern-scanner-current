@@ -3,20 +3,27 @@ info:
   # Do not change the title, if the title changes, the import paths will be broken
   title: Api
   version: 0.1.0
-  description: API specification
+  description: BTC Scalping Bot API
 servers:
   - url: /api
     description: Base API path
 tags:
   - name: health
     description: Health operations
+  - name: market
+    description: Live market data from Bybit
+  - name: signal
+    description: Signal engine outputs
+  - name: bot
+    description: Bot lifecycle controls
+  - name: risk
+    description: Risk management and stats
 paths:
   /healthz:
     get:
       operationId: healthCheck
       tags: [health]
       summary: Health check
-      description: Returns server health status
       responses:
         "200":
           description: Healthy
@@ -24,6 +31,156 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/HealthStatus"
+
+  /market/ticker:
+    get:
+      operationId: getTicker
+      tags: [market]
+      summary: Current BTC/USDT ticker
+      responses:
+        "200":
+          description: Ticker data
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Ticker"
+
+  /market/orderbook:
+    get:
+      operationId: getOrderbook
+      tags: [market]
+      summary: Top 20 order book levels
+      responses:
+        "200":
+          description: Order book snapshot
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Orderbook"
+
+  /market/trades:
+    get:
+      operationId: getRecentTrades
+      tags: [market]
+      summary: Last 50 trades
+      responses:
+        "200":
+          description: Recent trades list
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TradeList"
+
+  /market/cvd:
+    get:
+      operationId: getCvd
+      tags: [market]
+      summary: Cumulative Volume Delta time series (last 100 points)
+      responses:
+        "200":
+          description: CVD series
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CvdSeries"
+
+  /market/funding:
+    get:
+      operationId: getFunding
+      tags: [market]
+      summary: Funding rate and open interest
+      responses:
+        "200":
+          description: Funding data
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/FundingData"
+
+  /signal/current:
+    get:
+      operationId: getCurrentSignal
+      tags: [signal]
+      summary: Current composite signal score
+      responses:
+        "200":
+          description: Signal breakdown
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SignalResult"
+
+  /bot/state:
+    get:
+      operationId: getBotState
+      tags: [bot]
+      summary: Get bot current state
+      responses:
+        "200":
+          description: Bot state
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BotState"
+
+  /bot/start:
+    post:
+      operationId: startBot
+      tags: [bot]
+      summary: Start the trading bot
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/BotStartRequest"
+      responses:
+        "200":
+          description: Bot started
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BotState"
+
+  /bot/stop:
+    post:
+      operationId: stopBot
+      tags: [bot]
+      summary: Stop the trading bot
+      responses:
+        "200":
+          description: Bot stopped
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BotState"
+
+  /risk/stats:
+    get:
+      operationId: getRiskStats
+      tags: [risk]
+      summary: Daily risk and P&L stats
+      responses:
+        "200":
+          description: Risk statistics
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RiskStats"
+
+  /risk/positions:
+    get:
+      operationId: getPositions
+      tags: [risk]
+      summary: Open paper trading positions
+      responses:
+        "200":
+          description: Positions list
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PositionList"
+
 components:
   schemas:
     HealthStatus:
@@ -31,6 +188,272 @@ components:
       properties:
         status:
           type: string
-      required:
-        - status
+      required: [status]
 
+    Ticker:
+      type: object
+      properties:
+        symbol:
+          type: string
+        price:
+          type: number
+        priceChange24h:
+          type: number
+        priceChangePct24h:
+          type: number
+        volume24h:
+          type: number
+        high24h:
+          type: number
+        low24h:
+          type: number
+        updatedAt:
+          type: string
+      required: [symbol, price, priceChange24h, priceChangePct24h, volume24h, high24h, low24h, updatedAt]
+
+    OrderLevel:
+      type: object
+      properties:
+        price:
+          type: number
+        size:
+          type: number
+        total:
+          type: number
+      required: [price, size, total]
+
+    Orderbook:
+      type: object
+      properties:
+        symbol:
+          type: string
+        bids:
+          type: array
+          items:
+            $ref: "#/components/schemas/OrderLevel"
+        asks:
+          type: array
+          items:
+            $ref: "#/components/schemas/OrderLevel"
+        spread:
+          type: number
+        spreadPct:
+          type: number
+        imbalance:
+          type: number
+          description: "Bid/Ask volume imbalance: >0 = buy pressure, <0 = sell pressure"
+        updatedAt:
+          type: string
+      required: [symbol, bids, asks, spread, spreadPct, imbalance, updatedAt]
+
+    Trade:
+      type: object
+      properties:
+        id:
+          type: string
+        price:
+          type: number
+        size:
+          type: number
+        side:
+          type: string
+          enum: [buy, sell]
+        timestamp:
+          type: string
+      required: [id, price, size, side, timestamp]
+
+    TradeList:
+      type: object
+      properties:
+        trades:
+          type: array
+          items:
+            $ref: "#/components/schemas/Trade"
+      required: [trades]
+
+    CvdPoint:
+      type: object
+      properties:
+        timestamp:
+          type: string
+        cvd:
+          type: number
+        delta:
+          type: number
+        price:
+          type: number
+      required: [timestamp, cvd, delta, price]
+
+    CvdSeries:
+      type: object
+      properties:
+        points:
+          type: array
+          items:
+            $ref: "#/components/schemas/CvdPoint"
+        currentCvd:
+          type: number
+        trend:
+          type: string
+          enum: [bullish, bearish, neutral]
+      required: [points, currentCvd, trend]
+
+    FundingData:
+      type: object
+      properties:
+        fundingRate:
+          type: number
+        nextFundingTime:
+          type: string
+        openInterest:
+          type: number
+        openInterestChange1h:
+          type: number
+        longShortRatio:
+          type: number
+      required: [fundingRate, nextFundingTime, openInterest, openInterestChange1h, longShortRatio]
+
+    SignalComponent:
+      type: object
+      properties:
+        name:
+          type: string
+        score:
+          type: number
+          description: "Component score [-1, +1]"
+        weight:
+          type: number
+        description:
+          type: string
+      required: [name, score, weight, description]
+
+    SignalResult:
+      type: object
+      properties:
+        score:
+          type: number
+          description: "Composite score [-1, +1]. >0.4 = long, <-0.4 = short"
+        direction:
+          type: string
+          enum: [long, short, neutral]
+        confidence:
+          type: number
+          description: "0 to 1"
+        components:
+          type: array
+          items:
+            $ref: "#/components/schemas/SignalComponent"
+        suggestedLeverage:
+          type: number
+        suggestedSl:
+          type: number
+        suggestedTp:
+          type: number
+        updatedAt:
+          type: string
+      required: [score, direction, confidence, components, suggestedLeverage, suggestedSl, suggestedTp, updatedAt]
+
+    BotStartRequest:
+      type: object
+      properties:
+        mode:
+          type: string
+          enum: [paper, live]
+        maxLeverage:
+          type: number
+        riskPct:
+          type: number
+          description: "Max risk per trade as % of balance"
+      required: [mode, maxLeverage, riskPct]
+
+    BotState:
+      type: object
+      properties:
+        running:
+          type: boolean
+        mode:
+          type: string
+          enum: [paper, live, stopped]
+        maxLeverage:
+          type: number
+        riskPct:
+          type: number
+        startedAt:
+          type: string
+          nullable: true
+        tradesExecuted:
+          type: number
+        dailyPnl:
+          type: number
+        circuitBreakerTripped:
+          type: boolean
+      required: [running, mode, maxLeverage, riskPct, startedAt, tradesExecuted, dailyPnl, circuitBreakerTripped]
+
+    RiskStats:
+      type: object
+      properties:
+        dailyPnl:
+          type: number
+        dailyPnlPct:
+          type: number
+        maxDrawdown:
+          type: number
+        winRate:
+          type: number
+        totalTrades:
+          type: number
+        winningTrades:
+          type: number
+        losingTrades:
+          type: number
+        avgWin:
+          type: number
+        avgLoss:
+          type: number
+        sharpeIntraday:
+          type: number
+        circuitBreakerTripped:
+          type: boolean
+        cooldownUntil:
+          type: string
+          nullable: true
+      required: [dailyPnl, dailyPnlPct, maxDrawdown, winRate, totalTrades, winningTrades, losingTrades, avgWin, avgLoss, sharpeIntraday, circuitBreakerTripped, cooldownUntil]
+
+    Position:
+      type: object
+      properties:
+        id:
+          type: string
+        symbol:
+          type: string
+        side:
+          type: string
+          enum: [long, short]
+        entryPrice:
+          type: number
+        currentPrice:
+          type: number
+        size:
+          type: number
+        leverage:
+          type: number
+        pnl:
+          type: number
+        pnlPct:
+          type: number
+        stopLoss:
+          type: number
+        takeProfit:
+          type: number
+        openedAt:
+          type: string
+      required: [id, symbol, side, entryPrice, currentPrice, size, leverage, pnl, pnlPct, stopLoss, takeProfit, openedAt]
+
+    PositionList:
+      type: object
+      properties:
+        positions:
+          type: array
+          items:
+            $ref: "#/components/schemas/Position"
+      required: [positions]

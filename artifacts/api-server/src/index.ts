@@ -1,5 +1,8 @@
 import app from "./app";
 import { logger } from "./lib/logger";
+import { bybitService } from "./services/bybit";
+import { cvdService } from "./services/cvd";
+import { telegramService } from "./services/telegram";
 
 const rawPort = process.env["PORT"];
 
@@ -14,6 +17,10 @@ const port = Number(rawPort);
 if (Number.isNaN(port) || port <= 0) {
   throw new Error(`Invalid PORT value: "${rawPort}"`);
 }
+
+bybitService.connect();
+cvdService.start();
+telegramService.init();
 
 app.listen(port, (err) => {
   if (err) {
