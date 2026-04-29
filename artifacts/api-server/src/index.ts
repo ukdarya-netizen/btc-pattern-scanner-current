@@ -4,6 +4,7 @@ import { aggregator } from "./services/exchanges/aggregator";
 import { cvdService } from "./services/cvd";
 import { telegramService } from "./services/telegram";
 import { botEngine } from "./services/botEngine";
+import { statsScheduler } from "./services/statsScheduler";
 
 const rawPort = process.env["PORT"];
 
@@ -19,6 +20,7 @@ if (Number.isNaN(port) || port <= 0) {
 aggregator.init();
 cvdService.start();
 telegramService.init();
+statsScheduler.start();
 
 setTimeout(() => {
   botEngine.initChannelBroadcast();

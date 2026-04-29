@@ -145,6 +145,59 @@ class DbService {
     }
   }
 
+  async getStatsForPeriod(from: Date, to: Date): Promise<{
+    totalTrades: number;
+    wins: number;
+    losses: number;
+    winRate: number;
+    totalPnl: number;
+    avgPnl: number;
+    bestTrade: number;
+    worstTrade: number;
+    longTrades: number;
+    shortTrades: number;
+    grossProfit: number;
+    grossLoss: number;
+  }> {
+    try {
+      const { and, lte, between } = await import("drizzle-orm");
+      const result = await db.select({
+        totalTrades: sql<number>`count(*)::int`,
+        wins: sql<number>`sum(case when pnl > 0 then 1 else 0 end)::int`,
+        losses: sql<number>`sum(case when pnl <= 0 then 1 else 0 end)::int`,
+        totalPnl: sql<number>`coalesce(sum(pnl), 0)::numeric`,
+        avgPnl: sql<number>`coalesce(avg(pnl), 0)::numeric`,
+        bestTrade: sql<number>`coalesce(max(pnl), 0)::numeric`,
+        worstTrade: sql<number>`coalesce(min(pnl), 0)::numeric`,
+        longTrades: sql<number>`sum(case when side = 'long' then 1 else 0 end)::int`,
+        shortTrades: sql<number>`sum(case when side = 'short' then 1 else 0 end)::int`,
+        grossProfit: sql<number>`coalesce(sum(case when pnl > 0 then pnl else 0 end), 0)::numeric`,
+        grossLoss: sql<number>`coalesce(sum(case when pnl < 0 then pnl else 0 end), 0)::numeric`,
+      }).from(trades).where(and(gte(trades.closedAt, from), lte(trades.closedAt, to)));
+
+      const row = result[0];
+      const total = row?.totalTrades ?? 0;
+      const wins = row?.wins ?? 0;
+      return {
+        totalTrades: total,
+        wins,
+        losses: row?.losses ?? 0,
+        winRate: total > 0 ? wins / total : 0,
+        totalPnl: parseFloat(String(row?.totalPnl ?? "0")),
+        avgPnl: parseFloat(String(row?.avgPnl ?? "0")),
+        bestTrade: parseFloat(String(row?.bestTrade ?? "0")),
+        worstTrade: parseFloat(String(row?.worstTrade ?? "0")),
+        longTrades: row?.longTrades ?? 0,
+        shortTrades: row?.shortTrades ?? 0,
+        grossProfit: parseFloat(String(row?.grossProfit ?? "0")),
+        grossLoss: parseFloat(String(row?.grossLoss ?? "0")),
+      };
+    } catch (e) {
+      logger.error({ err: e }, "Failed to compute period stats");
+      return { totalTrades: 0, wins: 0, losses: 0, winRate: 0, totalPnl: 0, avgPnl: 0, bestTrade: 0, worstTrade: 0, longTrades: 0, shortTrades: 0, grossProfit: 0, grossLoss: 0 };
+    }
+  }
+
   getCurrentSessionId() { return this.currentSessionId; }
 }
 
