@@ -148,6 +148,7 @@ export interface BotState {
   tradesExecuted: number;
   dailyPnl: number;
   circuitBreakerTripped: boolean;
+  accountBalance: number;
 }
 
 export interface RiskStats {
@@ -202,3 +203,72 @@ export interface ExchangeStatus {
 export interface ExchangeStatusList {
   exchanges: ExchangeStatus[];
 }
+
+export type TradeHistoryRecordSide =
+  (typeof TradeHistoryRecordSide)[keyof typeof TradeHistoryRecordSide];
+
+export const TradeHistoryRecordSide = {
+  long: "long",
+  short: "short",
+} as const;
+
+export interface TradeHistoryRecord {
+  id: string;
+  symbol: string;
+  side: TradeHistoryRecordSide;
+  exchange: string;
+  entryPrice: number;
+  exitPrice: number;
+  size: number;
+  leverage: number;
+  pnl: number;
+  pnlPct: number;
+  openedAt: string;
+  closedAt: string;
+  closeReason: string;
+}
+
+export interface DailyStats {
+  totalTrades: number;
+  wins: number;
+  totalPnl: number;
+}
+
+export interface TradeHistoryList {
+  trades: TradeHistoryRecord[];
+  stats: DailyStats;
+}
+
+export interface PnlPoint {
+  ts: string;
+  equity: number;
+  dailyPnl: number;
+  openPositions: number;
+}
+
+export interface PnlChartData {
+  points: PnlPoint[];
+  hours: number;
+}
+
+export type AccountBalanceByExchange = {
+  [key: string]: {
+    total?: number;
+    available?: number;
+  };
+};
+
+export interface AccountBalance {
+  total: number;
+  available: number;
+  currency: string;
+  byExchange?: AccountBalanceByExchange;
+}
+
+export type GetTradeHistoryParams = {
+  limit?: number;
+};
+
+export type GetPnlChartParams = {
+  hours?: number;
+};

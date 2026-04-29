@@ -1,18 +1,5 @@
 import { logger } from "../lib/logger";
 
-export interface TradeRecord {
-  id: string;
-  openedAt: Date;
-  closedAt: Date;
-  side: "long" | "short";
-  entryPrice: number;
-  exitPrice: number;
-  size: number;
-  leverage: number;
-  pnl: number;
-  pnlPct: number;
-}
-
 export interface Position {
   id: string;
   symbol: string;
@@ -28,74 +15,90 @@ export interface Position {
   openedAt: string;
 }
 
+export interface ClosedTrade {
+  id: string;
+  symbol: string;
+  side: "long" | "short";
+  entryPrice: number;
+  exitPrice: number;
+  size: number;
+  leverage: number;
+  pnl: number;
+  pnlPct: number;
+  openedAt: string;
+  closedAt: string;
+  closeReason: string;
+}
+
+const DAILY_LOSS_LIMIT = 0.03;
+const COOLDOWN_MS = 60 * 60 * 1000;
+
 class RiskManager {
-  private trades: TradeRecord[] = [];
-  private positions: Position[] = [];
-  private balance = 10000;
-  private peakBalance = 10000;
+  private positions = new Map<string, Position>();
+  private closedToday: ClosedTrade[] = [];
+  private accountBalance = 10000;
+  private peakEquity = 10000;
   private circuitBreakerTripped = false;
   private cooldownUntil: Date | null = null;
-  private maxDailyLossPct = 0.03;
-  private cooldownMinutes = 60;
+  private pnlHistory: number[] = [];
+  private onTradeClose: ((trade: ClosedTrade) => void) | null = null;
 
-  private getDailyPnl(): number {
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
-    return this.trades
-      .filter((t) => t.closedAt >= today)
-      .reduce((s, t) => s + t.pnl, 0);
+  setTradeCloseCallback(cb: (trade: ClosedTrade) => void) {
+    this.onTradeClose = cb;
   }
 
-  private getDailyPnlPct(): number {
-    return this.getDailyPnl() / this.balance;
+  setAccountBalance(balance: number) {
+    if (balance > 0) {
+      this.accountBalance = balance;
+      if (balance > this.peakEquity) this.peakEquity = balance;
+    }
   }
+
+  getAccountBalance(): number { return this.accountBalance; }
 
   checkCircuitBreaker(): boolean {
-    if (this.circuitBreakerTripped) {
-      if (this.cooldownUntil && new Date() > this.cooldownUntil) {
-        this.circuitBreakerTripped = false;
-        this.cooldownUntil = null;
-        logger.info("Circuit breaker reset after cooldown");
-      }
-      return this.circuitBreakerTripped;
+    if (this.cooldownUntil && Date.now() >= this.cooldownUntil.getTime()) {
+      this.cooldownUntil = null;
+      this.circuitBreakerTripped = false;
+      logger.info("Circuit breaker reset after cooldown");
     }
+    if (this.circuitBreakerTripped) return true;
 
-    const dailyPnlPct = this.getDailyPnlPct();
-    if (dailyPnlPct < -this.maxDailyLossPct) {
+    const dailyPnlPct = this.getDailyPnl() / this.accountBalance;
+    if (dailyPnlPct <= -DAILY_LOSS_LIMIT) {
       this.circuitBreakerTripped = true;
-      this.cooldownUntil = new Date(Date.now() + this.cooldownMinutes * 60 * 1000);
-      logger.warn({ dailyPnlPct }, "Circuit breaker tripped");
+      this.cooldownUntil = new Date(Date.now() + COOLDOWN_MS);
+      logger.warn({ dailyPnlPct }, "Circuit breaker TRIPPED — 3% daily loss exceeded");
     }
-
     return this.circuitBreakerTripped;
   }
 
-  recordTrade(trade: TradeRecord) {
-    this.trades.push(trade);
-    this.balance += trade.pnl;
-    if (this.balance > this.peakBalance) this.peakBalance = this.balance;
-    this.checkCircuitBreaker();
-  }
-
-  openPosition(pos: Position) {
-    this.positions.push(pos);
+  openPosition(pos: Position): void {
+    this.positions.set(pos.id, pos);
     logger.info({ id: pos.id, side: pos.side, price: pos.entryPrice }, "Position opened");
   }
 
-  closePosition(id: string, exitPrice: number): TradeRecord | null {
-    const idx = this.positions.findIndex((p) => p.id === id);
-    if (idx === -1) return null;
-    const pos = this.positions[idx];
-    this.positions.splice(idx, 1);
+  updatePositionPrices(currentPrice: number): void {
+    for (const [id, pos] of this.positions) {
+      const priceDiff = currentPrice - pos.entryPrice;
+      const pnl = (pos.side === "long" ? priceDiff : -priceDiff) * pos.size;
+      const pnlPct = pnl / (pos.entryPrice * pos.size / pos.leverage);
+      this.positions.set(id, { ...pos, currentPrice, pnl, pnlPct });
+    }
+  }
 
-    const mult = pos.side === "long" ? 1 : -1;
-    const pnlPct = ((exitPrice - pos.entryPrice) / pos.entryPrice) * mult * pos.leverage;
-    const pnl = pnlPct * pos.size;
+  closePosition(id: string, exitPrice: number, reason = "manual"): ClosedTrade | null {
+    const pos = this.positions.get(id);
+    if (!pos) return null;
+    this.positions.delete(id);
 
-    const trade: TradeRecord = {
+    const priceDiff = exitPrice - pos.entryPrice;
+    const pnl = (pos.side === "long" ? priceDiff : -priceDiff) * pos.size;
+    const pnlPct = pnl / (pos.entryPrice * pos.size / pos.leverage);
+
+    const trade: ClosedTrade = {
       id: pos.id,
-      openedAt: new Date(pos.openedAt),
-      closedAt: new Date(),
+      symbol: pos.symbol,
       side: pos.side,
       entryPrice: pos.entryPrice,
       exitPrice,
@@ -103,70 +106,73 @@ class RiskManager {
       leverage: pos.leverage,
       pnl,
       pnlPct,
+      openedAt: pos.openedAt,
+      closedAt: new Date().toISOString(),
+      closeReason: reason,
     };
 
-    this.recordTrade(trade);
-    logger.info({ id: pos.id, pnl }, "Position closed");
+    this.closedToday.unshift(trade);
+    if (this.closedToday.length > 200) this.closedToday = this.closedToday.slice(0, 200);
+    this.pnlHistory.push(pnl);
+    if (this.pnlHistory.length > 100) this.pnlHistory = this.pnlHistory.slice(-100);
+
+    this.accountBalance += pnl;
+    if (this.accountBalance > this.peakEquity) this.peakEquity = this.accountBalance;
+
+    logger.info({ id: pos.id, pnl, reason }, "Position closed");
+    if (this.onTradeClose) this.onTradeClose(trade);
     return trade;
   }
 
-  updatePositionPrices(currentPrice: number) {
-    for (const pos of this.positions) {
-      pos.currentPrice = currentPrice;
-      const mult = pos.side === "long" ? 1 : -1;
-      pos.pnlPct = ((currentPrice - pos.entryPrice) / pos.entryPrice) * mult * pos.leverage;
-      pos.pnl = pos.pnlPct * pos.size;
-    }
+  resetDailyTrades(): void {
+    this.closedToday = [];
+    this.circuitBreakerTripped = false;
+    this.cooldownUntil = null;
+  }
+
+  getDailyPnl(): number {
+    return this.closedToday.reduce((s, t) => s + t.pnl, 0);
+  }
+
+  getPositions(): Position[] {
+    return Array.from(this.positions.values());
+  }
+
+  getClosedTrades(): ClosedTrade[] {
+    return [...this.closedToday];
   }
 
   getStats() {
-    const dailyTrades = (() => {
-      const today = new Date();
-      today.setHours(0, 0, 0, 0);
-      return this.trades.filter((t) => t.closedAt >= today);
-    })();
-
-    const wins = dailyTrades.filter((t) => t.pnl > 0);
-    const losses = dailyTrades.filter((t) => t.pnl < 0);
+    const wins = this.closedToday.filter(t => t.pnl > 0);
+    const losses = this.closedToday.filter(t => t.pnl < 0);
     const dailyPnl = this.getDailyPnl();
-    const maxDrawdown = this.peakBalance > 0 ? (this.peakBalance - this.balance) / this.peakBalance : 0;
+    const maxDrawdown = this.peakEquity > 0
+      ? (this.peakEquity - this.accountBalance) / this.peakEquity : 0;
 
-    const avgWin = wins.length > 0 ? wins.reduce((s, t) => s + t.pnl, 0) / wins.length : 0;
-    const avgLoss = losses.length > 0 ? losses.reduce((s, t) => s + t.pnl, 0) / losses.length : 0;
-
-    const pnlValues = dailyTrades.map((t) => t.pnlPct);
-    const mean = pnlValues.length > 0 ? pnlValues.reduce((s, v) => s + v, 0) / pnlValues.length : 0;
-    const variance = pnlValues.length > 1
-      ? pnlValues.reduce((s, v) => s + Math.pow(v - mean, 2), 0) / pnlValues.length
-      : 0;
-    const sharpe = variance > 0 ? mean / Math.sqrt(variance) : 0;
+    let sharpe = 0;
+    if (this.pnlHistory.length > 2) {
+      const avg = this.pnlHistory.reduce((s, v) => s + v, 0) / this.pnlHistory.length;
+      const variance = this.pnlHistory.reduce((s, v) => s + (v - avg) ** 2, 0) / this.pnlHistory.length;
+      sharpe = Math.sqrt(variance) > 0 ? avg / Math.sqrt(variance) : 0;
+    }
 
     return {
-      dailyPnl: parseFloat(dailyPnl.toFixed(2)),
-      dailyPnlPct: parseFloat(this.getDailyPnlPct().toFixed(6)),
+      dailyPnl: parseFloat(dailyPnl.toFixed(4)),
+      dailyPnlPct: parseFloat((dailyPnl / this.accountBalance).toFixed(6)),
       maxDrawdown: parseFloat(maxDrawdown.toFixed(6)),
-      winRate: dailyTrades.length > 0 ? wins.length / dailyTrades.length : 0,
-      totalTrades: dailyTrades.length,
+      winRate: this.closedToday.length > 0
+        ? parseFloat((wins.length / this.closedToday.length).toFixed(4)) : 0,
+      totalTrades: this.closedToday.length,
       winningTrades: wins.length,
       losingTrades: losses.length,
-      avgWin: parseFloat(avgWin.toFixed(2)),
-      avgLoss: parseFloat(avgLoss.toFixed(2)),
+      avgWin: wins.length > 0
+        ? parseFloat((wins.reduce((s, t) => s + t.pnl, 0) / wins.length).toFixed(4)) : 0,
+      avgLoss: losses.length > 0
+        ? parseFloat((losses.reduce((s, t) => s + t.pnl, 0) / losses.length).toFixed(4)) : 0,
       sharpeIntraday: parseFloat(sharpe.toFixed(4)),
       circuitBreakerTripped: this.circuitBreakerTripped,
       cooldownUntil: this.cooldownUntil?.toISOString() ?? null,
     };
-  }
-
-  getPositions(): Position[] {
-    return [...this.positions];
-  }
-
-  isCircuitBreakerTripped(): boolean {
-    return this.circuitBreakerTripped;
-  }
-
-  getCooldownUntil(): Date | null {
-    return this.cooldownUntil;
   }
 }
 

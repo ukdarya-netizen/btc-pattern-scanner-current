@@ -149,6 +149,7 @@ export const GetBotStateResponse = zod.object({
   tradesExecuted: zod.number(),
   dailyPnl: zod.number(),
   circuitBreakerTripped: zod.boolean(),
+  accountBalance: zod.number(),
 });
 
 /**
@@ -169,6 +170,7 @@ export const StartBotResponse = zod.object({
   tradesExecuted: zod.number(),
   dailyPnl: zod.number(),
   circuitBreakerTripped: zod.boolean(),
+  accountBalance: zod.number(),
 });
 
 /**
@@ -183,6 +185,7 @@ export const StopBotResponse = zod.object({
   tradesExecuted: zod.number(),
   dailyPnl: zod.number(),
   circuitBreakerTripped: zod.boolean(),
+  accountBalance: zod.number(),
 });
 
 /**
@@ -223,4 +226,77 @@ export const GetPositionsResponse = zod.object({
       openedAt: zod.string(),
     }),
   ),
+});
+
+/**
+ * @summary Historical closed trades from database
+ */
+export const getTradeHistoryQueryLimitDefault = 100;
+
+export const GetTradeHistoryQueryParams = zod.object({
+  limit: zod.coerce.number().default(getTradeHistoryQueryLimitDefault),
+});
+
+export const GetTradeHistoryResponse = zod.object({
+  trades: zod.array(
+    zod.object({
+      id: zod.string(),
+      symbol: zod.string(),
+      side: zod.enum(["long", "short"]),
+      exchange: zod.string(),
+      entryPrice: zod.number(),
+      exitPrice: zod.number(),
+      size: zod.number(),
+      leverage: zod.number(),
+      pnl: zod.number(),
+      pnlPct: zod.number(),
+      openedAt: zod.string(),
+      closedAt: zod.string(),
+      closeReason: zod.string(),
+    }),
+  ),
+  stats: zod.object({
+    totalTrades: zod.number(),
+    wins: zod.number(),
+    totalPnl: zod.number(),
+  }),
+});
+
+/**
+ * @summary P&L equity curve for chart
+ */
+export const getPnlChartQueryHoursDefault = 24;
+
+export const GetPnlChartQueryParams = zod.object({
+  hours: zod.coerce.number().default(getPnlChartQueryHoursDefault),
+});
+
+export const GetPnlChartResponse = zod.object({
+  points: zod.array(
+    zod.object({
+      ts: zod.string(),
+      equity: zod.number(),
+      dailyPnl: zod.number(),
+      openPositions: zod.number(),
+    }),
+  ),
+  hours: zod.number(),
+});
+
+/**
+ * @summary Real account balance from exchanges
+ */
+export const GetAccountBalanceResponse = zod.object({
+  total: zod.number(),
+  available: zod.number(),
+  currency: zod.string(),
+  byExchange: zod
+    .record(
+      zod.string(),
+      zod.object({
+        total: zod.number().optional(),
+        available: zod.number().optional(),
+      }),
+    )
+    .optional(),
 });

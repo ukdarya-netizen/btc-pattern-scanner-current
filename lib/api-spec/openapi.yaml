@@ -194,6 +194,57 @@ paths:
               schema:
                 $ref: "#/components/schemas/PositionList"
 
+  /history/trades:
+    get:
+      operationId: getTradeHistory
+      tags: [risk]
+      summary: Historical closed trades from database
+      parameters:
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 100
+      responses:
+        "200":
+          description: Trade history with daily stats
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TradeHistoryList"
+
+  /history/pnl:
+    get:
+      operationId: getPnlChart
+      tags: [risk]
+      summary: P&L equity curve for chart
+      parameters:
+        - name: hours
+          in: query
+          schema:
+            type: integer
+            default: 24
+      responses:
+        "200":
+          description: P&L time series
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PnlChartData"
+
+  /account/balance:
+    get:
+      operationId: getAccountBalance
+      tags: [risk]
+      summary: Real account balance from exchanges
+      responses:
+        "200":
+          description: Account balance
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AccountBalance"
+
 components:
   schemas:
     HealthStatus:
@@ -400,7 +451,9 @@ components:
           type: number
         circuitBreakerTripped:
           type: boolean
-      required: [running, mode, maxLeverage, riskPct, startedAt, tradesExecuted, dailyPnl, circuitBreakerTripped]
+        accountBalance:
+          type: number
+      required: [running, mode, maxLeverage, riskPct, startedAt, tradesExecuted, dailyPnl, circuitBreakerTripped, accountBalance]
 
     RiskStats:
       type: object
@@ -495,3 +548,101 @@ components:
           items:
             $ref: "#/components/schemas/ExchangeStatus"
       required: [exchanges]
+
+    TradeHistoryRecord:
+      type: object
+      properties:
+        id:
+          type: string
+        symbol:
+          type: string
+        side:
+          type: string
+          enum: [long, short]
+        exchange:
+          type: string
+        entryPrice:
+          type: number
+        exitPrice:
+          type: number
+        size:
+          type: number
+        leverage:
+          type: number
+        pnl:
+          type: number
+        pnlPct:
+          type: number
+        openedAt:
+          type: string
+        closedAt:
+          type: string
+        closeReason:
+          type: string
+      required: [id, symbol, side, exchange, entryPrice, exitPrice, size, leverage, pnl, pnlPct, openedAt, closedAt, closeReason]
+
+    DailyStats:
+      type: object
+      properties:
+        totalTrades:
+          type: number
+        wins:
+          type: number
+        totalPnl:
+          type: number
+      required: [totalTrades, wins, totalPnl]
+
+    TradeHistoryList:
+      type: object
+      properties:
+        trades:
+          type: array
+          items:
+            $ref: "#/components/schemas/TradeHistoryRecord"
+        stats:
+          $ref: "#/components/schemas/DailyStats"
+      required: [trades, stats]
+
+    PnlPoint:
+      type: object
+      properties:
+        ts:
+          type: string
+        equity:
+          type: number
+        dailyPnl:
+          type: number
+        openPositions:
+          type: number
+      required: [ts, equity, dailyPnl, openPositions]
+
+    PnlChartData:
+      type: object
+      properties:
+        points:
+          type: array
+          items:
+            $ref: "#/components/schemas/PnlPoint"
+        hours:
+          type: number
+      required: [points, hours]
+
+    AccountBalance:
+      type: object
+      properties:
+        total:
+          type: number
+        available:
+          type: number
+        currency:
+          type: string
+        byExchange:
+          type: object
+          additionalProperties:
+            type: object
+            properties:
+              total:
+                type: number
+              available:
+                type: number
+      required: [total, available, currency]

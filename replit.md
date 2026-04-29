@@ -37,11 +37,19 @@ A Bitcoin futures scalping bot dashboard with real-time data from multiple excha
 - `POST /api/bot/stop` — Stop bot
 - `GET /api/risk/stats` — Daily P&L, win rate, Sharpe, drawdown
 - `GET /api/risk/positions` — Open positions
-- `GET /api/risk/trades` — Closed trade history
+- `GET /api/history/trades` — Closed trades from DB (+ in-memory fallback)
+- `GET /api/history/pnl` — Equity curve snapshots for chart (24h default)
+- `GET /api/account/balance` — Real balance from exchanges (or paper balance)
+
+### Database (PostgreSQL via Drizzle ORM)
+- **`db/schema.ts`** — Tables: `bot_sessions`, `trades`, `pnl_snapshots`, `open_positions`
+- **`db/index.ts`** — pg pool + drizzle instance
+- **`services/dbService.ts`** — startSession, stopSession, saveTrade, saveSnapshot, syncOpenPositions, getRecentTrades, getPnlChart, getDailyStats
+- Schema pushed via `drizzle.config.ts` + `drizzle-kit push`
 
 ### Dashboard Pages
 - `/` — Terminal: ticker (multi-exchange prices), CVD chart, order book, recent trades (tagged by exchange), signal gauge, bot controls
-- `/risk` — Risk manager: circuit breaker, P&L chart, position monitor
+- `/risk` — Risk manager: equity curve (DB), account balance per exchange, open positions, trade history from DB, stats (Win Rate, Sharpe, Drawdown)
 - `/signal` — Signal breakdown: component scores, radar chart
 
 ## Exchange Status

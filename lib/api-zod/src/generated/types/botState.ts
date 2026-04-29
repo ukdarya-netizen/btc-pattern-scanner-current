@@ -16,4 +16,5 @@ export interface BotState {
   tradesExecuted: number;
   dailyPnl: number;
   circuitBreakerTripped: boolean;
+  accountBalance: number;
 }

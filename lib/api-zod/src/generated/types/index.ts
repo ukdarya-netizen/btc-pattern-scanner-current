@@ -6,6 +6,8 @@
  * OpenAPI spec version: 0.1.0
  */
 
+export * from "./accountBalance";
+export * from "./accountBalanceByExchange";
 export * from "./botStartRequest";
 export * from "./botStartRequestMode";
 export * from "./botState";
@@ -13,12 +15,17 @@ export * from "./botStateMode";
 export * from "./cvdPoint";
 export * from "./cvdSeries";
 export * from "./cvdSeriesTrend";
+export * from "./dailyStats";
 export * from "./exchangeStatus";
 export * from "./exchangeStatusList";
 export * from "./fundingData";
+export * from "./getPnlChartParams";
+export * from "./getTradeHistoryParams";
 export * from "./healthStatus";
 export * from "./orderbook";
 export * from "./orderLevel";
+export * from "./pnlChartData";
+export * from "./pnlPoint";
 export * from "./position";
 export * from "./positionList";
 export * from "./positionSide";
@@ -28,5 +35,8 @@ export * from "./signalResult";
 export * from "./signalResultDirection";
 export * from "./ticker";
 export * from "./trade";
+export * from "./tradeHistoryList";
+export * from "./tradeHistoryRecord";
+export * from "./tradeHistoryRecordSide";
 export * from "./tradeList";
 export * from "./tradeSide";

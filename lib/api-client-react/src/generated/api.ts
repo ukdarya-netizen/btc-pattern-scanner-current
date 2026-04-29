@@ -17,17 +17,22 @@ import type {
 } from "@tanstack/react-query";
 
 import type {
+  AccountBalance,
   BotStartRequest,
   BotState,
   CvdSeries,
   ExchangeStatusList,
   FundingData,
+  GetPnlChartParams,
+  GetTradeHistoryParams,
   HealthStatus,
   Orderbook,
+  PnlChartData,
   PositionList,
   RiskStats,
   SignalResult,
   Ticker,
+  TradeHistoryList,
   TradeList,
 } from "./api.schemas";
 
@@ -998,6 +1003,269 @@ export function useGetPositions<
   request?: SecondParameter<typeof customFetch>;
 }): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
   const queryOptions = getGetPositionsQueryOptions(options);
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+/**
+ * @summary Historical closed trades from database
+ */
+export const getGetTradeHistoryUrl = (params?: GetTradeHistoryParams) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? "null" : value.toString());
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0
+    ? `/api/history/trades?${stringifiedParams}`
+    : `/api/history/trades`;
+};
+
+export const getTradeHistory = async (
+  params?: GetTradeHistoryParams,
+  options?: RequestInit,
+): Promise<TradeHistoryList> => {
+  return customFetch<TradeHistoryList>(getGetTradeHistoryUrl(params), {
+    ...options,
+    method: "GET",
+  });
+};
+
+export const getGetTradeHistoryQueryKey = (params?: GetTradeHistoryParams) => {
+  return [`/api/history/trades`, ...(params ? [params] : [])] as const;
+};
+
+export const getGetTradeHistoryQueryOptions = <
+  TData = Awaited<ReturnType<typeof getTradeHistory>>,
+  TError = ErrorType<unknown>,
+>(
+  params?: GetTradeHistoryParams,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof getTradeHistory>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey = queryOptions?.queryKey ?? getGetTradeHistoryQueryKey(params);
+
+  const queryFn: QueryFunction<Awaited<ReturnType<typeof getTradeHistory>>> = ({
+    signal,
+  }) => getTradeHistory(params, { signal, ...requestOptions });
+
+  return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<
+    Awaited<ReturnType<typeof getTradeHistory>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type GetTradeHistoryQueryResult = NonNullable<
+  Awaited<ReturnType<typeof getTradeHistory>>
+>;
+export type GetTradeHistoryQueryError = ErrorType<unknown>;
+
+/**
+ * @summary Historical closed trades from database
+ */
+
+export function useGetTradeHistory<
+  TData = Awaited<ReturnType<typeof getTradeHistory>>,
+  TError = ErrorType<unknown>,
+>(
+  params?: GetTradeHistoryParams,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof getTradeHistory>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getGetTradeHistoryQueryOptions(params, options);
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+/**
+ * @summary P&L equity curve for chart
+ */
+export const getGetPnlChartUrl = (params?: GetPnlChartParams) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? "null" : value.toString());
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0
+    ? `/api/history/pnl?${stringifiedParams}`
+    : `/api/history/pnl`;
+};
+
+export const getPnlChart = async (
+  params?: GetPnlChartParams,
+  options?: RequestInit,
+): Promise<PnlChartData> => {
+  return customFetch<PnlChartData>(getGetPnlChartUrl(params), {
+    ...options,
+    method: "GET",
+  });
+};
+
+export const getGetPnlChartQueryKey = (params?: GetPnlChartParams) => {
+  return [`/api/history/pnl`, ...(params ? [params] : [])] as const;
+};
+
+export const getGetPnlChartQueryOptions = <
+  TData = Awaited<ReturnType<typeof getPnlChart>>,
+  TError = ErrorType<unknown>,
+>(
+  params?: GetPnlChartParams,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof getPnlChart>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey = queryOptions?.queryKey ?? getGetPnlChartQueryKey(params);
+
+  const queryFn: QueryFunction<Awaited<ReturnType<typeof getPnlChart>>> = ({
+    signal,
+  }) => getPnlChart(params, { signal, ...requestOptions });
+
+  return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<
+    Awaited<ReturnType<typeof getPnlChart>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type GetPnlChartQueryResult = NonNullable<
+  Awaited<ReturnType<typeof getPnlChart>>
+>;
+export type GetPnlChartQueryError = ErrorType<unknown>;
+
+/**
+ * @summary P&L equity curve for chart
+ */
+
+export function useGetPnlChart<
+  TData = Awaited<ReturnType<typeof getPnlChart>>,
+  TError = ErrorType<unknown>,
+>(
+  params?: GetPnlChartParams,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof getPnlChart>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getGetPnlChartQueryOptions(params, options);
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+/**
+ * @summary Real account balance from exchanges
+ */
+export const getGetAccountBalanceUrl = () => {
+  return `/api/account/balance`;
+};
+
+export const getAccountBalance = async (
+  options?: RequestInit,
+): Promise<AccountBalance> => {
+  return customFetch<AccountBalance>(getGetAccountBalanceUrl(), {
+    ...options,
+    method: "GET",
+  });
+};
+
+export const getGetAccountBalanceQueryKey = () => {
+  return [`/api/account/balance`] as const;
+};
+
+export const getGetAccountBalanceQueryOptions = <
+  TData = Awaited<ReturnType<typeof getAccountBalance>>,
+  TError = ErrorType<unknown>,
+>(options?: {
+  query?: UseQueryOptions<
+    Awaited<ReturnType<typeof getAccountBalance>>,
+    TError,
+    TData
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey = queryOptions?.queryKey ?? getGetAccountBalanceQueryKey();
+
+  const queryFn: QueryFunction<
+    Awaited<ReturnType<typeof getAccountBalance>>
+  > = ({ signal }) => getAccountBalance({ signal, ...requestOptions });
+
+  return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<
+    Awaited<ReturnType<typeof getAccountBalance>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type GetAccountBalanceQueryResult = NonNullable<
+  Awaited<ReturnType<typeof getAccountBalance>>
+>;
+export type GetAccountBalanceQueryError = ErrorType<unknown>;
+
+/**
+ * @summary Real account balance from exchanges
+ */
+
+export function useGetAccountBalance<
+  TData = Awaited<ReturnType<typeof getAccountBalance>>,
+  TError = ErrorType<unknown>,
+>(options?: {
+  query?: UseQueryOptions<
+    Awaited<ReturnType<typeof getAccountBalance>>,
+    TError,
+    TData
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getGetAccountBalanceQueryOptions(options);
 
   const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
     queryKey: QueryKey;
