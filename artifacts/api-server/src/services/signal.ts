@@ -65,6 +65,7 @@ function calcCvdSignal(): SignalComponent {
 
 function calcFundingSignal(): SignalComponent {
   const fundingRate = aggregator.getPrimaryFundingRate();
+  const exchanges = aggregator.getActiveExchangeNames().join("+");
   let score = 0;
   if (fundingRate > 0.001) score = -0.5;
   else if (fundingRate > 0.0005) score = -0.25;
@@ -75,14 +76,15 @@ function calcFundingSignal(): SignalComponent {
     name: "Funding Rate",
     score,
     weight: 0.15,
-    description: `Rate: ${(fundingRate * 100).toFixed(4)}% — ${score > 0 ? "shorts squeezed, longs favored" : score < 0 ? "longs squeezed, shorts favored" : "neutral"}`,
+    description: `Rate: ${(fundingRate * 100).toFixed(4)}% avg (${exchanges}) — ${score > 0 ? "shorts squeezed, longs favored" : score < 0 ? "longs squeezed, shorts favored" : "neutral"}`,
   };
 }
 
 function calcMomentumSignal(): SignalComponent {
-  const trades = aggregator.getPrimaryTrades().slice(0, 30);
+  const trades = aggregator.getAllTrades().slice(0, 60);
   if (trades.length === 0) return { name: "Trade Momentum", score: 0, weight: 0.20, description: "No data" };
 
+  const exchanges = [...new Set(trades.map(t => t.exchange))].join("+");
   const buyVol = trades.filter(t => t.side === "buy").reduce((s, t) => s + t.size, 0);
   const sellVol = trades.filter(t => t.side === "sell").reduce((s, t) => s + t.size, 0);
   const total = buyVol + sellVol;
@@ -92,13 +94,14 @@ function calcMomentumSignal(): SignalComponent {
     name: "Trade Momentum",
     score,
     weight: 0.20,
-    description: `Buy: ${buyVol.toFixed(2)} BTC vs Sell: ${sellVol.toFixed(2)} BTC (last 30 trades)`,
+    description: `Buy: ${buyVol.toFixed(2)} BTC vs Sell: ${sellVol.toFixed(2)} BTC (${exchanges}, last 60 trades)`,
   };
 }
 
 function calcOpenInterestSignal(): SignalComponent {
   const oi = aggregator.getPrimaryOpenInterest();
   const price = aggregator.getPrimaryPrice();
+  const exchanges = aggregator.getActiveExchangeNames().join("+");
   if (price === 0 || oi === 0) return { name: "Open Interest", score: 0, weight: 0.10, description: "No OI data" };
 
   const oiUsd = oi * price;
@@ -109,7 +112,7 @@ function calcOpenInterestSignal(): SignalComponent {
     name: "Open Interest",
     score,
     weight: 0.10,
-    description: `OI: $${(oiUsd / 1e9).toFixed(2)}B — ${cvdTrend}`,
+    description: `OI: $${(oiUsd / 1e9).toFixed(2)}B combined (${exchanges}) — ${cvdTrend}`,
   };
 }
 

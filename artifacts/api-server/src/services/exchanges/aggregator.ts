@@ -102,6 +102,12 @@ class ExchangeAggregator {
 
     const primary = tickers.find(t => t.exchange === "Bybit") ?? tickers[0];
 
+    const totalOI = tickers.reduce((s, t) => s + (t.openInterest || 0), 0);
+    const oiTickers = tickers.filter(t => (t.openInterest || 0) > 0);
+    const avgFundingRate = oiTickers.length > 0
+      ? oiTickers.reduce((s, t) => s + t.fundingRate, 0) / oiTickers.length
+      : primary.fundingRate;
+
     return {
       bestExchange: primary.exchange,
       prices,
@@ -114,8 +120,8 @@ class ExchangeAggregator {
       volume24h: tickers.reduce((s, t) => s + t.volume24h, 0),
       high24h: Math.max(...tickers.map(t => t.high24h)),
       low24h: Math.min(...tickers.map(t => t.low24h)),
-      openInterest: primary.openInterest,
-      fundingRate: primary.fundingRate,
+      openInterest: totalOI,
+      fundingRate: avgFundingRate,
       nextFundingTime: primary.nextFundingTime,
       updatedAt: new Date().toISOString(),
     };
@@ -176,11 +182,27 @@ class ExchangeAggregator {
   }
 
   getPrimaryFundingRate(): number {
-    return bybitConnector.getTicker()?.fundingRate ?? 0;
+    const tickers = this.connectors
+      .map(c => c.getTicker())
+      .filter((t): t is ExchangeTicker => t !== null && t.price > 0 && (t.openInterest || 0) > 0);
+    if (tickers.length === 0) return bybitConnector.getTicker()?.fundingRate ?? 0;
+    return tickers.reduce((s, t) => s + t.fundingRate, 0) / tickers.length;
   }
 
   getPrimaryOpenInterest(): number {
-    return bybitConnector.getTicker()?.openInterest ?? 0;
+    const tickers = this.connectors
+      .map(c => c.getTicker())
+      .filter((t): t is ExchangeTicker => t !== null && t.price > 0);
+    const total = tickers.reduce((s, t) => s + (t.openInterest || 0), 0);
+    return total > 0 ? total : bybitConnector.getTicker()?.openInterest ?? 0;
+  }
+
+  getExchangeCount(): number {
+    return this.connectors.filter(c => c.connected).length;
+  }
+
+  getActiveExchangeNames(): string[] {
+    return this.connectors.filter(c => c.connected).map(c => c.name);
   }
 
   async getAllBalances(): Promise<Record<string, ExchangeBalance>> {
