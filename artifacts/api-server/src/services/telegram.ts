@@ -126,6 +126,7 @@ class TelegramService {
     suggestedSl: number;
     suggestedTp: number;
     exchange: string;
+    dataExchanges?: string;
   }) {
     if (!this.bot) return;
 
@@ -146,23 +147,28 @@ class TelegramService {
     const emoji = direction === "long" ? "🟢📈" : direction === "short" ? "🔴📉" : "⚪";
     const strengthLabel =
       absScore > 0.7 ? "STRONG" : absScore > 0.5 ? "MODERATE" : "WEAK";
-    const timeStr = new Date().toLocaleTimeString("ru-RU", { timeZone: "UTC", hour12: false }) + " UTC";
+    const timeStr = new Date().toLocaleTimeString("ru-RU", { timeZone: "Europe/Moscow", hour12: false }) + " МСК";
+    const dataStr = params.dataExchanges ?? params.exchange;
+    const slDist = Math.abs(params.price - params.suggestedSl);
+    const tpDist = Math.abs(params.suggestedTp - params.price);
+    const slPct = (slDist / params.price * 100).toFixed(2);
+    const tpPct = (tpDist / params.price * 100).toFixed(2);
 
     const msg =
       `${emoji} <b>BTC ${direction.toUpperCase()} — ${strengthLabel}</b>\n` +
       `━━━━━━━━━━━━━━━━━━━\n` +
       `💰 Цена: <b>$${params.price.toFixed(1)}</b>\n` +
-      `📊 Скор: <b>${score > 0 ? "+" : ""}${score.toFixed(3)}</b> | Уверенность: <b>${(params.confidence * 100).toFixed(0)}%</b>\n` +
+      `💪 Уверенность: <b>${(params.confidence * 100).toFixed(0)}%</b>\n` +
       `⚡ Плечо: <b>${params.suggestedLeverage}x</b>\n` +
-      `🛑 SL: <b>$${params.suggestedSl.toFixed(1)}</b>\n` +
-      `🎯 TP: <b>$${params.suggestedTp.toFixed(1)}</b>\n` +
-      `🏦 Биржа: ${params.exchange}\n` +
+      `🛑 SL: <b>$${params.suggestedSl.toFixed(1)}</b> (-${slPct}%)\n` +
+      `🎯 TP: <b>$${params.suggestedTp.toFixed(1)}</b> (+${tpPct}%)\n` +
+      `📡 Данные: ${dataStr}\n` +
       `🕐 ${timeStr}\n` +
       `━━━━━━━━━━━━━━━━━━━\n` +
       `#BTC #bitcoin #scalping`;
 
     this.notifyChannel(msg);
-    logger.info({ direction, score, exchange: params.exchange }, "Channel signal published");
+    logger.info({ direction, score, dataExchanges: dataStr }, "Channel signal published");
   }
 
   publishTrade(params: {
@@ -175,18 +181,25 @@ class TelegramService {
     pnlPct?: number;
     closeReason?: string;
     exchange: string;
+    dataExchanges?: string;
   }) {
     if (!this.bot) return;
 
+    const timeStr = new Date().toLocaleTimeString("ru-RU", { timeZone: "Europe/Moscow", hour12: false }) + " МСК";
+    const dataStr = params.dataExchanges ?? params.exchange;
+
     if (params.action === "open") {
       const emoji = params.side === "long" ? "🟢" : "🔴";
+      const usdValue = (params.price * params.size).toFixed(0);
       const msg =
         `${emoji} <b>ВХОД ${params.side.toUpperCase()}</b>\n` +
         `━━━━━━━━━━━━━━━━━━━\n` +
         `💰 Цена входа: <b>$${params.price.toFixed(1)}</b>\n` +
-        `📦 Объём: <b>${params.size.toFixed(5)} BTC</b> (${params.leverage}x)\n` +
-        `🏦 ${params.exchange}\n` +
-        `🕐 ${new Date().toLocaleTimeString("ru-RU", { timeZone: "UTC", hour12: false })} UTC\n` +
+        `📦 Объём: <b>${params.size.toFixed(5)} BTC</b> (~$${usdValue})\n` +
+        `⚡ Плечо: <b>${params.leverage}x</b>\n` +
+        `🏦 Ордер: ${params.exchange}\n` +
+        `📡 Данные: ${dataStr}\n` +
+        `🕐 ${timeStr}\n` +
         `#BTC #bitcoin #scalping`;
       this.notifyChannel(msg);
     } else {
@@ -199,15 +212,19 @@ class TelegramService {
         signal: "Signal Reversal ↩️",
         circuit_breaker: "Circuit Breaker 🔒",
         manual: "Закрыто вручную",
+        order_failed: "Ошибка ордера ⚠️",
       };
+      const pnlLevered = pnl * params.leverage;
       const msg =
         `${emoji} <b>ВЫХОД ${params.side.toUpperCase()}</b>\n` +
         `━━━━━━━━━━━━━━━━━━━\n` +
         `💰 Цена выхода: <b>$${params.price.toFixed(1)}</b>\n` +
-        `📊 P&L: <b>${pnl >= 0 ? "+" : ""}$${pnl.toFixed(2)}</b> (${pnl >= 0 ? "+" : ""}${(pnlPct * 100).toFixed(2)}%)\n` +
+        `📊 P&amp;L: <b>${pnl >= 0 ? "+" : ""}$${pnl.toFixed(2)}</b> (${pnl >= 0 ? "+" : ""}${(pnlPct * 100).toFixed(2)}% позиции)\n` +
+        `💥 На плече ${params.leverage}x: <b>${pnlLevered >= 0 ? "+" : ""}$${pnlLevered.toFixed(2)}</b>\n` +
         `📋 Причина: ${reasonLabel[params.closeReason ?? "manual"] ?? params.closeReason}\n` +
-        `🏦 ${params.exchange}\n` +
-        `🕐 ${new Date().toLocaleTimeString("ru-RU", { timeZone: "UTC", hour12: false })} UTC\n` +
+        `🏦 Ордер: ${params.exchange}\n` +
+        `📡 Данные: ${dataStr}\n` +
+        `🕐 ${timeStr}\n` +
         `#BTC #bitcoin #scalping`;
       this.notifyChannel(msg);
     }

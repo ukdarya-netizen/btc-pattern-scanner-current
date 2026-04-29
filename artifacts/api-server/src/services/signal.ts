@@ -172,9 +172,9 @@ class SignalEngine {
     else if (score < -0.25) direction = "short";
 
     const price = aggregator.getPrimaryPrice() || 100000;
-    const leverage = Math.max(3, Math.min(20, Math.floor(20 * confidence)));
-    const slPct = Math.max(0.3, 1.5 / leverage);
-    const tpPct = slPct * 2;
+    const leverage = confidence > 0.7 ? 100 : confidence > 0.5 ? 85 : 75;
+    const slPct = confidence > 0.7 ? 0.12 : confidence > 0.5 ? 0.15 : 0.18;
+    const tpPct = slPct * 1.5;
     const slDir = direction === "long" ? -1 : 1;
     const tpDir = direction === "long" ? 1 : -1;
 

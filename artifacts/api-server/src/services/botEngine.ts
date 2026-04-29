@@ -30,7 +30,7 @@ const CHANNEL_BROADCAST_INTERVAL_MS = 5 * 60 * 1000;
 class BotEngine {
   private running = false;
   private mode: BotMode = "stopped";
-  private maxLeverage = 10;
+  private maxLeverage = 75;
   private riskPct = 1;
   private startedAt: Date | null = null;
   private tradesExecuted = 0;
@@ -52,7 +52,8 @@ class BotEngine {
       const price = aggregator.getPrimaryPrice();
       if (price === 0) return;
       const s = signalEngine.compute();
-      const exchange = aggregator.getBestConnectorForTrading().name;
+      const orderExchange = aggregator.getBestConnectorForTrading().name;
+      const dataExchanges = aggregator.getActiveExchangeNames().join(" + ");
       telegramService.maybePublishSignal({
         score: s.score,
         direction: s.direction,
@@ -61,7 +62,8 @@ class BotEngine {
         suggestedLeverage: s.suggestedLeverage,
         suggestedSl: s.suggestedSl,
         suggestedTp: s.suggestedTp,
-        exchange,
+        exchange: orderExchange,
+        dataExchanges,
       });
     } catch (e) {
       logger.warn({ err: e }, "Channel broadcast failed");
@@ -179,6 +181,7 @@ class BotEngine {
             pnlPct: trade.pnlPct,
             closeReason: reason,
             exchange: connector.name,
+            dataExchanges: aggregator.getActiveExchangeNames().join(" + "),
           });
           telegramService.notify(
             `${hitTp ? "✅ TP" : "🔴 SL"} | ${pos.side.toUpperCase()} @ $${price.toFixed(2)}\n` +
@@ -236,6 +239,7 @@ class BotEngine {
       size: sizeInBtc,
       leverage,
       exchange: connector.name,
+      dataExchanges: aggregator.getActiveExchangeNames().join(" + "),
     });
 
     const slPct = Math.abs((newPos.stopLoss - price) / price * 100).toFixed(2);
