@@ -309,9 +309,27 @@ class SignalEngine {
 
     const confidence = clamp(Math.abs(score) * 1.5, 0, 1);
 
+    // Pattern is PRIMARY — if it's ready and strong, its direction overrides composite
+    const MIN_PATTERN_SIGNAL = 0.20;
+    const MIN_PATTERN_SIMILARITY = 0.75;
+    const patternCompEarly = weighted.find(c => c.name === "Historical Pattern");
+    const patternResultEarly = patternService.isReady() ? patternService.getResult() : null;
+    const patternTopSimEarly = patternResultEarly?.topMatches[0]?.similarity ?? 0;
+    const patternScoreEarly = patternCompEarly?.score ?? 0;
+    const patternStrongEnough =
+      patternService.isReady() &&
+      Math.abs(patternScoreEarly) >= MIN_PATTERN_SIGNAL &&
+      patternTopSimEarly >= MIN_PATTERN_SIMILARITY;
+
     let direction: "long" | "short" | "neutral" = "neutral";
-    if (score > 0.25) direction = "long";
-    else if (score < -0.25) direction = "short";
+    if (patternStrongEnough) {
+      // Pattern determines direction
+      direction = patternScoreEarly > 0 ? "long" : "short";
+    } else if (score > 0.25) {
+      direction = "long";
+    } else if (score < -0.25) {
+      direction = "short";
+    }
 
     const price = aggregator.getPrimaryPrice() || 100000;
     const atr = candleService.getAtr();
@@ -410,8 +428,6 @@ class SignalEngine {
     const patternComp  = weighted.find(c => c.name === "Historical Pattern");
 
     // Gate 1 (PRIMARY): Pattern — correlation ≥ 75%, signal strength ≥ 0.20, direction match
-    const MIN_PATTERN_SIMILARITY = 0.75;
-    const MIN_PATTERN_SIGNAL = 0.20;
     let patternPassed = false;
     let patternReason = "";
     if (!patternService.isReady()) {
