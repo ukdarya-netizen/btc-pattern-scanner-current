@@ -450,7 +450,8 @@ class SignalEngine {
     const gate2: GateResult = { name: "Объём (CVD + Моментум)", passed: volumePassed, reason: volumeReason };
 
     const gates: GateResult[] = [gate1, gate2];
-    const allGatesPassed = direction !== "neutral" && gates.every(g => g.passed);
+    // Pattern is primary and sufficient — Gate 2 is informational context only
+    const allGatesPassed = direction !== "neutral" && gate1.passed;
 
     return {
       score: parseFloat(score.toFixed(4)),
