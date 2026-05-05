@@ -342,18 +342,7 @@ class SignalEngine {
         : `|${score.toFixed(3)}| < 0.35 — слабый сигнал`,
     };
 
-    // ── Gate 4: Volatility — ATR must be meaningful (flat market = no entry)
-    const MIN_ATR_PCT = 0.15;
-    const atrGatePassed = atrPct >= MIN_ATR_PCT;
-    const gate4: GateResult = {
-      name: "Волатильность ATR ≥ 0.15%",
-      passed: atrGatePassed,
-      reason: atrGatePassed
-        ? `ATR ${atrPct.toFixed(3)}% — достаточная волатильность ✓`
-        : `ATR ${atrPct.toFixed(3)}% < 0.15% — рынок слишком флэтовый ✗`,
-    };
-
-    const gates: GateResult[] = [gate1, gate2, gate3, gate4];
+    const gates: GateResult[] = [gate1, gate2, gate3];
     const allGatesPassed = direction !== "neutral" && gates.every(g => g.passed);
 
     return {
