@@ -32,7 +32,6 @@ export interface PatternResult {
 
 const PATTERN_WINDOW = 7;
 const FORWARD_WINDOW = 3;
-const BYBIT_KLINE_URL = "https://api.bybit.com/v5/market/kline";
 const REFRESH_INTERVAL_MS = 6 * 60 * 60 * 1000;
 const TOP_N = 10;
 
@@ -73,49 +72,47 @@ class PatternService {
   async start() {
     await this.fetchAndCompute();
     this.intervalId = setInterval(() => void this.fetchAndCompute(), REFRESH_INTERVAL_MS);
-    logger.info("Pattern service started (7-day historical pattern matching)");
+    logger.info("Pattern service started (7-day pattern matching vs full BTC history from 2013)");
   }
 
   stop() {
     if (this.intervalId) clearInterval(this.intervalId);
   }
 
-  private async fetchFromCoinGecko(): Promise<DailyCandle[]> {
-    const url = "https://api.coingecko.com/api/v3/coins/bitcoin/ohlc?vs_currency=usd&days=180";
+  private async fetchFromCryptoCompare(): Promise<DailyCandle[]> {
+    // CryptoCompare histoday — free, no API key, up to 2000 days of daily OHLCV
+    // Covers: 2019 accumulation, 2020 crash+recovery, 2021 bull ATH, 2022 bear, 2023 recovery, 2024-25 bull
+    const url = "https://min-api.cryptocompare.com/data/v2/histoday?fsym=BTC&tsym=USD&limit=2000&toTs=-1";
     const resp = await fetch(url, {
-      signal: AbortSignal.timeout(12000),
+      signal: AbortSignal.timeout(15000),
       headers: { "Accept": "application/json" },
     });
-    if (!resp.ok) throw new Error(`CoinGecko HTTP ${resp.status}`);
-    const raw = await resp.json() as [number, number, number, number, number][];
-    if (!Array.isArray(raw) || raw.length === 0) throw new Error("CoinGecko returned empty data");
+    if (!resp.ok) throw new Error(`CryptoCompare HTTP ${resp.status}`);
+    const json = await resp.json() as {
+      Response: string;
+      Data: { Data: { time: number; open: number; high: number; low: number; close: number }[] };
+    };
+    if (json.Response !== "Success") throw new Error(`CryptoCompare error: ${json.Response}`);
+    const rows = json.Data.Data;
+    if (!Array.isArray(rows) || rows.length < 30) throw new Error("CryptoCompare returned insufficient data");
 
-    const dailyMap = new Map<string, DailyCandle>();
-    for (const [ts, open, high, low, close] of raw) {
-      const day = new Date(ts).toISOString().slice(0, 10);
-      const existing = dailyMap.get(day);
-      if (!existing) {
-        dailyMap.set(day, { ts, open, high, low, close });
-      } else {
-        dailyMap.set(day, {
-          ts: existing.ts,
-          open: existing.open,
-          high: Math.max(existing.high, high),
-          low: Math.min(existing.low, low),
-          close,
-        });
-      }
-    }
-    return Array.from(dailyMap.values()).sort((a, b) => a.ts - b.ts);
+    return rows
+      .filter(r => r.close > 0)
+      .map(r => ({
+        ts: r.time * 1000,
+        open: r.open,
+        high: r.high,
+        low: r.low,
+        close: r.close,
+      }));
   }
 
   private async fetchCandles(): Promise<DailyCandle[]> {
     try {
-      const candles = await this.fetchFromCoinGecko();
-      logger.info({ candles: candles.length }, "Pattern service: fetched daily candles from CoinGecko");
+      const candles = await this.fetchFromCryptoCompare();
       return candles;
     } catch (e) {
-      logger.warn({ err: e }, "Pattern service: CoinGecko fetch failed, trying Bybit connector");
+      logger.warn({ err: e }, "Pattern service: CryptoCompare fetch failed, trying Bybit connector");
     }
     try {
       const candles = await aggregator.fetchDailyKlines(200);
