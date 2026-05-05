@@ -140,6 +140,35 @@ export const GetCurrentSignalResponse = zod.object({
 });
 
 /**
+ * @summary Historical pattern matching result (7-day Pearson correlation)
+ */
+export const GetPatternResultResponse = zod.object({
+  signal: zod.number().describe("Signal score [-1, +1] from pattern matches"),
+  confidence: zod.number(),
+  bullishMatches: zod.number(),
+  bearishMatches: zod.number(),
+  topMatches: zod.array(
+    zod.object({
+      startDate: zod.string(),
+      endDate: zod.string(),
+      similarity: zod
+        .number()
+        .describe("Pearson correlation coefficient with current 7-day pattern"),
+      forwardPct: zod
+        .number()
+        .describe("% price change in 3 days after this historical pattern"),
+      outcome: zod.enum(["bullish", "bearish", "neutral"]),
+      currentReturns: zod.array(zod.number()),
+      historicalReturns: zod.array(zod.number()),
+      forwardReturns: zod.array(zod.number()),
+    }),
+  ),
+  currentReturns: zod.array(zod.number()),
+  updatedAt: zod.string(),
+  loading: zod.boolean().optional(),
+});
+
+/**
  * @summary Get bot current state
  */
 export const GetBotStateResponse = zod.object({

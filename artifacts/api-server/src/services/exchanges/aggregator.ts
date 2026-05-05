@@ -233,6 +233,10 @@ class ExchangeAggregator {
     }
     return bybitConnector;
   }
+
+  async fetchDailyKlines(limit = 200): Promise<{ ts: number; open: number; high: number; low: number; close: number }[]> {
+    return bybitConnector.fetchDailyKlines(limit);
+  }
 }
 
 export const aggregator = new ExchangeAggregator();

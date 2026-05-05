@@ -120,6 +120,40 @@ export interface SignalResult {
   updatedAt: string;
 }
 
+export type PatternMatchOutcome =
+  (typeof PatternMatchOutcome)[keyof typeof PatternMatchOutcome];
+
+export const PatternMatchOutcome = {
+  bullish: "bullish",
+  bearish: "bearish",
+  neutral: "neutral",
+} as const;
+
+export interface PatternMatch {
+  startDate: string;
+  endDate: string;
+  /** Pearson correlation coefficient with current 7-day pattern */
+  similarity: number;
+  /** % price change in 3 days after this historical pattern */
+  forwardPct: number;
+  outcome: PatternMatchOutcome;
+  currentReturns: number[];
+  historicalReturns: number[];
+  forwardReturns: number[];
+}
+
+export interface PatternResult {
+  /** Signal score [-1, +1] from pattern matches */
+  signal: number;
+  confidence: number;
+  bullishMatches: number;
+  bearishMatches: number;
+  topMatches: PatternMatch[];
+  currentReturns: number[];
+  updatedAt: string;
+  loading?: boolean;
+}
+
 export type BotStartRequestMode =
   (typeof BotStartRequestMode)[keyof typeof BotStartRequestMode];
 

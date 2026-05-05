@@ -123,6 +123,19 @@ paths:
               schema:
                 $ref: "#/components/schemas/SignalResult"
 
+  /pattern/current:
+    get:
+      operationId: getPatternResult
+      tags: [signal]
+      summary: Historical pattern matching result (7-day Pearson correlation)
+      responses:
+        "200":
+          description: Pattern matching data
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PatternResult"
+
   /bot/state:
     get:
       operationId: getBotState
@@ -467,6 +480,62 @@ components:
         updatedAt:
           type: string
       required: [score, direction, confidence, components, suggestedLeverage, suggestedSl, suggestedTp, atrPct, vwap, updatedAt]
+
+    PatternMatch:
+      type: object
+      properties:
+        startDate:
+          type: string
+        endDate:
+          type: string
+        similarity:
+          type: number
+          description: "Pearson correlation coefficient with current 7-day pattern"
+        forwardPct:
+          type: number
+          description: "% price change in 3 days after this historical pattern"
+        outcome:
+          type: string
+          enum: [bullish, bearish, neutral]
+        currentReturns:
+          type: array
+          items:
+            type: number
+        historicalReturns:
+          type: array
+          items:
+            type: number
+        forwardReturns:
+          type: array
+          items:
+            type: number
+      required: [startDate, endDate, similarity, forwardPct, outcome, currentReturns, historicalReturns, forwardReturns]
+
+    PatternResult:
+      type: object
+      properties:
+        signal:
+          type: number
+          description: "Signal score [-1, +1] from pattern matches"
+        confidence:
+          type: number
+        bullishMatches:
+          type: number
+        bearishMatches:
+          type: number
+        topMatches:
+          type: array
+          items:
+            $ref: "#/components/schemas/PatternMatch"
+        currentReturns:
+          type: array
+          items:
+            type: number
+        updatedAt:
+          type: string
+        loading:
+          type: boolean
+      required: [signal, confidence, bullishMatches, bearishMatches, topMatches, currentReturns, updatedAt]
 
     BotStartRequest:
       type: object

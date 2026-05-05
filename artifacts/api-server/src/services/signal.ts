@@ -1,6 +1,7 @@
 import { aggregator } from "./exchanges/aggregator";
 import { cvdService } from "./cvd";
 import { candleService } from "./candleService";
+import { patternService } from "./patternService";
 
 export interface SignalComponent {
   name: string;
@@ -26,6 +27,7 @@ function clamp(val: number, min = -1, max = 1): number {
   return Math.max(min, Math.min(max, val));
 }
 
+// Weights: OB 0.20 + CVD 0.22 + Funding 0.08 + Momentum 0.13 + OI 0.05 + VWAP 0.12 + EMA 0.10 + Pattern 0.10 = 1.00
 function calcOrderbookImbalance(): SignalComponent {
   const ob = aggregator.getAggregatedOrderbook();
   if (!ob) return { name: "Order Book Imbalance", score: 0, weight: 0.20, description: "No data" };
@@ -61,7 +63,7 @@ function calcCvdSignal(): SignalComponent {
   return {
     name: "CVD Trend",
     score,
-    weight: 0.25,
+    weight: 0.22,
     description: `Trend: ${trend}, CVD: ${cvdService.getCurrentCvd().toFixed(2)}`,
   };
 }
@@ -78,7 +80,7 @@ function calcFundingSignal(): SignalComponent {
   return {
     name: "Funding Rate",
     score,
-    weight: 0.10,
+    weight: 0.08,
     description: `Rate: ${(fundingRate * 100).toFixed(4)}% avg (${exchanges}) — ${score > 0 ? "shorts squeezed, longs favored" : score < 0 ? "longs squeezed, shorts favored" : "neutral"}`,
   };
 }
@@ -96,7 +98,7 @@ function calcMomentumSignal(): SignalComponent {
   return {
     name: "Trade Momentum",
     score,
-    weight: 0.15,
+    weight: 0.13,
     description: `Buy: ${buyVol.toFixed(2)} BTC vs Sell: ${sellVol.toFixed(2)} BTC (${exchanges}, last 60 trades)`,
   };
 }
@@ -138,7 +140,7 @@ function calcVwapSignal(): SignalComponent {
   return {
     name: "VWAP Deviation",
     score,
-    weight: 0.15,
+    weight: 0.12,
     description: `$${price.toFixed(1)} ${direction} VWAP $${vwap.toFixed(1)} by ${(Math.abs(deviation) * 100).toFixed(3)}% (${sigma.toFixed(1)}σ)${urgency}`,
   };
 }
@@ -168,6 +170,30 @@ function calcEmaSignal(): SignalComponent {
     score: clamp(score),
     weight: 0.10,
     description: `${crossLabel} | ${priceVsEma} | EMA9: $${ema9.toFixed(1)} EMA21: $${ema21.toFixed(1)}`,
+  };
+}
+
+function calcPatternSignal(): SignalComponent {
+  if (!patternService.isReady()) {
+    return { name: "Historical Pattern", score: 0, weight: 0.10, description: "Загрузка исторических данных..." };
+  }
+
+  const result = patternService.getResult()!;
+  const score = parseFloat(result.signal.toFixed(4));
+  const bull = result.bullishMatches;
+  const bear = result.bearishMatches;
+  const neutral = result.topMatches.length - bull - bear;
+  const topMatch = result.topMatches[0];
+  const simPct = topMatch ? (topMatch.similarity * 100).toFixed(1) : "0";
+  const fwdLabel = topMatch
+    ? `${topMatch.forwardPct >= 0 ? "+" : ""}${topMatch.forwardPct.toFixed(2)}% за 3д`
+    : "";
+
+  return {
+    name: "Historical Pattern",
+    score: Math.max(-1, Math.min(1, score)),
+    weight: 0.10,
+    description: `Топ совпадение: ${topMatch?.startDate ?? "—"} (r=${simPct}%) → ${fwdLabel} | Бычьих: ${bull} / Медвежьих: ${bear} / Нейтр: ${neutral} из ${result.topMatches.length}`,
   };
 }
 
@@ -211,6 +237,7 @@ class SignalEngine {
       calcOpenInterestSignal(),
       calcVwapSignal(),
       calcEmaSignal(),
+      calcPatternSignal(),
       calcCrossExchangeSignal(),
     ];
 

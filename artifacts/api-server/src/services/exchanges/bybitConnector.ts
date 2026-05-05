@@ -355,6 +355,20 @@ export class BybitConnector implements IExchangeConnector {
     await restRequest("POST", "/v5/order/cancel",
       { category: "linear", symbol, orderId }, this.apiKey, this.apiSecret);
   }
+
+  async fetchDailyKlines(limit = 200): Promise<{ ts: number; open: number; high: number; low: number; close: number }[]> {
+    if (!this.apiKey) throw new Error("Bybit API key not configured");
+    const res = await restRequest("GET", "/v5/market/kline", {
+      category: "linear", symbol: SYMBOL, interval: "D", limit: String(limit),
+    }, this.apiKey, this.apiSecret) as { list: [string, string, string, string, string, string, string][] };
+    return (res.list ?? []).map(([ts, open, high, low, close]) => ({
+      ts: parseInt(ts),
+      open: parseFloat(open),
+      high: parseFloat(high),
+      low: parseFloat(low),
+      close: parseFloat(close),
+    })).reverse();
+  }
 }
 
 export const bybitConnector = new BybitConnector();

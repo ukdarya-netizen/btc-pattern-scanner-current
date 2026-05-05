@@ -6,6 +6,7 @@ import botRouter from "./bot";
 import riskRouter from "./risk";
 import historyRouter from "./history";
 import liquidationsRouter from "./liquidations";
+import patternRouter from "./pattern";
 
 const router: IRouter = Router();
 
@@ -16,5 +17,6 @@ router.use(botRouter);
 router.use(riskRouter);
 router.use(historyRouter);
 router.use(liquidationsRouter);
+router.use(patternRouter);
 
 export default router;

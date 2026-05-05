@@ -31,6 +31,7 @@ import type {
   LiquidationHeatmap,
   LiquidationInfo,
   Orderbook,
+  PatternResult,
   PnlChartData,
   PositionList,
   RiskStats,
@@ -619,6 +620,81 @@ export function useGetCurrentSignal<
   request?: SecondParameter<typeof customFetch>;
 }): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
   const queryOptions = getGetCurrentSignalQueryOptions(options);
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+/**
+ * @summary Historical pattern matching result (7-day Pearson correlation)
+ */
+export const getGetPatternResultUrl = () => {
+  return `/api/pattern/current`;
+};
+
+export const getPatternResult = async (
+  options?: RequestInit,
+): Promise<PatternResult> => {
+  return customFetch<PatternResult>(getGetPatternResultUrl(), {
+    ...options,
+    method: "GET",
+  });
+};
+
+export const getGetPatternResultQueryKey = () => {
+  return [`/api/pattern/current`] as const;
+};
+
+export const getGetPatternResultQueryOptions = <
+  TData = Awaited<ReturnType<typeof getPatternResult>>,
+  TError = ErrorType<unknown>,
+>(options?: {
+  query?: UseQueryOptions<
+    Awaited<ReturnType<typeof getPatternResult>>,
+    TError,
+    TData
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey = queryOptions?.queryKey ?? getGetPatternResultQueryKey();
+
+  const queryFn: QueryFunction<
+    Awaited<ReturnType<typeof getPatternResult>>
+  > = ({ signal }) => getPatternResult({ signal, ...requestOptions });
+
+  return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<
+    Awaited<ReturnType<typeof getPatternResult>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type GetPatternResultQueryResult = NonNullable<
+  Awaited<ReturnType<typeof getPatternResult>>
+>;
+export type GetPatternResultQueryError = ErrorType<unknown>;
+
+/**
+ * @summary Historical pattern matching result (7-day Pearson correlation)
+ */
+
+export function useGetPatternResult<
+  TData = Awaited<ReturnType<typeof getPatternResult>>,
+  TError = ErrorType<unknown>,
+>(options?: {
+  query?: UseQueryOptions<
+    Awaited<ReturnType<typeof getPatternResult>>,
+    TError,
+    TData
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getGetPatternResultQueryOptions(options);
 
   const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
     queryKey: QueryKey;
