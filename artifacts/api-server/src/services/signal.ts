@@ -332,17 +332,7 @@ class SignalEngine {
     }
     const gate2: GateResult = { name: "Объём (CVD + Моментум)", passed: volumePassed, reason: volumeReason };
 
-    // ── Gate 3: Composite score above threshold
-    const thresholdPassed = Math.abs(score) >= ENTRY_THRESHOLD;
-    const gate3: GateResult = {
-      name: "Composite Score ≥ 0.35",
-      passed: thresholdPassed,
-      reason: thresholdPassed
-        ? `|${score.toFixed(3)}| ≥ 0.35 ✓`
-        : `|${score.toFixed(3)}| < 0.35 — слабый сигнал`,
-    };
-
-    const gates: GateResult[] = [gate1, gate2, gate3];
+    const gates: GateResult[] = [gate1, gate2];
     const allGatesPassed = direction !== "neutral" && gates.every(g => g.passed);
 
     return {
