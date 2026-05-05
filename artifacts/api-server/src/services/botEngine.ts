@@ -22,7 +22,7 @@ export interface BotState extends BotConfig {
   accountBalance: number;
 }
 
-const MIN_TRADE_INTERVAL_MS = 30000;
+const MIN_TRADE_INTERVAL_MS = 5 * 60 * 1000; // 5 minutes between trades
 const SNAPSHOT_INTERVAL_MS = 60000;
 const CHANNEL_BROADCAST_INTERVAL_MS = 5 * 60 * 1000;
 

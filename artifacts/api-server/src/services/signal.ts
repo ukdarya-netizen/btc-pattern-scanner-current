@@ -285,23 +285,39 @@ class SignalEngine {
     const tpDir = direction === "long" ? 1 : -1;
 
     // ── Entry gates: ALL must pass to open a trade ──
+    // Order matters: pattern is PRIMARY — checked first, strictest requirements
     const dirSign = direction === "long" ? 1 : direction === "short" ? -1 : 0;
 
     const cvdComp      = components.find(c => c.name === "CVD Trend");
     const momentumComp = components.find(c => c.name === "Trade Momentum");
     const patternComp  = components.find(c => c.name === "Historical Pattern");
 
-    // Gate 1: composite score above threshold
-    const thresholdPassed = Math.abs(score) >= ENTRY_THRESHOLD;
-    const gate1: GateResult = {
-      name: "Composite Score ≥ 0.35",
-      passed: thresholdPassed,
-      reason: thresholdPassed
-        ? `|${score.toFixed(3)}| ≥ 0.35 ✓`
-        : `|${score.toFixed(3)}| < 0.35 — слабый сигнал`,
-    };
+    // ── Gate 1 (PRIMARY): Pattern match — ready + top correlation ≥ 0.75 + |signal| ≥ 0.20 + direction matches
+    const MIN_PATTERN_SIMILARITY = 0.75;
+    const MIN_PATTERN_SIGNAL = 0.20;
+    let patternPassed = false;
+    let patternReason = "";
+    if (!patternService.isReady()) {
+      patternReason = "Исторические данные загружаются";
+    } else if (direction === "neutral") {
+      patternReason = "Направление нейтральное";
+    } else {
+      const pr = patternService.getResult()!;
+      const topSim = pr.topMatches[0]?.similarity ?? 0;
+      const pScore = patternComp?.score ?? 0;
+      const pAbs = Math.abs(pScore);
+      const dirOk = pScore * dirSign > 0;
+      const simOk = topSim >= MIN_PATTERN_SIMILARITY;
+      const strengthOk = pAbs >= MIN_PATTERN_SIGNAL;
+      patternPassed = dirOk && simOk && strengthOk;
+      const simStr = `топ r=${(topSim * 100).toFixed(1)}% ${simOk ? "✓" : `< ${(MIN_PATTERN_SIMILARITY * 100).toFixed(0)}% ✗`}`;
+      const strStr = `сила |${pScore.toFixed(3)}| ${strengthOk ? "✓" : `< ${MIN_PATTERN_SIGNAL} ✗`}`;
+      const dirStr = dirOk ? "направление ✓" : "направление ✗";
+      patternReason = `${simStr} | ${strStr} | ${dirStr}`;
+    }
+    const gate1: GateResult = { name: "Паттерн-матчинг (первичный)", passed: patternPassed, reason: patternReason };
 
-    // Gate 2: volume — CVD AND momentum both confirm direction
+    // ── Gate 2: Volume — CVD AND momentum both confirm direction
     let volumePassed = false;
     let volumeReason = "";
     if (direction === "neutral") {
@@ -311,28 +327,33 @@ class SignalEngine {
       const momOk = momentumComp ? momentumComp.score * dirSign > 0 : false;
       volumePassed = cvdOk && momOk;
       const cvdStr = `CVD ${cvdComp ? (cvdComp.score >= 0 ? "+" : "") + cvdComp.score.toFixed(2) : "?"} ${cvdOk ? "✓" : "✗"}`;
-      const momStr = `Моментум ${momentumComp ? (momentumComp.score >= 0 ? "+" : "") + momentumComp.score.toFixed(2) : "?"} ${momOk ? "✓" : "✗"}`;
+      const momStr = `Мом. ${momentumComp ? (momentumComp.score >= 0 ? "+" : "") + momentumComp.score.toFixed(2) : "?"} ${momOk ? "✓" : "✗"}`;
       volumeReason = `${cvdStr} | ${momStr}`;
     }
     const gate2: GateResult = { name: "Объём (CVD + Моментум)", passed: volumePassed, reason: volumeReason };
 
-    // Gate 3: pattern matching confirms direction
-    let patternPassed = false;
-    let patternReason = "";
-    if (!patternService.isReady()) {
-      patternReason = "Исторические данные загружаются";
-    } else if (direction === "neutral") {
-      patternReason = "Направление нейтральное";
-    } else {
-      const pScore = patternComp?.score ?? 0;
-      patternPassed = pScore * dirSign > 0;
-      patternReason = patternPassed
-        ? `Паттерн ${pScore >= 0 ? "+" : ""}${pScore.toFixed(3)} подтверждает направление ✓`
-        : `Паттерн ${pScore >= 0 ? "+" : ""}${pScore.toFixed(3)} противоречит направлению ✗`;
-    }
-    const gate3: GateResult = { name: "Паттерн-матчинг", passed: patternPassed, reason: patternReason };
+    // ── Gate 3: Composite score above threshold
+    const thresholdPassed = Math.abs(score) >= ENTRY_THRESHOLD;
+    const gate3: GateResult = {
+      name: "Composite Score ≥ 0.35",
+      passed: thresholdPassed,
+      reason: thresholdPassed
+        ? `|${score.toFixed(3)}| ≥ 0.35 ✓`
+        : `|${score.toFixed(3)}| < 0.35 — слабый сигнал`,
+    };
 
-    const gates: GateResult[] = [gate1, gate2, gate3];
+    // ── Gate 4: Volatility — ATR must be meaningful (flat market = no entry)
+    const MIN_ATR_PCT = 0.15;
+    const atrGatePassed = atrPct >= MIN_ATR_PCT;
+    const gate4: GateResult = {
+      name: "Волатильность ATR ≥ 0.15%",
+      passed: atrGatePassed,
+      reason: atrGatePassed
+        ? `ATR ${atrPct.toFixed(3)}% — достаточная волатильность ✓`
+        : `ATR ${atrPct.toFixed(3)}% < 0.15% — рынок слишком флэтовый ✗`,
+    };
+
+    const gates: GateResult[] = [gate1, gate2, gate3, gate4];
     const allGatesPassed = direction !== "neutral" && gates.every(g => g.passed);
 
     return {
