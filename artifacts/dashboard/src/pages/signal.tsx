@@ -88,28 +88,62 @@ export default function Signal() {
 
         {/* Score header */}
         <Card className="rounded-none border-border shrink-0">
-          <CardContent className="p-6 flex items-center justify-between">
-            <div>
-              <div className="text-xs text-muted-foreground uppercase mb-1">Composite Score</div>
-              <div className={`text-5xl font-bold tracking-tighter ${
-                (signal?.score ?? 0) > 0.25 ? "text-green-400" :
-                (signal?.score ?? 0) < -0.25 ? "text-red-400" : "text-foreground"
-              }`}>
-                {(signal?.score ?? 0) >= 0 ? "+" : ""}{(signal?.score ?? 0).toFixed(4)}
+          <CardContent className="p-4 flex items-center gap-6">
+            {/* Score + direction */}
+            <div className="flex items-center justify-between flex-1">
+              <div>
+                <div className="text-xs text-muted-foreground uppercase mb-1">Composite Score</div>
+                <div className={`text-5xl font-bold tracking-tighter ${
+                  (signal?.score ?? 0) > 0.25 ? "text-green-400" :
+                  (signal?.score ?? 0) < -0.25 ? "text-red-400" : "text-foreground"
+                }`}>
+                  {(signal?.score ?? 0) >= 0 ? "+" : ""}{(signal?.score ?? 0).toFixed(4)}
+                </div>
+                <div className="text-xs text-muted-foreground mt-1">Вход при всех гейтах ✓</div>
               </div>
-              <div className="text-xs text-muted-foreground mt-1">Вход при |score| &gt; 0.35</div>
+              <div className="text-right">
+                <div className="text-xs text-muted-foreground uppercase mb-1">Направление</div>
+                <div className={`text-2xl font-bold uppercase tracking-widest ${
+                  signal?.direction === "long" ? "text-green-400" :
+                  signal?.direction === "short" ? "text-red-400" : "text-muted-foreground"
+                }`}>
+                  {signal?.direction === "long" ? "▲ LONG" :
+                   signal?.direction === "short" ? "▼ SHORT" : "— НЕЙТРАЛЬНО"}
+                </div>
+                <div className="text-muted-foreground text-sm mt-1">
+                  Уверенность: {((signal?.confidence ?? 0) * 100).toFixed(1)}%
+                </div>
+              </div>
             </div>
-            <div className="text-right">
-              <div className="text-xs text-muted-foreground uppercase mb-1">Направление</div>
-              <div className={`text-2xl font-bold uppercase tracking-widest ${
-                signal?.direction === "long" ? "text-green-400" :
-                signal?.direction === "short" ? "text-red-400" : "text-muted-foreground"
-              }`}>
-                {signal?.direction === "long" ? "▲ LONG" :
-                 signal?.direction === "short" ? "▼ SHORT" : "— НЕЙТРАЛЬНО"}
+
+            {/* Gates panel */}
+            <div className="border-l border-border/40 pl-6 min-w-[340px]">
+              <div className="flex items-center justify-between mb-2">
+                <div className="text-xs text-muted-foreground uppercase">Условия входа</div>
+                {signal && (
+                  <div className={`text-xs font-bold px-2 py-0.5 rounded-sm ${
+                    signal.allGatesPassed
+                      ? "bg-green-500/20 text-green-400"
+                      : "bg-red-500/10 text-red-400"
+                  }`}>
+                    {signal.allGatesPassed ? "✓ ОТКРЫТЬ" : "✗ ЖДАТЬ"}
+                  </div>
+                )}
               </div>
-              <div className="text-muted-foreground text-sm mt-1">
-                Уверенность: {((signal?.confidence ?? 0) * 100).toFixed(1)}%
+              <div className="flex flex-col gap-1">
+                {(signal?.gates ?? []).map((g, i) => (
+                  <div key={i} className="flex items-start gap-2">
+                    <span className={`mt-0.5 text-xs font-bold w-4 shrink-0 ${g.passed ? "text-green-400" : "text-red-400"}`}>
+                      {g.passed ? "✓" : "✗"}
+                    </span>
+                    <div className="min-w-0">
+                      <span className={`text-xs font-semibold ${g.passed ? "text-foreground" : "text-muted-foreground"}`}>
+                        {g.name}
+                      </span>
+                      <span className="text-[10px] text-muted-foreground/70 ml-2">{g.reason}</span>
+                    </div>
+                  </div>
+                ))}
               </div>
             </div>
           </CardContent>

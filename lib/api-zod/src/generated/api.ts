@@ -120,7 +120,7 @@ export const GetExchangeStatusResponse = zod.object({
 export const GetCurrentSignalResponse = zod.object({
   score: zod
     .number()
-    .describe("Composite score [-1, +1]. >0.4 = long, <-0.4 = short"),
+    .describe("Composite score [-1, +1]. >0.35 = long, <-0.35 = short"),
   direction: zod.enum(["long", "short", "neutral"]),
   confidence: zod.number().describe("0 to 1"),
   components: zod.array(
@@ -131,6 +131,18 @@ export const GetCurrentSignalResponse = zod.object({
       description: zod.string(),
     }),
   ),
+  gates: zod
+    .array(
+      zod.object({
+        name: zod.string(),
+        passed: zod.boolean(),
+        reason: zod.string(),
+      }),
+    )
+    .describe("Entry gate checks — ALL must pass to open a trade"),
+  allGatesPassed: zod
+    .boolean()
+    .describe("True only when every gate passes — bot executes trade"),
   suggestedLeverage: zod.number(),
   suggestedSl: zod.number(),
   suggestedTp: zod.number(),

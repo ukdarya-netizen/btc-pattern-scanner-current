@@ -10,11 +10,19 @@ export interface SignalComponent {
   description: string;
 }
 
+export interface GateResult {
+  name: string;
+  passed: boolean;
+  reason: string;
+}
+
 export interface SignalResult {
   score: number;
   direction: "long" | "short" | "neutral";
   confidence: number;
   components: SignalComponent[];
+  gates: GateResult[];
+  allGatesPassed: boolean;
   suggestedLeverage: number;
   suggestedSl: number;
   suggestedTp: number;
@@ -22,6 +30,8 @@ export interface SignalResult {
   vwap: number;
   updatedAt: string;
 }
+
+const ENTRY_THRESHOLD = 0.35;
 
 function clamp(val: number, min = -1, max = 1): number {
   return Math.max(min, Math.min(max, val));
@@ -274,11 +284,64 @@ class SignalEngine {
     const slDir = direction === "long" ? -1 : 1;
     const tpDir = direction === "long" ? 1 : -1;
 
+    // ── Entry gates: ALL must pass to open a trade ──
+    const dirSign = direction === "long" ? 1 : direction === "short" ? -1 : 0;
+
+    const cvdComp      = components.find(c => c.name === "CVD Trend");
+    const momentumComp = components.find(c => c.name === "Trade Momentum");
+    const patternComp  = components.find(c => c.name === "Historical Pattern");
+
+    // Gate 1: composite score above threshold
+    const thresholdPassed = Math.abs(score) >= ENTRY_THRESHOLD;
+    const gate1: GateResult = {
+      name: "Composite Score ≥ 0.35",
+      passed: thresholdPassed,
+      reason: thresholdPassed
+        ? `|${score.toFixed(3)}| ≥ 0.35 ✓`
+        : `|${score.toFixed(3)}| < 0.35 — слабый сигнал`,
+    };
+
+    // Gate 2: volume — CVD AND momentum both confirm direction
+    let volumePassed = false;
+    let volumeReason = "";
+    if (direction === "neutral") {
+      volumeReason = "Направление нейтральное";
+    } else {
+      const cvdOk = cvdComp ? cvdComp.score * dirSign > 0 : false;
+      const momOk = momentumComp ? momentumComp.score * dirSign > 0 : false;
+      volumePassed = cvdOk && momOk;
+      const cvdStr = `CVD ${cvdComp ? (cvdComp.score >= 0 ? "+" : "") + cvdComp.score.toFixed(2) : "?"} ${cvdOk ? "✓" : "✗"}`;
+      const momStr = `Моментум ${momentumComp ? (momentumComp.score >= 0 ? "+" : "") + momentumComp.score.toFixed(2) : "?"} ${momOk ? "✓" : "✗"}`;
+      volumeReason = `${cvdStr} | ${momStr}`;
+    }
+    const gate2: GateResult = { name: "Объём (CVD + Моментум)", passed: volumePassed, reason: volumeReason };
+
+    // Gate 3: pattern matching confirms direction
+    let patternPassed = false;
+    let patternReason = "";
+    if (!patternService.isReady()) {
+      patternReason = "Исторические данные загружаются";
+    } else if (direction === "neutral") {
+      patternReason = "Направление нейтральное";
+    } else {
+      const pScore = patternComp?.score ?? 0;
+      patternPassed = pScore * dirSign > 0;
+      patternReason = patternPassed
+        ? `Паттерн ${pScore >= 0 ? "+" : ""}${pScore.toFixed(3)} подтверждает направление ✓`
+        : `Паттерн ${pScore >= 0 ? "+" : ""}${pScore.toFixed(3)} противоречит направлению ✗`;
+    }
+    const gate3: GateResult = { name: "Паттерн-матчинг", passed: patternPassed, reason: patternReason };
+
+    const gates: GateResult[] = [gate1, gate2, gate3];
+    const allGatesPassed = direction !== "neutral" && gates.every(g => g.passed);
+
     return {
       score: parseFloat(score.toFixed(4)),
       direction,
       confidence: parseFloat(confidence.toFixed(4)),
       components,
+      gates,
+      allGatesPassed,
       suggestedLeverage: leverage,
       suggestedSl: parseFloat((price + slDir * slDistance).toFixed(2)),
       suggestedTp: parseFloat((price + tpDir * tpDistance).toFixed(2)),

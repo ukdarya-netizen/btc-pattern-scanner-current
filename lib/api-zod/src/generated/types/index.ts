@@ -19,6 +19,7 @@ export * from "./dailyStats";
 export * from "./exchangeStatus";
 export * from "./exchangeStatusList";
 export * from "./fundingData";
+export * from "./gateResult";
 export * from "./getLiquidationEventsParams";
 export * from "./getPnlChartParams";
 export * from "./getTradeHistoryParams";

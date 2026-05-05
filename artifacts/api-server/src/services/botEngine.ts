@@ -22,7 +22,6 @@ export interface BotState extends BotConfig {
   accountBalance: number;
 }
 
-const SIGNAL_THRESHOLD = 0.35;
 const MIN_TRADE_INTERVAL_MS = 30000;
 const SNAPSHOT_INTERVAL_MS = 60000;
 const CHANNEL_BROADCAST_INTERVAL_MS = 5 * 60 * 1000;
@@ -205,7 +204,7 @@ class BotEngine {
     if (openPositions.length >= 2) return;
 
     const signal = signalEngine.compute();
-    if (Math.abs(signal.score) < SIGNAL_THRESHOLD) return;
+    if (!signal.allGatesPassed) return;
 
     const balance = riskManager.getAccountBalance();
     const leverage = Math.min(this.maxLeverage, signal.suggestedLeverage);

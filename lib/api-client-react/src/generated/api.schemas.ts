@@ -94,6 +94,12 @@ export interface SignalComponent {
   description: string;
 }
 
+export interface GateResult {
+  name: string;
+  passed: boolean;
+  reason: string;
+}
+
 export type SignalResultDirection =
   (typeof SignalResultDirection)[keyof typeof SignalResultDirection];
 
@@ -104,12 +110,16 @@ export const SignalResultDirection = {
 } as const;
 
 export interface SignalResult {
-  /** Composite score [-1, +1]. >0.4 = long, <-0.4 = short */
+  /** Composite score [-1, +1]. >0.35 = long, <-0.35 = short */
   score: number;
   direction: SignalResultDirection;
   /** 0 to 1 */
   confidence: number;
   components: SignalComponent[];
+  /** Entry gate checks — ALL must pass to open a trade */
+  gates: GateResult[];
+  /** True only when every gate passes — bot executes trade */
+  allGatesPassed: boolean;
   suggestedLeverage: number;
   suggestedSl: number;
   suggestedTp: number;

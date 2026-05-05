@@ -449,12 +449,23 @@ components:
           type: string
       required: [name, score, weight, description]
 
+    GateResult:
+      type: object
+      properties:
+        name:
+          type: string
+        passed:
+          type: boolean
+        reason:
+          type: string
+      required: [name, passed, reason]
+
     SignalResult:
       type: object
       properties:
         score:
           type: number
-          description: "Composite score [-1, +1]. >0.4 = long, <-0.4 = short"
+          description: "Composite score [-1, +1]. >0.35 = long, <-0.35 = short"
         direction:
           type: string
           enum: [long, short, neutral]
@@ -465,6 +476,14 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/SignalComponent"
+        gates:
+          type: array
+          description: "Entry gate checks — ALL must pass to open a trade"
+          items:
+            $ref: "#/components/schemas/GateResult"
+        allGatesPassed:
+          type: boolean
+          description: "True only when every gate passes — bot executes trade"
         suggestedLeverage:
           type: number
         suggestedSl:
@@ -479,7 +498,7 @@ components:
           description: "Current day VWAP price"
         updatedAt:
           type: string
-      required: [score, direction, confidence, components, suggestedLeverage, suggestedSl, suggestedTp, atrPct, vwap, updatedAt]
+      required: [score, direction, confidence, components, gates, allGatesPassed, suggestedLeverage, suggestedSl, suggestedTp, atrPct, vwap, updatedAt]
 
     PatternMatch:
       type: object
