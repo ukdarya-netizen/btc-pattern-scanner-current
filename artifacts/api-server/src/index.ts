@@ -6,6 +6,7 @@ import { candleService } from "./services/candleService";
 import { telegramService } from "./services/telegram";
 import { botEngine } from "./services/botEngine";
 import { statsScheduler } from "./services/statsScheduler";
+import { dbService } from "./services/dbService";
 
 const rawPort = process.env["PORT"];
 
@@ -23,6 +24,8 @@ cvdService.start();
 candleService.start();
 telegramService.init();
 statsScheduler.start();
+
+void dbService.initializeTodayStats();
 
 setTimeout(() => {
   botEngine.initChannelBroadcast();

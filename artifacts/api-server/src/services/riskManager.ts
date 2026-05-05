@@ -124,6 +124,40 @@ class RiskManager {
     return trade;
   }
 
+  loadClosedTrades(dbTrades: Array<{
+    id: string;
+    symbol: string;
+    side: string;
+    entryPrice: string | number;
+    exitPrice: string | number;
+    size: string | number;
+    leverage: number;
+    pnl: string | number;
+    pnlPct: string | number;
+    openedAt: string | null;
+    closedAt: string | null;
+    closeReason: string | null;
+  }>): void {
+    if (dbTrades.length === 0) return;
+    const restored: ClosedTrade[] = dbTrades.map(t => ({
+      id: t.id,
+      symbol: t.symbol,
+      side: t.side as "long" | "short",
+      entryPrice: parseFloat(String(t.entryPrice)),
+      exitPrice: parseFloat(String(t.exitPrice)),
+      size: parseFloat(String(t.size)),
+      leverage: t.leverage,
+      pnl: parseFloat(String(t.pnl)),
+      pnlPct: parseFloat(String(t.pnlPct)),
+      openedAt: String(t.openedAt ?? ""),
+      closedAt: String(t.closedAt ?? ""),
+      closeReason: t.closeReason ?? "manual",
+    }));
+    this.closedToday = restored;
+    this.pnlHistory = restored.map(t => t.pnl).slice(-100);
+    logger.info({ count: restored.length }, "Restored today closed trades from DB into risk manager");
+  }
+
   resetDailyTrades(): void {
     this.closedToday = [];
     this.circuitBreakerTripped = false;

@@ -3,6 +3,7 @@ import { botSessions, trades, pnlSnapshots, openPositions } from "../db/schema";
 import { desc, eq, gte, sql } from "drizzle-orm";
 import { logger } from "../lib/logger";
 import type { ClosedTrade, Position } from "./riskManager";
+import { riskManager } from "./riskManager";
 
 class DbService {
   private currentSessionId: number | null = null;
@@ -195,6 +196,23 @@ class DbService {
     } catch (e) {
       logger.error({ err: e }, "Failed to compute period stats");
       return { totalTrades: 0, wins: 0, losses: 0, winRate: 0, totalPnl: 0, avgPnl: 0, bestTrade: 0, worstTrade: 0, longTrades: 0, shortTrades: 0, grossProfit: 0, grossLoss: 0 };
+    }
+  }
+
+  async initializeTodayStats(): Promise<void> {
+    try {
+      const since = new Date();
+      since.setUTCHours(0, 0, 0, 0);
+      const { and, lte } = await import("drizzle-orm");
+      const todayTrades = await db.select().from(trades)
+        .where(and(gte(trades.closedAt, since), lte(trades.closedAt, new Date())))
+        .orderBy(desc(trades.closedAt));
+      if (todayTrades.length > 0) {
+        riskManager.loadClosedTrades(todayTrades);
+        logger.info({ count: todayTrades.length }, "Today's trade history restored from DB on startup");
+      }
+    } catch (e) {
+      logger.warn({ err: e }, "Could not restore today's trade history from DB");
     }
   }
 
