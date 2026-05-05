@@ -8,6 +8,7 @@ import { telegramService } from "./services/telegram";
 import { botEngine } from "./services/botEngine";
 import { statsScheduler } from "./services/statsScheduler";
 import { dbService } from "./services/dbService";
+import { signalTracker } from "./services/signalTracker";
 
 const rawPort = process.env["PORT"];
 
@@ -31,6 +32,7 @@ void dbService.initializeTodayStats();
 
 setTimeout(() => {
   botEngine.initChannelBroadcast();
+  signalTracker.start();
 }, 15000);
 
 app.listen(port, (err) => {
