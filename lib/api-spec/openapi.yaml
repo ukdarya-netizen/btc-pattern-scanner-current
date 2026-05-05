@@ -290,6 +290,19 @@ paths:
               schema:
                 $ref: "#/components/schemas/LiquidationInfo"
 
+  /liquidations/map:
+    get:
+      operationId: getLiquidationMap
+      tags: [liquidations]
+      summary: Estimated liquidation heatmap by price level (Coinalyze OHLCV + OI model)
+      responses:
+        "200":
+          description: Liquidation clusters by price level
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/LiquidationMapResponse"
+
   /liquidations/coinalyze:
     get:
       operationId: getLiquidationCoinalyze
@@ -917,6 +930,40 @@ components:
         h24Amount:
           type: number
       required: [longVolUsd1h, shortVolUsd1h, longVolUsd4h, shortVolUsd4h, longVolUsd12h, shortVolUsd12h, longVolUsd24h, shortVolUsd24h, h1TotalVolUsd, h4TotalVolUsd, h12TotalVolUsd, h24TotalVolUsd, h1Amount, h4Amount, h12Amount, h24Amount]
+
+    LiqMapBucket:
+      type: object
+      properties:
+        price:
+          type: number
+        longLiqUsd:
+          type: number
+        shortLiqUsd:
+          type: number
+        totalUsd:
+          type: number
+      required: [price, longLiqUsd, shortLiqUsd, totalUsd]
+
+    LiquidationMapResponse:
+      type: object
+      properties:
+        buckets:
+          type: array
+          items:
+            $ref: "#/components/schemas/LiqMapBucket"
+        currentPrice:
+          type: number
+        priceRange:
+          type: object
+          properties:
+            min:
+              type: number
+            max:
+              type: number
+          required: [min, max]
+        updatedAt:
+          type: number
+      required: [buckets, currentPrice, priceRange, updatedAt]
 
     CoinalyzeLiqCandle:
       type: object

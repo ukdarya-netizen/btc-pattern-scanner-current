@@ -407,6 +407,26 @@ export const GetLiquidationInfoResponse = zod.object({
 });
 
 /**
+ * @summary Estimated liquidation heatmap by price level (Coinalyze OHLCV + OI model)
+ */
+export const GetLiquidationMapResponse = zod.object({
+  buckets: zod.array(
+    zod.object({
+      price: zod.number(),
+      longLiqUsd: zod.number(),
+      shortLiqUsd: zod.number(),
+      totalUsd: zod.number(),
+    }),
+  ),
+  currentPrice: zod.number(),
+  priceRange: zod.object({
+    min: zod.number(),
+    max: zod.number(),
+  }),
+  updatedAt: zod.number(),
+});
+
+/**
  * @summary Coinalyze aggregated liquidation history across all exchanges
  */
 export const getLiquidationCoinalyzeQueryRangeDefault = `24h`;

@@ -32,6 +32,7 @@ import type {
   LiquidationEventList,
   LiquidationHeatmap,
   LiquidationInfo,
+  LiquidationMapResponse,
   Orderbook,
   PatternResult,
   PnlChartData,
@@ -1523,6 +1524,81 @@ export function useGetLiquidationInfo<
   request?: SecondParameter<typeof customFetch>;
 }): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
   const queryOptions = getGetLiquidationInfoQueryOptions(options);
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+/**
+ * @summary Estimated liquidation heatmap by price level (Coinalyze OHLCV + OI model)
+ */
+export const getGetLiquidationMapUrl = () => {
+  return `/api/liquidations/map`;
+};
+
+export const getLiquidationMap = async (
+  options?: RequestInit,
+): Promise<LiquidationMapResponse> => {
+  return customFetch<LiquidationMapResponse>(getGetLiquidationMapUrl(), {
+    ...options,
+    method: "GET",
+  });
+};
+
+export const getGetLiquidationMapQueryKey = () => {
+  return [`/api/liquidations/map`] as const;
+};
+
+export const getGetLiquidationMapQueryOptions = <
+  TData = Awaited<ReturnType<typeof getLiquidationMap>>,
+  TError = ErrorType<unknown>,
+>(options?: {
+  query?: UseQueryOptions<
+    Awaited<ReturnType<typeof getLiquidationMap>>,
+    TError,
+    TData
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey = queryOptions?.queryKey ?? getGetLiquidationMapQueryKey();
+
+  const queryFn: QueryFunction<
+    Awaited<ReturnType<typeof getLiquidationMap>>
+  > = ({ signal }) => getLiquidationMap({ signal, ...requestOptions });
+
+  return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<
+    Awaited<ReturnType<typeof getLiquidationMap>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type GetLiquidationMapQueryResult = NonNullable<
+  Awaited<ReturnType<typeof getLiquidationMap>>
+>;
+export type GetLiquidationMapQueryError = ErrorType<unknown>;
+
+/**
+ * @summary Estimated liquidation heatmap by price level (Coinalyze OHLCV + OI model)
+ */
+
+export function useGetLiquidationMap<
+  TData = Awaited<ReturnType<typeof getLiquidationMap>>,
+  TError = ErrorType<unknown>,
+>(options?: {
+  query?: UseQueryOptions<
+    Awaited<ReturnType<typeof getLiquidationMap>>,
+    TError,
+    TData
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getGetLiquidationMapQueryOptions(options);
 
   const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
     queryKey: QueryKey;

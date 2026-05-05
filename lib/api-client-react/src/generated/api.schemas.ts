@@ -378,6 +378,25 @@ export interface LiquidationInfo {
   h24Amount: number;
 }
 
+export interface LiqMapBucket {
+  price: number;
+  longLiqUsd: number;
+  shortLiqUsd: number;
+  totalUsd: number;
+}
+
+export type LiquidationMapResponsePriceRange = {
+  min: number;
+  max: number;
+};
+
+export interface LiquidationMapResponse {
+  buckets: LiqMapBucket[];
+  currentPrice: number;
+  priceRange: LiquidationMapResponsePriceRange;
+  updatedAt: number;
+}
+
 export interface CoinalyzeLiqCandle {
   t: number;
   longBtc: number;

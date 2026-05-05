@@ -22,6 +22,11 @@ router.get("/liquidations/info", async (_req, res) => {
   res.json(info ?? {});
 });
 
+router.get("/liquidations/map", async (_req, res) => {
+  const map = await coinalyzeService.getLiquidationMap();
+  res.json(map ?? { buckets: [], currentPrice: 0, priceRange: { min: 0, max: 0 }, updatedAt: 0 });
+});
+
 router.get("/liquidations/coinalyze", async (req, res) => {
   const range = String(req.query["range"] ?? "24h");
   const candles = range === "2h" ? await coinalyzeService.get2h() : await coinalyzeService.get24h();
