@@ -2,6 +2,7 @@ import { aggregator } from "./exchanges/aggregator";
 import { cvdService } from "./cvd";
 import { candleService } from "./candleService";
 import { patternService } from "./patternService";
+import { coinalyzeService } from "./coinalyzeService";
 
 export interface SignalComponent {
   name: string;
@@ -31,28 +32,34 @@ export interface SignalResult {
   updatedAt: string;
 }
 
-const ENTRY_THRESHOLD = 0.35;
+// Weights: Pattern 0.30 + CVD 0.20 + OB 0.15 + Momentum 0.13 + VWAP 0.10 + EMA 0.07 + Liquidations 0.05 = 1.00
+// Funding + OI: weight 0 (display only)
 
 function clamp(val: number, min = -1, max = 1): number {
   return Math.max(min, Math.min(max, val));
 }
 
-// Weights: OB 0.20 + CVD 0.22 + Funding 0.08 + Momentum 0.13 + OI 0.05 + VWAP 0.12 + EMA 0.10 + Pattern 0.10 = 1.00
-function calcOrderbookImbalance(): SignalComponent {
-  const ob = aggregator.getAggregatedOrderbook();
-  if (!ob) return { name: "Order Book Imbalance", score: 0, weight: 0.20, description: "No data" };
+function calcPatternSignal(): SignalComponent {
+  if (!patternService.isReady()) {
+    return { name: "Historical Pattern", score: 0, weight: 0.30, description: "Загрузка исторических данных..." };
+  }
 
-  const bidVol = ob.mergedBids.slice(0, 10).reduce((s, l) => s + l.size, 0);
-  const askVol = ob.mergedAsks.slice(0, 10).reduce((s, l) => s + l.size, 0);
-  const total = bidVol + askVol;
-  const score = total > 0 ? clamp((bidVol - askVol) / total * 3) : 0;
+  const result = patternService.getResult()!;
+  const score = parseFloat(result.signal.toFixed(4));
+  const bull = result.bullishMatches;
+  const bear = result.bearishMatches;
+  const neutral = result.topMatches.length - bull - bear;
+  const topMatch = result.topMatches[0];
+  const simPct = topMatch ? (topMatch.similarity * 100).toFixed(1) : "0";
+  const fwdLabel = topMatch
+    ? `${topMatch.forwardPct >= 0 ? "+" : ""}${topMatch.forwardPct.toFixed(2)}% за 3д`
+    : "";
 
-  const exchanges = Object.keys(ob.byExchange).join(", ");
   return {
-    name: "Order Book Imbalance",
-    score,
-    weight: 0.20,
-    description: `Bid: ${bidVol.toFixed(2)} BTC vs Ask: ${askVol.toFixed(2)} BTC (${exchanges})`,
+    name: "Historical Pattern",
+    score: clamp(score),
+    weight: 0.30,
+    description: `Топ совпадение: ${topMatch?.startDate ?? "—"} (r=${simPct}%) → ${fwdLabel} | Бычьих: ${bull} / Медвежьих: ${bear} / Нейтр: ${neutral} из ${result.topMatches.length}`,
   };
 }
 
@@ -73,31 +80,32 @@ function calcCvdSignal(): SignalComponent {
   return {
     name: "CVD Trend",
     score,
-    weight: 0.22,
+    weight: 0.20,
     description: `Trend: ${trend}, CVD: ${cvdService.getCurrentCvd().toFixed(2)}`,
   };
 }
 
-function calcFundingSignal(): SignalComponent {
-  const fundingRate = aggregator.getPrimaryFundingRate();
-  const exchanges = aggregator.getActiveExchangeNames().join("+");
-  let score = 0;
-  if (fundingRate > 0.001) score = -0.5;
-  else if (fundingRate > 0.0005) score = -0.25;
-  else if (fundingRate < -0.001) score = 0.5;
-  else if (fundingRate < -0.0005) score = 0.25;
+function calcOrderbookImbalance(): SignalComponent {
+  const ob = aggregator.getAggregatedOrderbook();
+  if (!ob) return { name: "Order Book Imbalance", score: 0, weight: 0.15, description: "No data" };
 
+  const bidVol = ob.mergedBids.slice(0, 10).reduce((s, l) => s + l.size, 0);
+  const askVol = ob.mergedAsks.slice(0, 10).reduce((s, l) => s + l.size, 0);
+  const total = bidVol + askVol;
+  const score = total > 0 ? clamp((bidVol - askVol) / total * 3) : 0;
+
+  const exchanges = Object.keys(ob.byExchange).join(", ");
   return {
-    name: "Funding Rate",
+    name: "Order Book Imbalance",
     score,
-    weight: 0.08,
-    description: `Rate: ${(fundingRate * 100).toFixed(4)}% avg (${exchanges}) — ${score > 0 ? "shorts squeezed, longs favored" : score < 0 ? "longs squeezed, shorts favored" : "neutral"}`,
+    weight: 0.15,
+    description: `Bid: ${bidVol.toFixed(2)} BTC vs Ask: ${askVol.toFixed(2)} BTC (${exchanges})`,
   };
 }
 
 function calcMomentumSignal(): SignalComponent {
   const trades = aggregator.getAllTrades().slice(0, 60);
-  if (trades.length === 0) return { name: "Trade Momentum", score: 0, weight: 0.15, description: "No data" };
+  if (trades.length === 0) return { name: "Trade Momentum", score: 0, weight: 0.13, description: "No data" };
 
   const exchanges = [...new Set(trades.map(t => t.exchange))].join("+");
   const buyVol = trades.filter(t => t.side === "buy").reduce((s, t) => s + t.size, 0);
@@ -113,36 +121,17 @@ function calcMomentumSignal(): SignalComponent {
   };
 }
 
-function calcOpenInterestSignal(): SignalComponent {
-  const oi = aggregator.getPrimaryOpenInterest();
-  const price = aggregator.getPrimaryPrice();
-  const exchanges = aggregator.getActiveExchangeNames().join("+");
-  if (price === 0 || oi === 0) return { name: "Open Interest", score: 0, weight: 0.05, description: "No OI data" };
-
-  const oiUsd = oi * price;
-  const cvdTrend = cvdService.getTrend();
-  const score = cvdTrend === "bullish" ? 0.4 : cvdTrend === "bearish" ? -0.4 : 0;
-
-  return {
-    name: "Open Interest",
-    score,
-    weight: 0.05,
-    description: `OI: $${(oiUsd / 1e9).toFixed(2)}B combined (${exchanges}) — ${cvdTrend}`,
-  };
-}
-
 function calcVwapSignal(): SignalComponent {
   const price = aggregator.getPrimaryPrice();
   const vwap = candleService.getVwap();
   const atr = candleService.getAtr();
 
   if (vwap === 0 || price === 0) {
-    return { name: "VWAP Deviation", score: 0, weight: 0.15, description: "Accumulating VWAP data..." };
+    return { name: "VWAP Deviation", score: 0, weight: 0.10, description: "Accumulating VWAP data..." };
   }
 
   const deviation = (price - vwap) / vwap;
   const score = clamp(deviation / 0.004 * 0.8);
-
   const sigma = atr > 0 ? Math.abs(price - vwap) / atr : 0;
   const direction = deviation >= 0 ? "above" : "below";
   const urgency = sigma > 2 ? " — extreme, mean reversion likely" : sigma > 1 ? " — extended" : "";
@@ -150,7 +139,7 @@ function calcVwapSignal(): SignalComponent {
   return {
     name: "VWAP Deviation",
     score,
-    weight: 0.12,
+    weight: 0.10,
     description: `$${price.toFixed(1)} ${direction} VWAP $${vwap.toFixed(1)} by ${(Math.abs(deviation) * 100).toFixed(3)}% (${sigma.toFixed(1)}σ)${urgency}`,
   };
 }
@@ -162,13 +151,12 @@ function calcEmaSignal(): SignalComponent {
   const candleCount = candleService.getCandleCount();
 
   if (ema9 === 0 || ema21 === 0 || candleCount < 5) {
-    return { name: "EMA 9/21", score: 0, weight: 0.10, description: `Building candle history... (${candleCount} candles)` };
+    return { name: "EMA 9/21", score: 0, weight: 0.07, description: `Building candle history... (${candleCount} candles)` };
   }
 
   let score = 0;
   if (ema9 > ema21) score = 0.5;
   else if (ema9 < ema21) score = -0.5;
-
   if (price > ema9 && score > 0) score = clamp(score + 0.3);
   if (price < ema9 && score < 0) score = clamp(score - 0.3);
 
@@ -178,84 +166,142 @@ function calcEmaSignal(): SignalComponent {
   return {
     name: "EMA 9/21",
     score: clamp(score),
-    weight: 0.10,
+    weight: 0.07,
     description: `${crossLabel} | ${priceVsEma} | EMA9: $${ema9.toFixed(1)} EMA21: $${ema21.toFixed(1)}`,
   };
 }
 
-function calcPatternSignal(): SignalComponent {
-  if (!patternService.isReady()) {
-    return { name: "Historical Pattern", score: 0, weight: 0.10, description: "Загрузка исторических данных..." };
+function calcLiquidationSignal(): SignalComponent {
+  const candles = coinalyzeService.getLatest2hCandles();
+
+  if (candles.length < 6) {
+    return {
+      name: "Ликвидации (Coinalyze)",
+      score: 0,
+      weight: 0.05,
+      description: coinalyzeService.isReady() ? "Недостаточно данных" : "Загрузка...",
+    };
   }
 
-  const result = patternService.getResult()!;
-  const score = parseFloat(result.signal.toFixed(4));
-  const bull = result.bullishMatches;
-  const bear = result.bearishMatches;
-  const neutral = result.topMatches.length - bull - bear;
-  const topMatch = result.topMatches[0];
-  const simPct = topMatch ? (topMatch.similarity * 100).toFixed(1) : "0";
-  const fwdLabel = topMatch
-    ? `${topMatch.forwardPct >= 0 ? "+" : ""}${topMatch.forwardPct.toFixed(2)}% за 3д`
-    : "";
+  // Recent = last 2 candles (10 min), baseline = previous 4-12 candles
+  const recent = candles.slice(-2);
+  const baseline = candles.slice(-12, -2);
+
+  const recentLong = recent.reduce((s, c) => s + c.longBtc, 0);
+  const recentShort = recent.reduce((s, c) => s + c.shortBtc, 0);
+  const recentTotal = recentLong + recentShort;
+
+  const baseLong = baseline.reduce((s, c) => s + c.longBtc, 0) / Math.max(baseline.length, 1);
+  const baseShort = baseline.reduce((s, c) => s + c.shortBtc, 0) / Math.max(baseline.length, 1);
+
+  // Per-candle averages for recent period
+  const recentLongAvg = recentLong / recent.length;
+  const recentShortAvg = recentShort / recent.length;
+
+  // Spike ratios vs baseline (capped to avoid division by zero)
+  const longSpike = baseLong > 0.001 ? recentLongAvg / baseLong : recentLongAvg > 0.01 ? 2 : 1;
+  const shortSpike = baseShort > 0.001 ? recentShortAvg / baseShort : recentShortAvg > 0.01 ? 2 : 1;
+
+  // Net ratio: positive = short spike (bullish), negative = long spike (bearish)
+  // Short liquidations → price went up (shorts squeezed) → bullish signal
+  // Long liquidations  → price went down (longs stopped out) → bearish signal
+  let score = 0;
+  const spikeThreshold = 1.5; // need 50% above baseline to count
+
+  if (shortSpike >= spikeThreshold || longSpike >= spikeThreshold) {
+    const netSpike = shortSpike - longSpike;
+    score = clamp(netSpike / 3); // normalize: spike ratio diff of 3x → full score
+  }
+
+  // Also factor in absolute recent ratio
+  const absRatio = recentTotal > 0.001
+    ? (recentShort - recentLong) / recentTotal
+    : 0;
+  score = clamp(score * 0.6 + absRatio * 0.4);
+
+  const shortSpikeLbl = shortSpike >= spikeThreshold ? ` ⚡x${shortSpike.toFixed(1)}` : "";
+  const longSpikeLbl = longSpike >= spikeThreshold ? ` ⚡x${longSpike.toFixed(1)}` : "";
+  const desc = `Лонги: ${recentLong.toFixed(2)} BTC${longSpikeLbl} | Шорты: ${recentShort.toFixed(2)} BTC${shortSpikeLbl} (последние 10 мин, все биржи)`;
 
   return {
-    name: "Historical Pattern",
-    score: Math.max(-1, Math.min(1, score)),
-    weight: 0.10,
-    description: `Топ совпадение: ${topMatch?.startDate ?? "—"} (r=${simPct}%) → ${fwdLabel} | Бычьих: ${bull} / Медвежьих: ${bear} / Нейтр: ${neutral} из ${result.topMatches.length}`,
+    name: "Ликвидации (Coinalyze)",
+    score,
+    weight: 0.05,
+    description: desc,
   };
 }
 
-function calcCrossExchangeSignal(): SignalComponent {
+// Display-only (weight 0) — shown on dashboard but don't affect score
+function calcFundingDisplay(): SignalComponent {
+  const fundingRate = aggregator.getPrimaryFundingRate();
+  const exchanges = aggregator.getActiveExchangeNames().join("+");
+  let score = 0;
+  if (fundingRate > 0.001) score = -0.5;
+  else if (fundingRate > 0.0005) score = -0.25;
+  else if (fundingRate < -0.001) score = 0.5;
+  else if (fundingRate < -0.0005) score = 0.25;
+
+  return {
+    name: "Funding Rate",
+    score,
+    weight: 0,
+    description: `Rate: ${(fundingRate * 100).toFixed(4)}% avg (${exchanges}) — ${score !== 0 ? (score > 0 ? "аномально низкий (лонги платят мало)" : "аномально высокий (шорты платят)") : "норма"}`,
+  };
+}
+
+function calcOpenInterestDisplay(): SignalComponent {
+  const oi = aggregator.getPrimaryOpenInterest();
+  const price = aggregator.getPrimaryPrice();
+  const exchanges = aggregator.getActiveExchangeNames().join("+");
+  if (price === 0 || oi === 0) return { name: "Open Interest", score: 0, weight: 0, description: "Нет данных OI" };
+
+  const oiUsd = oi * price;
+  const cvdTrend = cvdService.getTrend();
+  return {
+    name: "Open Interest",
+    score: 0,
+    weight: 0,
+    description: `OI: $${(oiUsd / 1e6).toFixed(1)}M (${exchanges}) — тренд CVD: ${cvdTrend}`,
+  };
+}
+
+function calcCrossExchangeDisplay(): SignalComponent {
   const agg = aggregator.getAggregatedTicker();
   if (!agg || Object.keys(agg.prices).length < 2) {
-    return { name: "Cross-Exchange Spread", score: 0, weight: 0.05, description: "Need 2+ exchanges" };
+    return { name: "Cross-Exchange Spread", score: 0, weight: 0, description: "Need 2+ exchanges" };
   }
-
-  const prices = Object.values(agg.prices);
-  const max = Math.max(...prices);
-  const min = Math.min(...prices);
-  const spread = (max - min) / agg.avgPrice;
-
-  let score = 0;
-  if (spread > 0.0005) {
-    const bestBidEx = agg.bestBid.exchange;
-    const bestAskEx = agg.bestAsk.exchange;
-    score = bestBidEx !== bestAskEx ? 0.2 : 0;
-  }
-
   const priceParts = Object.entries(agg.prices)
     .map(([ex, p]) => `${ex}: $${p.toFixed(1)}`)
     .join(" | ");
-
-  return {
-    name: "Cross-Exchange Spread",
-    score,
-    weight: 0.00,
-    description: priceParts,
-  };
+  return { name: "Cross-Exchange Spread", score: 0, weight: 0, description: priceParts };
 }
 
 class SignalEngine {
   compute(): SignalResult {
-    const components = [
-      calcOrderbookImbalance(),
-      calcCvdSignal(),
-      calcFundingSignal(),
-      calcMomentumSignal(),
-      calcOpenInterestSignal(),
-      calcVwapSignal(),
-      calcEmaSignal(),
-      calcPatternSignal(),
-      calcCrossExchangeSignal(),
+    // Weighted components (affect score)
+    const weighted: SignalComponent[] = [
+      calcPatternSignal(),       // 30% — PRIMARY
+      calcCvdSignal(),           // 20%
+      calcOrderbookImbalance(),  // 15%
+      calcMomentumSignal(),      // 13%
+      calcVwapSignal(),          // 10%
+      calcEmaSignal(),           //  7%
+      calcLiquidationSignal(),   //  5%
     ];
 
-    const weightedComponents = components.filter(c => c.weight > 0);
-    const totalWeight = weightedComponents.reduce((s, c) => s + c.weight, 0);
+    // Display-only (weight 0, shown for context)
+    const displayOnly: SignalComponent[] = [
+      calcFundingDisplay(),
+      calcOpenInterestDisplay(),
+      calcCrossExchangeDisplay(),
+    ];
+
+    const components = [...weighted, ...displayOnly];
+
+    const totalWeight = weighted.reduce((s, c) => s + c.weight, 0);
     const score = clamp(
       totalWeight > 0
-        ? weightedComponents.reduce((s, c) => s + c.score * c.weight, 0) / totalWeight
+        ? weighted.reduce((s, c) => s + c.score * c.weight, 0) / totalWeight
         : 0
     );
 
@@ -266,7 +312,6 @@ class SignalEngine {
     else if (score < -0.25) direction = "short";
 
     const price = aggregator.getPrimaryPrice() || 100000;
-
     const atr = candleService.getAtr();
     const atrPct = atr > 0 ? (atr / price) * 100 : 0;
     const vwap = candleService.getVwap();
@@ -276,23 +321,18 @@ class SignalEngine {
     else if (atrPct > 0.2) leverage = 85;
     else leverage = 100;
 
-    const slDistance = atr > 0
-      ? Math.max(atr * 1.5, price * 0.0012)
-      : price * 0.0015;
+    const slDistance = atr > 0 ? Math.max(atr * 1.5, price * 0.0012) : price * 0.0015;
     const tpDistance = slDistance * 1.5;
-
     const slDir = direction === "long" ? -1 : 1;
     const tpDir = direction === "long" ? 1 : -1;
 
-    // ── Entry gates: ALL must pass to open a trade ──
-    // Order matters: pattern is PRIMARY — checked first, strictest requirements
+    // ── Entry gates ──
     const dirSign = direction === "long" ? 1 : direction === "short" ? -1 : 0;
+    const cvdComp      = weighted.find(c => c.name === "CVD Trend");
+    const momentumComp = weighted.find(c => c.name === "Trade Momentum");
+    const patternComp  = weighted.find(c => c.name === "Historical Pattern");
 
-    const cvdComp      = components.find(c => c.name === "CVD Trend");
-    const momentumComp = components.find(c => c.name === "Trade Momentum");
-    const patternComp  = components.find(c => c.name === "Historical Pattern");
-
-    // ── Gate 1 (PRIMARY): Pattern match — ready + top correlation ≥ 0.75 + |signal| ≥ 0.20 + direction matches
+    // Gate 1 (PRIMARY): Pattern — correlation ≥ 75%, signal strength ≥ 0.20, direction match
     const MIN_PATTERN_SIMILARITY = 0.75;
     const MIN_PATTERN_SIGNAL = 0.20;
     let patternPassed = false;
@@ -317,7 +357,7 @@ class SignalEngine {
     }
     const gate1: GateResult = { name: "Паттерн-матчинг (первичный)", passed: patternPassed, reason: patternReason };
 
-    // ── Gate 2: Volume — CVD AND momentum both confirm direction
+    // Gate 2: Volume — CVD AND Momentum both confirm direction
     let volumePassed = false;
     let volumeReason = "";
     if (direction === "neutral") {
