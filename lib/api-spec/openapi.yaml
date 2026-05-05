@@ -290,6 +290,26 @@ paths:
               schema:
                 $ref: "#/components/schemas/LiquidationInfo"
 
+  /liquidations/coinalyze:
+    get:
+      operationId: getLiquidationCoinalyze
+      tags: [liquidations]
+      summary: Coinalyze aggregated liquidation history across all exchanges
+      parameters:
+        - name: range
+          in: query
+          schema:
+            type: string
+            enum: [24h, 2h]
+            default: 24h
+      responses:
+        "200":
+          description: Liquidation candles from Coinalyze
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CoinalyzeLiquidationResponse"
+
   /account/balance:
     get:
       operationId: getAccountBalance
@@ -897,3 +917,29 @@ components:
         h24Amount:
           type: number
       required: [longVolUsd1h, shortVolUsd1h, longVolUsd4h, shortVolUsd4h, longVolUsd12h, shortVolUsd12h, longVolUsd24h, shortVolUsd24h, h1TotalVolUsd, h4TotalVolUsd, h12TotalVolUsd, h24TotalVolUsd, h1Amount, h4Amount, h12Amount, h24Amount]
+
+    CoinalyzeLiqCandle:
+      type: object
+      properties:
+        t:
+          type: number
+        longBtc:
+          type: number
+        shortBtc:
+          type: number
+        longUsd:
+          type: number
+        shortUsd:
+          type: number
+      required: [t, longBtc, shortBtc, longUsd, shortUsd]
+
+    CoinalyzeLiquidationResponse:
+      type: object
+      properties:
+        candles:
+          type: array
+          items:
+            $ref: "#/components/schemas/CoinalyzeLiqCandle"
+        range:
+          type: string
+      required: [candles, range]

@@ -378,6 +378,19 @@ export interface LiquidationInfo {
   h24Amount: number;
 }
 
+export interface CoinalyzeLiqCandle {
+  t: number;
+  longBtc: number;
+  shortBtc: number;
+  longUsd: number;
+  shortUsd: number;
+}
+
+export interface CoinalyzeLiquidationResponse {
+  candles: CoinalyzeLiqCandle[];
+  range: string;
+}
+
 export type GetTradeHistoryParams = {
   limit?: number;
 };
@@ -389,3 +402,15 @@ export type GetPnlChartParams = {
 export type GetLiquidationEventsParams = {
   limit?: number;
 };
+
+export type GetLiquidationCoinalyzeParams = {
+  range?: GetLiquidationCoinalyzeRange;
+};
+
+export type GetLiquidationCoinalyzeRange =
+  (typeof GetLiquidationCoinalyzeRange)[keyof typeof GetLiquidationCoinalyzeRange];
+
+export const GetLiquidationCoinalyzeRange = {
+  "24h": "24h",
+  "2h": "2h",
+} as const;

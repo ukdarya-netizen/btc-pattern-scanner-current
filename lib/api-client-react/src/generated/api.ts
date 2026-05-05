@@ -20,9 +20,11 @@ import type {
   AccountBalance,
   BotStartRequest,
   BotState,
+  CoinalyzeLiquidationResponse,
   CvdSeries,
   ExchangeStatusList,
   FundingData,
+  GetLiquidationCoinalyzeParams,
   GetLiquidationEventsParams,
   GetPnlChartParams,
   GetTradeHistoryParams,
@@ -1521,6 +1523,109 @@ export function useGetLiquidationInfo<
   request?: SecondParameter<typeof customFetch>;
 }): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
   const queryOptions = getGetLiquidationInfoQueryOptions(options);
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+/**
+ * @summary Coinalyze aggregated liquidation history across all exchanges
+ */
+export const getGetLiquidationCoinalyzeUrl = (
+  params?: GetLiquidationCoinalyzeParams,
+) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? "null" : value.toString());
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0
+    ? `/api/liquidations/coinalyze?${stringifiedParams}`
+    : `/api/liquidations/coinalyze`;
+};
+
+export const getLiquidationCoinalyze = async (
+  params?: GetLiquidationCoinalyzeParams,
+  options?: RequestInit,
+): Promise<CoinalyzeLiquidationResponse> => {
+  return customFetch<CoinalyzeLiquidationResponse>(
+    getGetLiquidationCoinalyzeUrl(params),
+    {
+      ...options,
+      method: "GET",
+    },
+  );
+};
+
+export const getGetLiquidationCoinalyzeQueryKey = (
+  params?: GetLiquidationCoinalyzeParams,
+) => {
+  return [`/api/liquidations/coinalyze`, ...(params ? [params] : [])] as const;
+};
+
+export const getGetLiquidationCoinalyzeQueryOptions = <
+  TData = Awaited<ReturnType<typeof getLiquidationCoinalyze>>,
+  TError = ErrorType<unknown>,
+>(
+  params?: GetLiquidationCoinalyzeParams,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof getLiquidationCoinalyze>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey =
+    queryOptions?.queryKey ?? getGetLiquidationCoinalyzeQueryKey(params);
+
+  const queryFn: QueryFunction<
+    Awaited<ReturnType<typeof getLiquidationCoinalyze>>
+  > = ({ signal }) =>
+    getLiquidationCoinalyze(params, { signal, ...requestOptions });
+
+  return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<
+    Awaited<ReturnType<typeof getLiquidationCoinalyze>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type GetLiquidationCoinalyzeQueryResult = NonNullable<
+  Awaited<ReturnType<typeof getLiquidationCoinalyze>>
+>;
+export type GetLiquidationCoinalyzeQueryError = ErrorType<unknown>;
+
+/**
+ * @summary Coinalyze aggregated liquidation history across all exchanges
+ */
+
+export function useGetLiquidationCoinalyze<
+  TData = Awaited<ReturnType<typeof getLiquidationCoinalyze>>,
+  TError = ErrorType<unknown>,
+>(
+  params?: GetLiquidationCoinalyzeParams,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof getLiquidationCoinalyze>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getGetLiquidationCoinalyzeQueryOptions(params, options);
 
   const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
     queryKey: QueryKey;

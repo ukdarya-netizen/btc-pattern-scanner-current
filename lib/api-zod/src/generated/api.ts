@@ -407,6 +407,30 @@ export const GetLiquidationInfoResponse = zod.object({
 });
 
 /**
+ * @summary Coinalyze aggregated liquidation history across all exchanges
+ */
+export const getLiquidationCoinalyzeQueryRangeDefault = `24h`;
+
+export const GetLiquidationCoinalyzeQueryParams = zod.object({
+  range: zod
+    .enum(["24h", "2h"])
+    .default(getLiquidationCoinalyzeQueryRangeDefault),
+});
+
+export const GetLiquidationCoinalyzeResponse = zod.object({
+  candles: zod.array(
+    zod.object({
+      t: zod.number(),
+      longBtc: zod.number(),
+      shortBtc: zod.number(),
+      longUsd: zod.number(),
+      shortUsd: zod.number(),
+    }),
+  ),
+  range: zod.string(),
+});
+
+/**
  * @summary Real account balance from exchanges
  */
 export const GetAccountBalanceResponse = zod.object({
