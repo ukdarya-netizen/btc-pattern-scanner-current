@@ -450,24 +450,22 @@ class SignalEngine {
     }
     const gate1: GateResult = { name: "Паттерн-матчинг (первичный)", passed: patternPassed, reason: patternReason };
 
-    // Gate 2: Volume — CVD AND Momentum both confirm direction
-    let volumePassed = false;
-    let volumeReason = "";
+    // Gate 2: Order Book Imbalance — стакан должен подтверждать направление
+    const obComp = weighted.find(c => c.name === "Order Book Imbalance");
+    let obPassed = false;
+    let obReason = "";
     if (direction === "neutral") {
-      volumeReason = "Направление нейтральное";
+      obReason = "Направление нейтральное";
     } else {
-      const cvdOk = cvdComp ? cvdComp.score * dirSign > 0 : false;
-      const momOk = momentumComp ? momentumComp.score * dirSign > 0 : false;
-      volumePassed = cvdOk && momOk;
-      const cvdStr = `CVD ${cvdComp ? (cvdComp.score >= 0 ? "+" : "") + cvdComp.score.toFixed(2) : "?"} ${cvdOk ? "✓" : "✗"}`;
-      const momStr = `Мом. ${momentumComp ? (momentumComp.score >= 0 ? "+" : "") + momentumComp.score.toFixed(2) : "?"} ${momOk ? "✓" : "✗"}`;
-      volumeReason = `${cvdStr} | ${momStr}`;
+      obPassed = obComp ? obComp.score * dirSign > 0 : false;
+      const obStr = `Стакан ${obComp ? (obComp.score >= 0 ? "+" : "") + obComp.score.toFixed(2) : "?"} ${obPassed ? "✓" : "✗"}`;
+      obReason = obStr + (obComp ? ` (bid/ask ${dirSign > 0 ? "перевес bid" : "перевес ask"})` : " — нет данных");
     }
-    const gate2: GateResult = { name: "Объём (CVD + Моментум)", passed: volumePassed, reason: volumeReason };
+    const gate2: GateResult = { name: "Стакан (Order Book)", passed: obPassed, reason: obReason };
 
     const gates: GateResult[] = [gate1, gate2];
-    // Pattern is primary and sufficient — Gate 2 is informational context only
-    const allGatesPassed = direction !== "neutral" && gate1.passed;
+    // Both gates required: Pattern (primary) + Order Book (secondary)
+    const allGatesPassed = direction !== "neutral" && gate1.passed && gate2.passed;
 
     return {
       score: parseFloat(score.toFixed(4)),
