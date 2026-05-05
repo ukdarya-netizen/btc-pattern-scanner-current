@@ -237,6 +237,8 @@ class CoinalyzeService {
     return { buckets, currentPrice, priceRange: { min: globalMin, max: globalMax }, updatedAt: Date.now() };
   }
 
+  getCachedMap(): LiquidationMap | null { return this.cachedMap; }
+
   async getLiquidationMap(): Promise<LiquidationMap | null> {
     if (!this.cachedMap || Date.now() - this.cacheMapAt > 5 * 60 * 1000) {
       await this.refreshMap();

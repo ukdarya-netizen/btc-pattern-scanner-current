@@ -531,6 +531,10 @@ components:
           description: "Current day VWAP price"
         updatedAt:
           type: string
+        tpSource:
+          type: string
+        slSource:
+          type: string
       required: [score, direction, confidence, components, gates, allGatesPassed, suggestedLeverage, suggestedSl, suggestedTp, atrPct, vwap, updatedAt]
 
     PatternMatch:

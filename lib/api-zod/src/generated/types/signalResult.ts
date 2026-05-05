@@ -28,4 +28,6 @@ export interface SignalResult {
   /** Current day VWAP price */
   vwap: number;
   updatedAt: string;
+  tpSource?: string;
+  slSource?: string;
 }

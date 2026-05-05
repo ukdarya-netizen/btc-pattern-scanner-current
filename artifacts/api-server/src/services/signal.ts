@@ -30,6 +30,8 @@ export interface SignalResult {
   atrPct: number;
   vwap: number;
   updatedAt: string;
+  tpSource?: string;
+  slSource?: string;
 }
 
 // Weights: Pattern 0.30 + CVD 0.20 + OB 0.15 + Momentum 0.13 + VWAP 0.10 + EMA 0.07 + Liquidations 0.05 = 1.00
@@ -321,10 +323,85 @@ class SignalEngine {
     else if (atrPct > 0.2) leverage = 85;
     else leverage = 100;
 
-    const slDistance = atr > 0 ? Math.max(atr * 1.5, price * 0.0012) : price * 0.0015;
-    const tpDistance = slDistance * 1.5;
-    const slDir = direction === "long" ? -1 : 1;
-    const tpDir = direction === "long" ? 1 : -1;
+    const atrSlDistance = atr > 0 ? Math.max(atr * 1.5, price * 0.0012) : price * 0.0015;
+
+    // ── Cluster-based TP / SL using liquidation map ──
+    const MIN_TP_CLUSTER_USD = 3_000_000;  // need $3M+ cluster to use as TP target
+    const MIN_SL_CLUSTER_USD = 1_500_000;  // need $1.5M+ cluster as SL danger zone
+    const MAX_TP_RANGE = 0.08;             // look up to 8% away for TP
+    const MAX_SL_RANGE = 0.05;             // look up to 5% away for SL reference
+
+    const liqMap = coinalyzeService.getCachedMap();
+    const buckets = liqMap?.buckets ?? [];
+
+    let suggestedTp: number;
+    let suggestedSl: number;
+    let tpSource: string;
+    let slSource: string;
+
+    if (direction === "long") {
+      // TP: nearest significant SHORT liq cluster ABOVE price (shorts squeezed = upside magnet)
+      const tpCluster = buckets
+        .filter(b => b.price > price && b.price <= price * (1 + MAX_TP_RANGE) && b.shortLiqUsd >= MIN_TP_CLUSTER_USD)
+        .sort((a, b) => a.price - b.price)[0];
+
+      if (tpCluster) {
+        suggestedTp = parseFloat((tpCluster.price * 0.999).toFixed(2)); // just before cluster
+        tpSource = `Кластер шортов $${tpCluster.price.toFixed(0)} (${(tpCluster.shortLiqUsd / 1e6).toFixed(1)}M шортов)`;
+      } else {
+        suggestedTp = parseFloat((price + atrSlDistance * 1.5).toFixed(2));
+        tpSource = "ATR × 1.5 (нет кластера в диапазоне)";
+      }
+
+      // SL: nearest large LONG liq cluster BELOW price (cascade danger zone)
+      const slCluster = buckets
+        .filter(b => b.price < price && b.price >= price * (1 - MAX_SL_RANGE) && b.longLiqUsd >= MIN_SL_CLUSTER_USD)
+        .sort((a, b) => b.price - a.price)[0]; // closest to current price
+
+      const atrSlPrice = price - atrSlDistance;
+      if (slCluster && slCluster.price > atrSlPrice) {
+        // Cluster is between price and ATR SL → exit BEFORE cascade (slightly above cluster)
+        suggestedSl = parseFloat((slCluster.price * 1.0005).toFixed(2));
+        slSource = `Выше кластера лонгов $${slCluster.price.toFixed(0)} (${(slCluster.longLiqUsd / 1e6).toFixed(1)}M) — до каскада`;
+      } else {
+        suggestedSl = parseFloat(atrSlPrice.toFixed(2));
+        slSource = "ATR × 1.5 (кластер далеко или отсутствует)";
+      }
+
+    } else if (direction === "short") {
+      // TP: nearest significant LONG liq cluster BELOW price (longs stopped = downside magnet)
+      const tpCluster = buckets
+        .filter(b => b.price < price && b.price >= price * (1 - MAX_TP_RANGE) && b.longLiqUsd >= MIN_TP_CLUSTER_USD)
+        .sort((a, b) => b.price - a.price)[0]; // closest below
+
+      if (tpCluster) {
+        suggestedTp = parseFloat((tpCluster.price * 1.001).toFixed(2)); // just above cluster
+        tpSource = `Кластер лонгов $${tpCluster.price.toFixed(0)} (${(tpCluster.longLiqUsd / 1e6).toFixed(1)}M лонгов)`;
+      } else {
+        suggestedTp = parseFloat((price - atrSlDistance * 1.5).toFixed(2));
+        tpSource = "ATR × 1.5 (нет кластера в диапазоне)";
+      }
+
+      // SL: nearest large SHORT liq cluster ABOVE price (cascade danger for shorts)
+      const slCluster = buckets
+        .filter(b => b.price > price && b.price <= price * (1 + MAX_SL_RANGE) && b.shortLiqUsd >= MIN_SL_CLUSTER_USD)
+        .sort((a, b) => a.price - b.price)[0]; // closest above
+
+      const atrSlPrice = price + atrSlDistance;
+      if (slCluster && slCluster.price < atrSlPrice) {
+        suggestedSl = parseFloat((slCluster.price * 0.9995).toFixed(2));
+        slSource = `Ниже кластера шортов $${slCluster.price.toFixed(0)} (${(slCluster.shortLiqUsd / 1e6).toFixed(1)}M) — до каскада`;
+      } else {
+        suggestedSl = parseFloat(atrSlPrice.toFixed(2));
+        slSource = "ATR × 1.5 (кластер далеко или отсутствует)";
+      }
+
+    } else {
+      suggestedTp = parseFloat((price + atrSlDistance * 1.5).toFixed(2));
+      suggestedSl = parseFloat((price - atrSlDistance).toFixed(2));
+      tpSource = "ATR (нейтральное направление)";
+      slSource = "ATR (нейтральное направление)";
+    }
 
     // ── Entry gates ──
     const dirSign = direction === "long" ? 1 : direction === "short" ? -1 : 0;
@@ -383,11 +460,13 @@ class SignalEngine {
       gates,
       allGatesPassed,
       suggestedLeverage: leverage,
-      suggestedSl: parseFloat((price + slDir * slDistance).toFixed(2)),
-      suggestedTp: parseFloat((price + tpDir * tpDistance).toFixed(2)),
+      suggestedSl,
+      suggestedTp,
       atrPct: parseFloat(atrPct.toFixed(4)),
       vwap: parseFloat(vwap.toFixed(2)),
       updatedAt: new Date().toISOString(),
+      tpSource,
+      slSource,
     };
   }
 }

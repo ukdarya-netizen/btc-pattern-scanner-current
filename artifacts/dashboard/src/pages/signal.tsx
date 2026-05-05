@@ -163,6 +163,9 @@ export default function Signal() {
               <div className="text-xs text-muted-foreground uppercase mb-1">Stop Loss</div>
               <div className="text-lg font-bold text-red-400">${signal?.suggestedSl.toFixed(1) ?? "—"}</div>
               <div className="text-xs text-muted-foreground">-{slPct}%</div>
+              {signal?.slSource && (
+                <div className="text-[9px] text-muted-foreground mt-1 leading-tight">{signal.slSource}</div>
+              )}
             </CardContent>
           </Card>
           <Card className="rounded-none border-border">
@@ -170,6 +173,9 @@ export default function Signal() {
               <div className="text-xs text-muted-foreground uppercase mb-1">Take Profit</div>
               <div className="text-lg font-bold text-green-400">${signal?.suggestedTp.toFixed(1) ?? "—"}</div>
               <div className="text-xs text-muted-foreground">+{tpPct}%</div>
+              {signal?.tpSource && (
+                <div className="text-[9px] text-muted-foreground mt-1 leading-tight">{signal.tpSource}</div>
+              )}
             </CardContent>
           </Card>
           <Card className="rounded-none border-border">

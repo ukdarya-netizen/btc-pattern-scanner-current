@@ -149,6 +149,8 @@ export const GetCurrentSignalResponse = zod.object({
   atrPct: zod.number().describe("ATR as % of price — drives adaptive leverage"),
   vwap: zod.number().describe("Current day VWAP price"),
   updatedAt: zod.string(),
+  tpSource: zod.string().optional(),
+  slSource: zod.string().optional(),
 });
 
 /**
