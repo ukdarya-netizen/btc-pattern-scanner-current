@@ -6,3 +6,9 @@ id = "sMCMcI86c3Y6WK_FfFlGN"
 uri = "file://btc_scalping_bot_audit.txt"
 type = "text"
 title = "BTC Scalping Bot — полный исходный код (аудит)"
+
+[[outputs]]
+id = "940ez16Y8vD-qK9IqrCwF"
+uri = "file://btc_bot_code.zip"
+type = "unspecified"
+title = "btc_bot_code.zip — все ключевые файлы"
