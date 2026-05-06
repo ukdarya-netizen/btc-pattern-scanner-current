@@ -64,17 +64,31 @@ class StatsScheduler {
 
   private async sendDailyReport(msk: Date) {
     try {
-      const dayStart = startOfDayMsk(msk);
+      // Rolling 24h window — no dead zones between reports
       const now = new Date();
+      const dayStart = new Date(now.getTime() - 24 * 60 * 60 * 1000);
       const stats = await dbService.getStatsForPeriod(dayStart, now);
       const dayName = DAYS_RU[msk.getUTCDay()];
       const dateStr = `${msk.getUTCDate().toString().padStart(2, "0")}.${(msk.getUTCMonth() + 1).toString().padStart(2, "0")}.${msk.getUTCFullYear()}`;
+
+      if (stats.totalTrades === 0) {
+        const msg =
+          `📊 <b>ЕЖЕДНЕВНЫЙ ОТЧЁТ — ${dayName}, ${dateStr}</b>\n` +
+          `━━━━━━━━━━━━━━━━━━━\n` +
+          `⏳ Сигналов за последние 24 часа не было\n` +
+          `Рынок не дал подходящих условий для входа\n` +
+          `━━━━━━━━━━━━━━━━━━━\n` +
+          `#BTC #статистика #daily`;
+        telegramService.notifyChannel(msg);
+        logger.info({ date: dateStr }, "Daily report: no trades");
+        return;
+      }
 
       const pnlEmoji = stats.totalPnl >= 0 ? "🟢" : "🔴";
       const msg =
         `📊 <b>ЕЖЕДНЕВНЫЙ ОТЧЁТ — ${dayName}, ${dateStr}</b>\n` +
         `━━━━━━━━━━━━━━━━━━━\n` +
-        `${pnlEmoji} P&amp;L за день: <b>${pnlSign(stats.totalPnl)}</b>\n` +
+        `${pnlEmoji} P&amp;L за 24ч: <b>${pnlSign(stats.totalPnl)}</b>\n` +
         `📈 Сделок: <b>${stats.totalTrades}</b> (✅${stats.wins} / ❌${stats.losses})\n` +
         `🎯 Win Rate: <b>${pct(stats.winRate)}</b>\n` +
         `💹 Средняя сделка: <b>${pnlSign(stats.avgPnl)}</b>\n` +
@@ -85,7 +99,7 @@ class StatsScheduler {
         `#BTC #статистика #daily`;
 
       telegramService.notifyChannel(msg);
-      logger.info({ date: dateStr, pnl: stats.totalPnl }, "Daily stats report sent");
+      logger.info({ date: dateStr, pnl: stats.totalPnl, trades: stats.totalTrades }, "Daily stats report sent");
     } catch (e) {
       logger.error({ err: e }, "Failed to send daily report");
     }
