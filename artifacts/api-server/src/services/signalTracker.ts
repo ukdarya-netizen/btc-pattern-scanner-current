@@ -6,6 +6,7 @@ import { telegramService } from "./telegram";
 
 const VIRTUAL_SIZE_BTC = 0.01;           // ~$800-1000 notional per signal
 const MIN_SIGNAL_INTERVAL_MS = 5 * 60 * 1000; // 5 min cooldown between signals
+const SIGNAL_SCORE_THRESHOLD = 0.35;     // same threshold as maybePublishSignal in telegram.ts
 
 interface ActiveSignal {
   id: string;
@@ -63,8 +64,11 @@ class SignalTracker {
     if (now - this.lastSignalAt < MIN_SIGNAL_INTERVAL_MS) return;
 
     const signal = signalEngine.compute();
-    if (!signal.allGatesPassed) return;
+    if (Math.abs(signal.score) < SIGNAL_SCORE_THRESHOLD) return;
     if (signal.direction === "neutral") return;
+    // Skip if no valid SL/TP from clusters
+    if (!signal.suggestedSl || !signal.suggestedTp) return;
+    if (signal.suggestedSl === 0 || signal.suggestedTp === 0) return;
 
     this.active = {
       id: `sig-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
