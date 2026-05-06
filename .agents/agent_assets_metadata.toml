@@ -1,0 +1,8 @@
+uploads = []
+generated = []
+
+[[outputs]]
+id = "sMCMcI86c3Y6WK_FfFlGN"
+uri = "file://btc_scalping_bot_audit.txt"
+type = "text"
+title = "BTC Scalping Bot — полный исходный код (аудит)"
