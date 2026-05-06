@@ -97,10 +97,14 @@ class TelegramService {
   }
 
   notify(message: string) {
-    if (!this.bot || this.registeredChats.size === 0) {
-      logger.info({ message }, "Telegram notification (no recipients)");
+    if (!this.bot) return;
+
+    if (this.registeredChats.size === 0) {
+      // No private chats registered — fall back to channel so nothing is lost
+      this.notifyChannel(`⚙️ ${message}`);
       return;
     }
+
     for (const chatId of this.registeredChats) {
       this.bot.telegram.sendMessage(chatId, message).catch((err) => {
         logger.warn({ err, chatId }, "Failed to send Telegram message");
