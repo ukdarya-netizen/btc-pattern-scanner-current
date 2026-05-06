@@ -1,0 +1,445 @@
+ИЗМЕНЕНИЕ 1: Реальная карта ликвидаций через Coinglass
+Файл: coinglassService.ts
+Удалить: текущий метод computeMap() в coinalyzeService.ts — он строит синтетическую карту из OHLCV+OI, что является приближением, а не реальными данными.
+Добавить в coinglassService.ts новый метод получения реальной liquidation heatmap:
+typescript// Новый интерфейс
+export interface LiqHeatmapBucket {
+  price: number;          // ценовой уровень
+  longLiqUsd: number;     // объём ликвидаций лонгов на этом уровне ($)
+  shortLiqUsd: number;    // объём ликвидаций шортов на этом уровне ($)
+  totalUsd: number;       // суммарно
+}
+
+export interface LiqHeatmap {
+  buckets: LiqHeatmapBucket[];
+  currentPrice: number;
+  updatedAt: number;
+}
+
+// Endpoint: GET https://open-api.coinglass.com/public/v2/liquidation_heatmap
+// Параметры: symbol=BTC, range=12  (диапазон в часах: 12 или 24)
+// Header: coinglassSecret: API_KEY
+
+// Кешировать с TTL 5 минут
+// При ошибке возвращать последний валидный кеш
+// Обновлять каждые 5 минут через setInterval в конструкторе
+Метод:
+typescriptasync getLiqHeatmap(range: 12 | 24 = 12): Promise<LiqHeatmap | null>
+getCachedHeatmap(): LiqHeatmap | null  // синхронный — для signal.ts
+Важно: если Coinglass API не возвращает отдельные поля longLiqUsd / shortLiqUsd а возвращает общий объём — разбивать 60/40 long/short не нужно, использовать как totalUsd и адаптировать логику в signal.ts. Главное — реальные ценовые уровни с реальными объёмами.
+
+ИЗМЕНЕНИЕ 2: Замена Pattern Matching на Multi-Timeframe CVD
+2а. Обновить cvd.ts
+Удалить: текущую логику одного CVD потока.
+Добавить три независимых CVD аккумулятора:
+typescript// Три таймфрейма
+private buckets1m:  Map<number, { buy: number; sell: number }> = new Map();
+private buckets5m:  Map<number, { buy: number; sell: number }> = new Map();
+private buckets15m: Map<number, { buy: number; sell: number }> = new Map();
+
+// Ключ buckets — Math.floor(timestamp / intervalMs) * intervalMs
+// 1m  = Math.floor(ts / 60000) * 60000
+// 5m  = Math.floor(ts / 300000) * 300000
+// 15m = Math.floor(ts / 900000) * 900000
+
+// Хранить последние N бакетов каждого таймфрейма:
+// 1m  — 60 бакетов (1 час)
+// 5m  — 48 бакетов (4 часа)
+// 15m — 32 бакета  (8 часов)
+Новые публичные методы:
+typescript// Тренд конкретного таймфрейма
+getTrend1m():  "bullish" | "bearish" | "neutral"
+getTrend5m():  "bullish" | "bearish" | "neutral"
+getTrend15m(): "bullish" | "bearish" | "neutral"
+
+// Ключевой метод — согласованность всех трёх
+getAlignment(): {
+  trend: "bullish" | "bearish" | "mixed";
+  score: number;        // от -1 до +1
+  // +1.0 = все три bullish
+  // -1.0 = все три bearish
+  // 0    = разногласие
+  strong: boolean;      // true если ВСЕ три согласованы (не mixed)
+  description: string;  // "1m↑ 5m↑ 15m↑", "1m↑ 5m↓ 15m↑" и т.д.
+}
+
+// Для обратной совместимости оставить:
+getPoints(): CvdPoint[]           // только 1m точки
+getCurrentCvd(): number           // текущий CVD 1m
+getTrend(): "bullish" | "bearish" | "neutral"  // = getTrend1m()
+Логика getTrend для каждого таймфрейма:
+typescript// Сравниваем CVD последних 5 бакетов vs предыдущих 5 бакетов
+// recent = последние 5 бакетов этого таймфрейма
+// baseline = предыдущие 5 бакетов
+// delta = sum(recent deltas) - sum(baseline deltas)
+// bullish если delta > порог
+// bearish если delta < -порог
+// Порог подбирать адаптивно: stddev последних 20 бакетов * 0.5
+2б. Обновить signal.ts — заменить Pattern компонент
+Удалить: calcPatternSignal() как weighted компонент (убрать его 30% вес из основного расчёта).
+Важно: patternService не трогать и не удалять — он остаётся как display-only компонент (weight: 0) для информации на дашборде.
+Добавить: calcMtfCvdSignal() с весом 0.30:
+typescriptfunction calcMtfCvdSignal(): SignalComponent {
+  const alignment = cvdService.getAlignment();
+  
+  // score маппинг:
+  // все три согласованы bullish  → +0.90
+  // 2 из 3 bullish               → +0.45
+  // mixed / нейтральный          → 0.00
+  // 2 из 3 bearish               → -0.45
+  // все три согласованы bearish  → -0.90
+  
+  return {
+    name: "MTF CVD (1m/5m/15m)",
+    score: alignment.score,
+    weight: 0.30,
+    description: alignment.description + ` | strong: ${alignment.strong}`,
+  };
+}
+Обновить веса остальных компонентов (сумма должна быть 1.00):
+MTF CVD           0.30  (был Pattern 0.30)
+CVD Trend 1m      0.15  (был 0.20 — теперь 1m входит в MTF, снижаем)
+Order Book        0.20  (был 0.15 — повышаем, стакан важен)
+Trade Momentum    0.13  (без изменений)
+VWAP Deviation    0.10  (без изменений)
+EMA 9/21          0.07  (без изменений)
+Liquidations      0.05  (без изменений)
+─────────────────────
+ИТОГО             1.00
+
+ИЗМЕНЕНИЕ 3: SL только на кластерах ликвидаций
+Файл: signal.ts
+Удалить полностью:
+typescript// Убрать эти строки — ATR для SL больше не используется:
+const atrSlDistance = atr > 0 ? Math.max(atr * 1.5, price * 0.0012) : price * 0.0015;
+Добавить функцию:
+typescriptconst MIN_SL_CLUSTER_USD  = 3_000_000;  // минимум $3M кластер
+const MAX_SL_RANGE_PCT    = 0.04;       // ищем в 4% от цены
+const MIN_SL_DISTANCE_PCT = 0.004;      // SL минимум 0.4% от цены
+const MAX_SL_DISTANCE_PCT = 0.025;      // SL максимум 2.5% от цены
+const SL_CLUSTER_BUFFER   = 0.0008;     // 0.08% буфер ДО кластера
+
+interface SlResult {
+  price: number;
+  source: string;
+  valid: boolean;
+  clusterUsd: number;
+  distancePct: number;
+}
+
+function calcSlFromLiqMap(
+  direction: "long" | "short",
+  price: number,
+  buckets: LiqHeatmapBucket[]  // реальные данные из Coinglass
+): SlResult {
+  // LONG: ищем кластер ЛОНГОВ ниже цены
+  // Это зона где лонгистов вынесет каскадом — выходим ДО неё
+  // SL = cluster.price * (1 + SL_CLUSTER_BUFFER)
+  // Выставляем чуть ВЫШЕ кластера — выходим до начала каскада
+
+  // SHORT: ищем кластер ШОРТОВ выше цены  
+  // Это зона где шортистов выдавит вверх — выходим ДО неё
+  // SL = cluster.price * (1 - SL_CLUSTER_BUFFER)
+
+  // Если кластера нет → valid: false (сигнал не выдаётся вообще)
+  // Если distancePct < MIN → valid: false (кластер слишком близко)
+  // Если distancePct > MAX → valid: false (кластер слишком далеко для плеча)
+  
+  // При нескольких кандидатах — брать ближайший к цене значимый кластер
+  // (не самый крупный — а ближайший, потому что он сработает первым)
+}
+
+ИЗМЕНЕНИЕ 4: TP только на кластерах + минимальные требования
+Файл: signal.ts
+Константы:
+typescriptconst MIN_TP_CLUSTER_USD  = 2_000_000;  // минимум $2M кластер для TP
+const MAX_TP_RANGE_PCT    = 0.08;       // ищем в 8% от цены
+const MIN_TP_DISTANCE_PCT = 0.015;      // TP минимум 1.5% от цены
+const MIN_RR_RATIO        = 1.5;        // Risk/Reward минимум 1:1.5
+const TP_CLUSTER_BUFFER   = 0.001;      // 0.1% буфер ДО кластера
+Логика:
+typescriptfunction calcTpFromLiqMap(
+  direction: "long" | "short",
+  price: number,
+  buckets: LiqHeatmapBucket[],
+  slDistancePct: number  // чтобы проверить R:R
+): TpResult {
+  // LONG: ищем кластер ШОРТОВ выше цены
+  // Шортовый кластер = магнит для цены вверх (их будут выдавливать)
+  // TP = cluster.price * (1 - TP_CLUSTER_BUFFER) — чуть ниже кластера
+  // Фиксируем прибыль ДО того как шорты закроются и движение остановится
+
+  // SHORT: ищем кластер ЛОНГОВ ниже цены
+  // Лонговый кластер = магнит для цены вниз
+  // TP = cluster.price * (1 + TP_CLUSTER_BUFFER) — чуть выше кластера
+
+  // Проверки:
+  // 1. tpDistancePct >= MIN_TP_DISTANCE_PCT (минимум 1.5%)
+  // 2. R:R = tpDistancePct / slDistancePct >= MIN_RR_RATIO
+  // 3. Если кластера нет → valid: false → сигнал не выдаётся
+  // 4. ATR как fallback для TP — ЗАПРЕЩЁН полностью
+}
+
+ИЗМЕНЕНИЕ 5: Новые Gates в signal.ts
+Текущие gates (2 штуки) — заменить на 4:
+typescript// Gate 1: MTF CVD Alignment — НОВЫЙ PRIMARY
+// Все три таймфрейма (1m, 5m, 15m) должны быть согласованы
+// passed = alignment.strong === true И направление совпадает
+// Причина: если таймфреймы не согласованы — нет устойчивого тренда
+
+// Gate 2: Order Book Imbalance — без изменений
+// Стакан подтверждает направление
+
+// Gate 3: SL на кластере ликвидаций — НОВЫЙ
+// passed = slResult.valid === true
+// Причина: без реального уровня для SL — сигнал не имеет смысла
+
+// Gate 4: TP на кластере + R:R ≥ 1.5 — НОВЫЙ
+// passed = tpResult.valid === true
+// Причина: без цели с минимальным R:R — сделка математически невыгодна
+Порядок вычислений в compute():
+1. Считаем все компоненты → score → direction
+2. calcSlFromLiqMap() → slResult
+3. calcTpFromLiqMap() с slDistancePct → tpResult  
+4. Проверяем все 4 gates
+5. allGatesPassed = все 4 true
+6. suggestedSl = slResult.price (если valid) иначе fallback для отображения
+7. suggestedTp = tpResult.price (если valid) иначе fallback для отображения
+
+ИЗМЕНЕНИЕ 6: OI Delta Analysis
+Файл: coinglassService.ts или новый oiService.ts
+Добавить накопление истории OI:
+typescriptinterface OiSnapshot {
+  timestamp: number;
+  oi: number;        // в BTC или USD — что даёт API
+  price: number;
+}
+
+// Хранить последние 30 снапшотов (каждые 1 минуту = 30 минут истории)
+private oiHistory: OiSnapshot[] = [];
+
+// Каждую минуту пушить новый снапшот через setInterval
+
+export interface OiDeltaResult {
+  delta5m: number;          // изменение OI за 5 минут (в %)
+  delta15m: number;         // изменение OI за 15 минут (в %)
+  priceChange5m: number;    // изменение цены за те же 5 минут (в %)
+  interpretation: "trend_strong" | "trend_weak" | "reversal_likely" | "neutral";
+  score: number;            // от -1 до +1 для использования в signal
+}
+
+getOiDelta(): OiDeltaResult {
+  // OI растёт + цена растёт   → trend_strong  → score +0.7  (новые лонги открываются)
+  // OI падает + цена растёт   → trend_weak    → score +0.3  (шорты закрываются, слабее)
+  // OI растёт + цена падает   → trend_strong  → score -0.7  (новые шорты открываются)
+  // OI падает + цена падает   → trend_weak    → score -0.3  (лонги закрываются)
+  // OI резко падает            → reversal_likely → score 0  (массовое закрытие позиций)
+}
+Интеграция в signal.ts:
+typescript// Добавить как display-only компонент (weight: 0) на первом этапе
+// После тестирования можно дать вес 0.05-0.10 за счёт снижения EMA
+
+function calcOiDeltaDisplay(): SignalComponent {
+  const oi = oiService.getOiDelta();
+  return {
+    name: "OI Delta",
+    score: oi.score,
+    weight: 0,   // display-only пока не протестировано
+    description: `5m: ${oi.delta5m > 0 ? '+' : ''}${(oi.delta5m*100).toFixed(2)}% OI | ${oi.interpretation}`,
+  };
+}
+
+ИЗМЕНЕНИЕ 7: Funding Rate Extremes Gate
+Файл: signal.ts
+Добавить функцию анализа:
+typescriptinterface FundingAnalysis {
+  extreme: boolean;
+  bias: "long_crowded" | "short_crowded" | "normal";
+  contrarian: "short" | "long" | "none";
+  score: number;  // от -1 до +1
+}
+
+function analyzeFunding(rate: number): FundingAnalysis {
+  // rate > 0.0005 (0.05% за 8ч) = толпа в лонгах = умные деньги шортят
+  // Это значит: если мы хотим лонг при таком funding — подождать
+  
+  // rate < -0.0002 = паника, все шортят = умные деньги лонгуют
+  
+  // rate > 0.001 (0.1% за 8ч) = экстремум = очень высокая вероятность разворота
+}
+Использование:
+typescript// Добавить как мягкий фильтр (не жёсткий gate):
+// Если funding экстремальный И направление сигнала СОВПАДАЕТ с толпой:
+//   → понизить score на 30% (не блокировать, но ослабить)
+// Если funding экстремальный И направление ПРОТИВ толпы (contrarian):
+//   → усилить score на 20%
+
+// Пример: funding 0.08% (толпа в лонгах) + сигнал SHORT
+//   → score * 1.2 (умные деньги тоже шортят)
+// Пример: funding 0.08% (толпа в лонгах) + сигнал LONG
+//   → score * 0.7 (идём с толпой = опасно)
+
+ИЗМЕНЕНИЕ 8: Leverage логика — исправить инверсию
+Файл: signal.ts
+Текущий код (баг — логика инвертирована):
+typescriptif (atrPct > 0.4) leverage = 75;
+else if (atrPct > 0.2) leverage = 85;
+else leverage = 100;
+Исправить на:
+typescript// Высокая волатильность = меньше плечо (защита от выноса)
+// Низкая волатильность  = больше плечо (движение предсказуемее)
+
+// Дополнительно: плечо зависит от качества сигнала
+// Если все 4 gate прошли с запасом (score > 0.7) — можно выше
+// Если прошли впритык — ниже
+
+if (atrPct > 0.5) {
+  leverage = 20;       // очень высокая волатильность
+} else if (atrPct > 0.3) {
+  leverage = 35;
+} else if (atrPct > 0.2) {
+  leverage = 50;
+} else if (atrPct > 0.1) {
+  leverage = 75;
+} else {
+  leverage = 100;      // низкая волатильность
+}
+
+// Модификатор качества сигнала
+const signalQuality = Math.abs(score);  // 0..1
+leverage = Math.round(leverage * (0.7 + signalQuality * 0.3));
+// score 1.0 → leverage * 1.0 (полное)
+// score 0.3 → leverage * 0.79 (сниженное)
+leverage = Math.min(leverage, maxLeverage);  // не превышать лимит из конфига
+
+ИЗМЕНЕНИЕ 9: Cooldown после SL
+Файл: botEngine.ts
+Добавить в класс BotEngine:
+typescriptprivate lastSlAt = 0;
+private consecutiveSl = 0;
+private slCooldownUntil = 0;
+В tick() — перед поиском нового сигнала:
+typescriptif (Date.now() < this.slCooldownUntil) {
+  // Логировать раз в минуту чтобы не спамить
+  return;
+}
+После закрытия позиции по SL:
+typescriptif (reason === "sl") {
+  this.consecutiveSl++;
+  
+  // Экспоненциальный cooldown:
+  // 1й SL подряд  → 5 минут
+  // 2й SL подряд  → 15 минут  
+  // 3й SL подряд  → 45 минут
+  // 4й SL подряд  → 2 часа
+  // 5й и более    → 4 часа (максимум)
+  
+  const cooldownMs = Math.min(
+    5 * 60 * 1000 * Math.pow(3, this.consecutiveSl - 1),
+    4 * 60 * 60 * 1000
+  );
+  
+  this.slCooldownUntil = Date.now() + cooldownMs;
+  
+  const cooldownMin = Math.round(cooldownMs / 60000);
+  logger.warn({ consecutiveSl: this.consecutiveSl, cooldownMin }, 
+    "SL cooldown activated");
+  
+  telegramService.notify(
+    `🔴 SL #${this.consecutiveSl} подряд\n` +
+    `⏳ Cooldown: ${cooldownMin} мин\n` +
+    `Возобновление: ${new Date(this.slCooldownUntil).toLocaleTimeString('ru-RU')}`
+  );
+  
+} else if (reason === "tp") {
+  this.consecutiveSl = 0;  // Сбросить счётчик после профита
+  this.slCooldownUntil = 0;
+}
+Добавить в getState():
+typescriptslCooldownUntil: this.slCooldownUntil > Date.now() 
+  ? new Date(this.slCooldownUntil).toISOString() 
+  : null,
+consecutiveSl: this.consecutiveSl,
+
+ИЗМЕНЕНИЕ 10: Cross-Exchange Divergence
+Файл: signal.ts
+Добавить display-only компонент:
+typescriptfunction calcCrossExchangeImbalance(): SignalComponent {
+  const agg = aggregator.getAggregatedOrderbook();
+  if (!agg || Object.keys(agg.byExchange).length < 2) {
+    return { name: "Cross-Exchange Divergence", score: 0, weight: 0, 
+             description: "Нужно 2+ биржи" };
+  }
+
+  // Считаем imbalance отдельно для каждой биржи
+  const imbalances: Record<string, number> = {};
+  for (const [exchange, ob] of Object.entries(agg.byExchange)) {
+    imbalances[exchange] = ob.imbalance;
+  }
+
+  const values = Object.values(imbalances);
+  const maxDivergence = Math.max(...values) - Math.min(...values);
+  
+  // Если расхождение > 0.3 — манипуляция на одной из бирж
+  // Среднее imbalance всё равно используем как score
+  const avgImbalance = values.reduce((s, v) => s + v, 0) / values.length;
+  
+  const desc = Object.entries(imbalances)
+    .map(([ex, im]) => `${ex}: ${(im*100).toFixed(1)}%`)
+    .join(' | ');
+  
+  const warning = maxDivergence > 0.3 
+    ? ` ⚠️ Расхождение ${(maxDivergence*100).toFixed(0)}% — возможна манипуляция` 
+    : '';
+
+  return {
+    name: "Cross-Exchange Divergence",
+    score: avgImbalance,
+    weight: 0,  // display-only
+    description: desc + warning,
+  };
+}
+
+ИТОГОВАЯ СТРУКТУРА СИГНАЛА v2.0
+Weighted компоненты (влияют на score):
+MTF CVD (1m/5m/15m)     weight: 0.30  ← НОВЫЙ PRIMARY
+CVD Trend 1m            weight: 0.15  ← снижен
+Order Book Imbalance    weight: 0.20  ← повышен
+Trade Momentum          weight: 0.13
+VWAP Deviation          weight: 0.10
+EMA 9/21                weight: 0.07
+Liquidations Coinalyze  weight: 0.05
+─────────────────────────────────────
+ИТОГО                   1.00
+Display-only компоненты (weight: 0):
+Historical Pattern      — остаётся для информации на дашборде
+Funding Rate            — с новым анализом extremes
+Open Interest           — с delta анализом
+Cross-Exchange Spread   — существующий
+Cross-Exchange Divergence — НОВЫЙ
+OI Delta                — НОВЫЙ
+Gates (все 4 должны быть true):
+Gate 1: MTF CVD Alignment     — все 3 таймфрейма согласованы
+Gate 2: Order Book Imbalance  — стакан подтверждает направление
+Gate 3: SL на кластере        — реальный уровень ликвидаций найден
+Gate 4: TP на кластере + R:R  — цель ≥1.5% от цены + R:R ≥1.5
+
+ВАЖНЫЕ ОГРАНИЧЕНИЯ
+1. patternService.ts — НЕ ТРОГАТЬ, НЕ УДАЛЯТЬ
+   Только убрать из weighted компонентов, оставить как display-only
+
+2. Trailing stop — НЕ ДОБАВЛЯТЬ
+
+3. News guard — НЕ ДОБАВЛЯТЬ (новости уже учтены в графике)
+
+4. ATR — можно оставить для отображения atrPct на дашборде
+   Для SL и TP — ЗАПРЕЩЁН полностью
+
+5. Если Coinglass API не имеет liquidation heatmap endpoint
+   в текущем тарифе — использовать Hyblock API как альтернативу
+   или оставить coinalyzeService.computeMap() временно
+   с пометкой TODO
+
+ПЕРЕМЕННЫЕ ОКРУЖЕНИЯ — новые не нужны
+Coinglass API key уже есть: COINGLASS_API_KEY
+Все остальные сервисы уже подключены.

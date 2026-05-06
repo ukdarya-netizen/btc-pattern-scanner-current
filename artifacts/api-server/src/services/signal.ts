@@ -3,6 +3,9 @@ import { cvdService } from "./cvd";
 import { candleService } from "./candleService";
 import { patternService } from "./patternService";
 import { coinalyzeService } from "./coinalyzeService";
+import { coinglassService } from "./coinglassService";
+import type { LiqHeatmapBucket } from "./coinglassService";
+import type { LiqMapBucket } from "./coinalyzeService";
 
 export interface SignalComponent {
   name: string;
@@ -27,6 +30,8 @@ export interface SignalResult {
   suggestedLeverage: number;
   suggestedSl: number;
   suggestedTp: number;
+  slValid: boolean;
+  tpValid: boolean;
   atrPct: number;
   vwap: number;
   updatedAt: string;
@@ -34,34 +39,271 @@ export interface SignalResult {
   slSource?: string;
 }
 
-// Weights: Pattern 0.30 + CVD 0.20 + OB 0.15 + Momentum 0.13 + VWAP 0.10 + EMA 0.07 + Liquidations 0.05 = 1.00
-// Funding + OI: weight 0 (display only)
+// Unified bucket type for SL/TP logic
+type Bucket = { price: number; longLiqUsd: number; shortLiqUsd: number; totalUsd: number };
+
+// ─── Constants ───────────────────────────────────────────────
+const MIN_SL_CLUSTER_USD  = 3_000_000;
+const MAX_SL_RANGE_PCT    = 0.04;
+const MIN_SL_DISTANCE_PCT = 0.004;
+const MAX_SL_DISTANCE_PCT = 0.025;
+const SL_CLUSTER_BUFFER   = 0.0008;
+
+const MIN_TP_CLUSTER_USD  = 2_000_000;
+const MAX_TP_RANGE_PCT    = 0.08;
+const MIN_TP_DISTANCE_PCT = 0.015;
+const MIN_RR_RATIO        = 1.5;
+const TP_CLUSTER_BUFFER   = 0.001;
 
 function clamp(val: number, min = -1, max = 1): number {
   return Math.max(min, Math.min(max, val));
 }
 
-function calcPatternSignal(): SignalComponent {
-  if (!patternService.isReady()) {
-    return { name: "Historical Pattern", score: 0, weight: 0.30, description: "Загрузка исторических данных..." };
+// ─── Merge liq buckets from coinglass (primary) or coinalyze (fallback) ──────
+function getLiqBuckets(): Bucket[] {
+  const cgHeatmap = coinglassService.getCachedHeatmap();
+  if (cgHeatmap && cgHeatmap.buckets.length > 0) {
+    return cgHeatmap.buckets;
   }
+  const caMap = coinalyzeService.getCachedMap();
+  if (caMap && caMap.buckets.length > 0) {
+    return caMap.buckets.map((b: LiqMapBucket): Bucket => ({
+      price: b.price,
+      longLiqUsd: b.longLiqUsd,
+      shortLiqUsd: b.shortLiqUsd,
+      totalUsd: b.totalUsd,
+    }));
+  }
+  return [];
+}
 
-  const result = patternService.getResult()!;
-  const score = parseFloat(result.signal.toFixed(4));
-  const bull = result.bullishMatches;
-  const bear = result.bearishMatches;
-  const neutral = result.topMatches.length - bull - bear;
-  const topMatch = result.topMatches[0];
-  const simPct = topMatch ? (topMatch.similarity * 100).toFixed(1) : "0";
-  const fwdLabel = topMatch
-    ? `${topMatch.forwardPct >= 0 ? "+" : ""}${topMatch.forwardPct.toFixed(2)}% за 3д`
-    : "";
+// ─── SL from cluster ──────────────────────────────────────────
+interface SlResult {
+  price: number;
+  source: string;
+  valid: boolean;
+  clusterUsd: number;
+  distancePct: number;
+}
 
+function calcSlFromLiqMap(
+  direction: "long" | "short",
+  price: number,
+  buckets: Bucket[]
+): SlResult {
+  const invalid: SlResult = { price: 0, source: "нет кластера", valid: false, clusterUsd: 0, distancePct: 0 };
+  if (buckets.length === 0) return invalid;
+
+  if (direction === "long") {
+    // Nearest long liq cluster BELOW price (cascade danger for longs)
+    const candidates = buckets
+      .filter(b =>
+        b.price < price &&
+        b.price >= price * (1 - MAX_SL_RANGE_PCT) &&
+        b.longLiqUsd >= MIN_SL_CLUSTER_USD
+      )
+      .sort((a, b) => b.price - a.price); // closest first
+
+    const cluster = candidates[0];
+    if (!cluster) return invalid;
+
+    // Exit just ABOVE the cluster to avoid cascade
+    const slPrice = cluster.price * (1 + SL_CLUSTER_BUFFER);
+    const distancePct = (price - slPrice) / price;
+
+    if (distancePct < MIN_SL_DISTANCE_PCT) {
+      return { price: slPrice, source: "кластер слишком близко", valid: false, clusterUsd: cluster.longLiqUsd, distancePct };
+    }
+    if (distancePct > MAX_SL_DISTANCE_PCT) {
+      return { price: slPrice, source: "кластер слишком далеко", valid: false, clusterUsd: cluster.longLiqUsd, distancePct };
+    }
+
+    return {
+      price: parseFloat(slPrice.toFixed(2)),
+      source: `Над кластером лонгов $${cluster.price.toFixed(0)} (${(cluster.longLiqUsd / 1e6).toFixed(1)}M) — до каскада`,
+      valid: true,
+      clusterUsd: cluster.longLiqUsd,
+      distancePct,
+    };
+
+  } else {
+    // Nearest short liq cluster ABOVE price (cascade danger for shorts)
+    const candidates = buckets
+      .filter(b =>
+        b.price > price &&
+        b.price <= price * (1 + MAX_SL_RANGE_PCT) &&
+        b.shortLiqUsd >= MIN_SL_CLUSTER_USD
+      )
+      .sort((a, b) => a.price - b.price); // closest first
+
+    const cluster = candidates[0];
+    if (!cluster) return invalid;
+
+    // Exit just BELOW the cluster
+    const slPrice = cluster.price * (1 - SL_CLUSTER_BUFFER);
+    const distancePct = (slPrice - price) / price;
+
+    if (distancePct < MIN_SL_DISTANCE_PCT) {
+      return { price: slPrice, source: "кластер слишком близко", valid: false, clusterUsd: cluster.shortLiqUsd, distancePct };
+    }
+    if (distancePct > MAX_SL_DISTANCE_PCT) {
+      return { price: slPrice, source: "кластер слишком далеко", valid: false, clusterUsd: cluster.shortLiqUsd, distancePct };
+    }
+
+    return {
+      price: parseFloat(slPrice.toFixed(2)),
+      source: `Под кластером шортов $${cluster.price.toFixed(0)} (${(cluster.shortLiqUsd / 1e6).toFixed(1)}M) — до каскада`,
+      valid: true,
+      clusterUsd: cluster.shortLiqUsd,
+      distancePct,
+    };
+  }
+}
+
+// ─── TP from cluster ──────────────────────────────────────────
+interface TpResult {
+  price: number;
+  source: string;
+  valid: boolean;
+  clusterUsd: number;
+  distancePct: number;
+  rr: number;
+}
+
+function calcTpFromLiqMap(
+  direction: "long" | "short",
+  price: number,
+  buckets: Bucket[],
+  slDistancePct: number
+): TpResult {
+  const invalid: TpResult = { price: 0, source: "нет кластера", valid: false, clusterUsd: 0, distancePct: 0, rr: 0 };
+  if (buckets.length === 0 || slDistancePct <= 0) return invalid;
+
+  if (direction === "long") {
+    // Short liq cluster ABOVE price = upside magnet (shorts squeezed = price drawn up)
+    const candidates = buckets
+      .filter(b =>
+        b.price > price &&
+        b.price <= price * (1 + MAX_TP_RANGE_PCT) &&
+        b.shortLiqUsd >= MIN_TP_CLUSTER_USD
+      )
+      .sort((a, b) => a.price - b.price); // closest first
+
+    const cluster = candidates[0];
+    if (!cluster) return invalid;
+
+    // Take profit just BELOW cluster (before shorts close and movement stalls)
+    const tpPrice = cluster.price * (1 - TP_CLUSTER_BUFFER);
+    const distancePct = (tpPrice - price) / price;
+    const rr = distancePct / slDistancePct;
+
+    if (distancePct < MIN_TP_DISTANCE_PCT) {
+      return { price: tpPrice, source: "TP кластер слишком близко", valid: false, clusterUsd: cluster.shortLiqUsd, distancePct, rr };
+    }
+    if (rr < MIN_RR_RATIO) {
+      return {
+        price: tpPrice,
+        source: `R:R ${rr.toFixed(2)} < ${MIN_RR_RATIO} (недостаточно)`,
+        valid: false, clusterUsd: cluster.shortLiqUsd, distancePct, rr,
+      };
+    }
+
+    return {
+      price: parseFloat(tpPrice.toFixed(2)),
+      source: `Кластер шортов $${cluster.price.toFixed(0)} (${(cluster.shortLiqUsd / 1e6).toFixed(1)}M) | R:R ${rr.toFixed(2)}`,
+      valid: true,
+      clusterUsd: cluster.shortLiqUsd,
+      distancePct,
+      rr,
+    };
+
+  } else {
+    // Long liq cluster BELOW price = downside magnet (longs stopped out = price drawn down)
+    const candidates = buckets
+      .filter(b =>
+        b.price < price &&
+        b.price >= price * (1 - MAX_TP_RANGE_PCT) &&
+        b.longLiqUsd >= MIN_TP_CLUSTER_USD
+      )
+      .sort((a, b) => b.price - a.price); // closest first
+
+    const cluster = candidates[0];
+    if (!cluster) return invalid;
+
+    // Take profit just ABOVE cluster
+    const tpPrice = cluster.price * (1 + TP_CLUSTER_BUFFER);
+    const distancePct = (price - tpPrice) / price;
+    const rr = distancePct / slDistancePct;
+
+    if (distancePct < MIN_TP_DISTANCE_PCT) {
+      return { price: tpPrice, source: "TP кластер слишком близко", valid: false, clusterUsd: cluster.longLiqUsd, distancePct, rr };
+    }
+    if (rr < MIN_RR_RATIO) {
+      return {
+        price: tpPrice,
+        source: `R:R ${rr.toFixed(2)} < ${MIN_RR_RATIO} (недостаточно)`,
+        valid: false, clusterUsd: cluster.longLiqUsd, distancePct, rr,
+      };
+    }
+
+    return {
+      price: parseFloat(tpPrice.toFixed(2)),
+      source: `Кластер лонгов $${cluster.price.toFixed(0)} (${(cluster.longLiqUsd / 1e6).toFixed(1)}M) | R:R ${rr.toFixed(2)}`,
+      valid: true,
+      clusterUsd: cluster.longLiqUsd,
+      distancePct,
+      rr,
+    };
+  }
+}
+
+// ─── Funding analysis ─────────────────────────────────────────
+interface FundingAnalysis {
+  extreme: boolean;
+  bias: "long_crowded" | "short_crowded" | "normal";
+  contrarian: "short" | "long" | "none";
+  scoreModifier: number; // multiplier for signal score
+}
+
+function analyzeFunding(rate: number): FundingAnalysis {
+  if (rate > 0.001) {
+    return { extreme: true, bias: "long_crowded", contrarian: "short", scoreModifier: 1.0 };
+  }
+  if (rate > 0.0005) {
+    return { extreme: false, bias: "long_crowded", contrarian: "short", scoreModifier: 1.0 };
+  }
+  if (rate < -0.001) {
+    return { extreme: true, bias: "short_crowded", contrarian: "long", scoreModifier: 1.0 };
+  }
+  if (rate < -0.0002) {
+    return { extreme: false, bias: "short_crowded", contrarian: "long", scoreModifier: 1.0 };
+  }
+  return { extreme: false, bias: "normal", contrarian: "none", scoreModifier: 1.0 };
+}
+
+function applyFundingModifier(score: number, funding: FundingAnalysis, direction: "long" | "short" | "neutral"): number {
+  if (!funding.extreme || direction === "neutral") return score;
+
+  const withCrowd =
+    (funding.bias === "long_crowded"  && direction === "long") ||
+    (funding.bias === "short_crowded" && direction === "short");
+
+  if (withCrowd) {
+    return score * 0.7; // going with the crowded side = risky
+  } else {
+    return score * 1.2; // contrarian = smart money alignment
+  }
+}
+
+// ─── Signal components ────────────────────────────────────────
+
+function calcMtfCvdSignal(): SignalComponent {
+  const alignment = cvdService.getAlignment();
   return {
-    name: "Historical Pattern",
-    score: clamp(score),
+    name: "MTF CVD (1m/5m/15m)",
+    score: alignment.score,
     weight: 0.30,
-    description: `Топ совпадение: ${topMatch?.startDate ?? "—"} (r=${simPct}%) → ${fwdLabel} | Бычьих: ${bull} / Медвежьих: ${bear} / Нейтр: ${neutral} из ${result.topMatches.length}`,
+    description: `${alignment.description} | strong: ${alignment.strong} | trend: ${alignment.trend}`,
   };
 }
 
@@ -82,14 +324,14 @@ function calcCvdSignal(): SignalComponent {
   return {
     name: "CVD Trend",
     score,
-    weight: 0.20,
+    weight: 0.15,
     description: `Trend: ${trend}, CVD: ${cvdService.getCurrentCvd().toFixed(2)}`,
   };
 }
 
 function calcOrderbookImbalance(): SignalComponent {
   const ob = aggregator.getAggregatedOrderbook();
-  if (!ob) return { name: "Order Book Imbalance", score: 0, weight: 0.15, description: "No data" };
+  if (!ob) return { name: "Order Book Imbalance", score: 0, weight: 0.20, description: "No data" };
 
   const bidVol = ob.mergedBids.slice(0, 10).reduce((s, l) => s + l.size, 0);
   const askVol = ob.mergedAsks.slice(0, 10).reduce((s, l) => s + l.size, 0);
@@ -100,7 +342,7 @@ function calcOrderbookImbalance(): SignalComponent {
   return {
     name: "Order Book Imbalance",
     score,
-    weight: 0.15,
+    weight: 0.20,
     description: `Bid: ${bidVol.toFixed(2)} BTC vs Ask: ${askVol.toFixed(2)} BTC (${exchanges})`,
   };
 }
@@ -185,7 +427,6 @@ function calcLiquidationSignal(): SignalComponent {
     };
   }
 
-  // Recent = last 2 candles (10 min), baseline = previous 4-12 candles
   const recent = candles.slice(-2);
   const baseline = candles.slice(-12, -2);
 
@@ -193,61 +434,85 @@ function calcLiquidationSignal(): SignalComponent {
   const recentShort = recent.reduce((s, c) => s + c.shortBtc, 0);
   const recentTotal = recentLong + recentShort;
 
-  const baseLong = baseline.reduce((s, c) => s + c.longBtc, 0) / Math.max(baseline.length, 1);
+  const baseLong  = baseline.reduce((s, c) => s + c.longBtc, 0)  / Math.max(baseline.length, 1);
   const baseShort = baseline.reduce((s, c) => s + c.shortBtc, 0) / Math.max(baseline.length, 1);
 
-  // Per-candle averages for recent period
-  const recentLongAvg = recentLong / recent.length;
+  const recentLongAvg  = recentLong  / recent.length;
   const recentShortAvg = recentShort / recent.length;
 
-  // Spike ratios vs baseline (capped to avoid division by zero)
-  const longSpike = baseLong > 0.001 ? recentLongAvg / baseLong : recentLongAvg > 0.01 ? 2 : 1;
+  const longSpike  = baseLong  > 0.001 ? recentLongAvg  / baseLong  : recentLongAvg  > 0.01 ? 2 : 1;
   const shortSpike = baseShort > 0.001 ? recentShortAvg / baseShort : recentShortAvg > 0.01 ? 2 : 1;
 
-  // Net ratio: positive = short spike (bullish), negative = long spike (bearish)
-  // Short liquidations → price went up (shorts squeezed) → bullish signal
-  // Long liquidations  → price went down (longs stopped out) → bearish signal
   let score = 0;
-  const spikeThreshold = 1.5; // need 50% above baseline to count
+  const spikeThreshold = 1.5;
 
   if (shortSpike >= spikeThreshold || longSpike >= spikeThreshold) {
     const netSpike = shortSpike - longSpike;
-    score = clamp(netSpike / 3); // normalize: spike ratio diff of 3x → full score
+    score = clamp(netSpike / 3);
   }
 
-  // Also factor in absolute recent ratio
-  const absRatio = recentTotal > 0.001
-    ? (recentShort - recentLong) / recentTotal
-    : 0;
+  const absRatio = recentTotal > 0.001 ? (recentShort - recentLong) / recentTotal : 0;
   score = clamp(score * 0.6 + absRatio * 0.4);
 
   const shortSpikeLbl = shortSpike >= spikeThreshold ? ` ⚡x${shortSpike.toFixed(1)}` : "";
-  const longSpikeLbl = longSpike >= spikeThreshold ? ` ⚡x${longSpike.toFixed(1)}` : "";
+  const longSpikeLbl  = longSpike  >= spikeThreshold ? ` ⚡x${longSpike.toFixed(1)}`  : "";
   const desc = `Лонги: ${recentLong.toFixed(2)} BTC${longSpikeLbl} | Шорты: ${recentShort.toFixed(2)} BTC${shortSpikeLbl} (последние 10 мин, все биржи)`;
 
+  return { name: "Ликвидации (Coinalyze)", score, weight: 0.05, description: desc };
+}
+
+// ─── Display-only components (weight: 0) ─────────────────────
+
+function calcPatternDisplay(): SignalComponent {
+  if (!patternService.isReady()) {
+    return { name: "Historical Pattern", score: 0, weight: 0, description: "Загрузка исторических данных..." };
+  }
+  const result = patternService.getResult()!;
+  const score = parseFloat(result.signal.toFixed(4));
+  const bull = result.bullishMatches;
+  const bear = result.bearishMatches;
+  const neutral = result.topMatches.length - bull - bear;
+  const topMatch = result.topMatches[0];
+  const simPct = topMatch ? (topMatch.similarity * 100).toFixed(1) : "0";
+  const fwdLabel = topMatch ? `${topMatch.forwardPct >= 0 ? "+" : ""}${topMatch.forwardPct.toFixed(2)}% за 3д` : "";
+
   return {
-    name: "Ликвидации (Coinalyze)",
-    score,
-    weight: 0.05,
-    description: desc,
+    name: "Historical Pattern",
+    score: clamp(score),
+    weight: 0,
+    description: `Топ: ${topMatch?.startDate ?? "—"} (r=${simPct}%) → ${fwdLabel} | Б:${bull}/М:${bear}/Н:${neutral}`,
   };
 }
 
-// Display-only (weight 0) — shown on dashboard but don't affect score
 function calcFundingDisplay(): SignalComponent {
   const fundingRate = aggregator.getPrimaryFundingRate();
   const exchanges = aggregator.getActiveExchangeNames().join("+");
+  const fa = analyzeFunding(fundingRate);
   let score = 0;
-  if (fundingRate > 0.001) score = -0.5;
-  else if (fundingRate > 0.0005) score = -0.25;
-  else if (fundingRate < -0.001) score = 0.5;
-  else if (fundingRate < -0.0005) score = 0.25;
+  if (fundingRate > 0.001) score = -0.8;
+  else if (fundingRate > 0.0005) score = -0.4;
+  else if (fundingRate < -0.001) score = 0.8;
+  else if (fundingRate < -0.0002) score = 0.4;
+
+  const biasLabel = fa.extreme
+    ? (fa.bias === "long_crowded" ? " ⚠️ Толпа в лонгах — экстремум" : " ⚠️ Толпа в шортах — экстремум")
+    : (fa.bias !== "normal" ? ` (${fa.bias})` : " — норма");
 
   return {
     name: "Funding Rate",
     score,
     weight: 0,
-    description: `Rate: ${(fundingRate * 100).toFixed(4)}% avg (${exchanges}) — ${score !== 0 ? (score > 0 ? "аномально низкий (лонги платят мало)" : "аномально высокий (шорты платят)") : "норма"}`,
+    description: `Rate: ${(fundingRate * 100).toFixed(4)}% avg (${exchanges})${biasLabel}`,
+  };
+}
+
+function calcOiDeltaDisplay(): SignalComponent {
+  const oi = coinglassService.getOiDelta();
+  return {
+    name: "OI Delta",
+    score: oi.score,
+    weight: 0,
+    description: `5m: ${oi.delta5m > 0 ? "+" : ""}${(oi.delta5m * 100).toFixed(2)}% OI | price 5m: ${oi.priceChange5m > 0 ? "+" : ""}${(oi.priceChange5m * 100).toFixed(2)}% | ${oi.interpretation}`,
   };
 }
 
@@ -256,14 +521,13 @@ function calcOpenInterestDisplay(): SignalComponent {
   const price = aggregator.getPrimaryPrice();
   const exchanges = aggregator.getActiveExchangeNames().join("+");
   if (price === 0 || oi === 0) return { name: "Open Interest", score: 0, weight: 0, description: "Нет данных OI" };
-
   const oiUsd = oi * price;
-  const cvdTrend = cvdService.getTrend();
+  const alignment = cvdService.getAlignment();
   return {
     name: "Open Interest",
     score: 0,
     weight: 0,
-    description: `OI: $${(oiUsd / 1e6).toFixed(1)}M (${exchanges}) — тренд CVD: ${cvdTrend}`,
+    description: `OI: $${(oiUsd / 1e6).toFixed(1)}M (${exchanges}) — MTF CVD: ${alignment.description}`,
   };
 }
 
@@ -278,210 +542,195 @@ function calcCrossExchangeDisplay(): SignalComponent {
   return { name: "Cross-Exchange Spread", score: 0, weight: 0, description: priceParts };
 }
 
+function calcCrossExchangeDivergence(): SignalComponent {
+  const agg = aggregator.getAggregatedOrderbook();
+  if (!agg || Object.keys(agg.byExchange).length < 2) {
+    return { name: "Cross-Exchange Divergence", score: 0, weight: 0, description: "Нужно 2+ биржи" };
+  }
+
+  const imbalances: Record<string, number> = {};
+  for (const [exchange, ob] of Object.entries(agg.byExchange)) {
+    imbalances[exchange] = ob.imbalance;
+  }
+
+  const values = Object.values(imbalances);
+  const maxDivergence = Math.max(...values) - Math.min(...values);
+  const avgImbalance = values.reduce((s, v) => s + v, 0) / values.length;
+
+  const desc = Object.entries(imbalances)
+    .map(([ex, im]) => `${ex}: ${(im * 100).toFixed(1)}%`)
+    .join(" | ");
+  const warning = maxDivergence > 0.3
+    ? ` ⚠️ Расхождение ${(maxDivergence * 100).toFixed(0)}% — возможна манипуляция`
+    : "";
+
+  return {
+    name: "Cross-Exchange Divergence",
+    score: avgImbalance,
+    weight: 0,
+    description: desc + warning,
+  };
+}
+
+// ─── Signal Engine ────────────────────────────────────────────
+
 class SignalEngine {
   compute(): SignalResult {
-    // Weighted components (affect score)
+    // Weighted components (sum of weights = 1.00)
     const weighted: SignalComponent[] = [
-      calcPatternSignal(),       // 30% — PRIMARY
-      calcCvdSignal(),           // 20%
-      calcOrderbookImbalance(),  // 15%
-      calcMomentumSignal(),      // 13%
-      calcVwapSignal(),          // 10%
-      calcEmaSignal(),           //  7%
-      calcLiquidationSignal(),   //  5%
+      calcMtfCvdSignal(),        // 0.30 — PRIMARY
+      calcCvdSignal(),           // 0.15
+      calcOrderbookImbalance(),  // 0.20
+      calcMomentumSignal(),      // 0.13
+      calcVwapSignal(),          // 0.10
+      calcEmaSignal(),           // 0.07
+      calcLiquidationSignal(),   // 0.05
     ];
 
-    // Display-only (weight 0, shown for context)
+    // Display-only (weight 0)
     const displayOnly: SignalComponent[] = [
+      calcPatternDisplay(),
       calcFundingDisplay(),
+      calcOiDeltaDisplay(),
       calcOpenInterestDisplay(),
       calcCrossExchangeDisplay(),
+      calcCrossExchangeDivergence(),
     ];
 
     const components = [...weighted, ...displayOnly];
 
     const totalWeight = weighted.reduce((s, c) => s + c.weight, 0);
-    const score = clamp(
+    let rawScore = clamp(
       totalWeight > 0
         ? weighted.reduce((s, c) => s + c.score * c.weight, 0) / totalWeight
         : 0
     );
 
-    const confidence = clamp(Math.abs(score) * 1.5, 0, 1);
+    // Funding modifier (soft filter — not a gate)
+    const fundingRate = aggregator.getPrimaryFundingRate();
+    const fundingAnalysis = analyzeFunding(fundingRate);
 
-    // Pattern is PRIMARY — if it's ready and strong, its direction overrides composite
-    const MIN_PATTERN_SIGNAL = 0.20;
-    const MIN_PATTERN_SIMILARITY = 0.75;
-    const patternCompEarly = weighted.find(c => c.name === "Historical Pattern");
-    const patternResultEarly = patternService.isReady() ? patternService.getResult() : null;
-    const patternTopSimEarly = patternResultEarly?.topMatches[0]?.similarity ?? 0;
-    const patternScoreEarly = patternCompEarly?.score ?? 0;
-    const patternStrongEnough =
-      patternService.isReady() &&
-      Math.abs(patternScoreEarly) >= MIN_PATTERN_SIGNAL &&
-      patternTopSimEarly >= MIN_PATTERN_SIMILARITY;
-
+    // Determine direction first (needed for funding modifier)
+    const alignment = cvdService.getAlignment();
     let direction: "long" | "short" | "neutral" = "neutral";
-    if (patternStrongEnough) {
-      // Pattern determines direction
-      direction = patternScoreEarly > 0 ? "long" : "short";
-    } else if (score > 0.25) {
+
+    // Gate 1 check: MTF CVD alignment strong = direction source
+    if (alignment.strong) {
+      direction = alignment.trend === "bullish" ? "long" : "short";
+    } else if (rawScore > 0.25) {
       direction = "long";
-    } else if (score < -0.25) {
+    } else if (rawScore < -0.25) {
       direction = "short";
     }
 
-    const price = aggregator.getPrimaryPrice() || 100000;
+    // Apply funding modifier
+    rawScore = clamp(applyFundingModifier(rawScore, fundingAnalysis, direction));
+
+    const score = parseFloat(rawScore.toFixed(4));
+    const confidence = clamp(Math.abs(score) * 1.5, 0, 1);
+
+    const price = aggregator.getPrimaryPrice() || 100_000;
     const atr = candleService.getAtr();
     const atrPct = atr > 0 ? (atr / price) * 100 : 0;
     const vwap = candleService.getVwap();
 
+    // ── Leverage: HIGH volatility = LESS leverage (fixed, not inverted) ──
     let leverage: number;
-    if (atrPct > 0.4) leverage = 75;
-    else if (atrPct > 0.2) leverage = 85;
-    else leverage = 100;
-
-    const atrSlDistance = atr > 0 ? Math.max(atr * 1.5, price * 0.0012) : price * 0.0015;
-
-    // ── Cluster-based TP / SL using liquidation map ──
-    const MIN_TP_CLUSTER_USD = 3_000_000;  // need $3M+ cluster to use as TP target
-    const MIN_SL_CLUSTER_USD = 1_500_000;  // need $1.5M+ cluster as SL danger zone
-    const MAX_TP_RANGE = 0.08;             // look up to 8% away for TP
-    const MAX_SL_RANGE = 0.05;             // look up to 5% away for SL reference
-
-    const liqMap = coinalyzeService.getCachedMap();
-    const buckets = liqMap?.buckets ?? [];
-
-    let suggestedTp: number;
-    let suggestedSl: number;
-    let tpSource: string;
-    let slSource: string;
-
-    if (direction === "long") {
-      // TP: nearest significant SHORT liq cluster ABOVE price (shorts squeezed = upside magnet)
-      const tpCluster = buckets
-        .filter(b => b.price > price && b.price <= price * (1 + MAX_TP_RANGE) && b.shortLiqUsd >= MIN_TP_CLUSTER_USD)
-        .sort((a, b) => a.price - b.price)[0];
-
-      if (tpCluster) {
-        suggestedTp = parseFloat((tpCluster.price * 0.999).toFixed(2)); // just before cluster
-        tpSource = `Кластер шортов $${tpCluster.price.toFixed(0)} (${(tpCluster.shortLiqUsd / 1e6).toFixed(1)}M шортов)`;
-      } else {
-        suggestedTp = parseFloat((price + atrSlDistance * 1.5).toFixed(2));
-        tpSource = "ATR × 1.5 (нет кластера в диапазоне)";
-      }
-
-      // SL: nearest large LONG liq cluster BELOW price (cascade danger zone)
-      const slCluster = buckets
-        .filter(b => b.price < price && b.price >= price * (1 - MAX_SL_RANGE) && b.longLiqUsd >= MIN_SL_CLUSTER_USD)
-        .sort((a, b) => b.price - a.price)[0]; // closest to current price
-
-      const atrSlPrice = price - atrSlDistance;
-      if (slCluster && slCluster.price > atrSlPrice) {
-        // Cluster is between price and ATR SL → exit BEFORE cascade (slightly above cluster)
-        suggestedSl = parseFloat((slCluster.price * 1.0005).toFixed(2));
-        slSource = `Выше кластера лонгов $${slCluster.price.toFixed(0)} (${(slCluster.longLiqUsd / 1e6).toFixed(1)}M) — до каскада`;
-      } else {
-        suggestedSl = parseFloat(atrSlPrice.toFixed(2));
-        slSource = "ATR × 1.5 (кластер далеко или отсутствует)";
-      }
-
-    } else if (direction === "short") {
-      // TP: nearest significant LONG liq cluster BELOW price (longs stopped = downside magnet)
-      const tpCluster = buckets
-        .filter(b => b.price < price && b.price >= price * (1 - MAX_TP_RANGE) && b.longLiqUsd >= MIN_TP_CLUSTER_USD)
-        .sort((a, b) => b.price - a.price)[0]; // closest below
-
-      if (tpCluster) {
-        suggestedTp = parseFloat((tpCluster.price * 1.001).toFixed(2)); // just above cluster
-        tpSource = `Кластер лонгов $${tpCluster.price.toFixed(0)} (${(tpCluster.longLiqUsd / 1e6).toFixed(1)}M лонгов)`;
-      } else {
-        suggestedTp = parseFloat((price - atrSlDistance * 1.5).toFixed(2));
-        tpSource = "ATR × 1.5 (нет кластера в диапазоне)";
-      }
-
-      // SL: nearest large SHORT liq cluster ABOVE price (cascade danger for shorts)
-      const slCluster = buckets
-        .filter(b => b.price > price && b.price <= price * (1 + MAX_SL_RANGE) && b.shortLiqUsd >= MIN_SL_CLUSTER_USD)
-        .sort((a, b) => a.price - b.price)[0]; // closest above
-
-      const atrSlPrice = price + atrSlDistance;
-      if (slCluster && slCluster.price < atrSlPrice) {
-        suggestedSl = parseFloat((slCluster.price * 0.9995).toFixed(2));
-        slSource = `Ниже кластера шортов $${slCluster.price.toFixed(0)} (${(slCluster.shortLiqUsd / 1e6).toFixed(1)}M) — до каскада`;
-      } else {
-        suggestedSl = parseFloat(atrSlPrice.toFixed(2));
-        slSource = "ATR × 1.5 (кластер далеко или отсутствует)";
-      }
-
+    if (atrPct > 0.5) {
+      leverage = 20;
+    } else if (atrPct > 0.3) {
+      leverage = 35;
+    } else if (atrPct > 0.2) {
+      leverage = 50;
+    } else if (atrPct > 0.1) {
+      leverage = 75;
     } else {
-      suggestedTp = parseFloat((price + atrSlDistance * 1.5).toFixed(2));
-      suggestedSl = parseFloat((price - atrSlDistance).toFixed(2));
-      tpSource = "ATR (нейтральное направление)";
-      slSource = "ATR (нейтральное направление)";
+      leverage = 100;
     }
+    const signalQuality = Math.abs(score);
+    leverage = Math.round(leverage * (0.7 + signalQuality * 0.3));
+    leverage = Math.max(10, leverage);
 
-    // ── Entry gates ──
+    // ── SL / TP from liquidation clusters ──
+    const buckets = getLiqBuckets();
     const dirSign = direction === "long" ? 1 : direction === "short" ? -1 : 0;
-    const cvdComp      = weighted.find(c => c.name === "CVD Trend");
-    const momentumComp = weighted.find(c => c.name === "Trade Momentum");
-    const patternComp  = weighted.find(c => c.name === "Historical Pattern");
 
-    // Gate 1 (PRIMARY): Pattern — correlation ≥ 75%, signal strength ≥ 0.20, direction match
-    let patternPassed = false;
-    let patternReason = "";
-    if (!patternService.isReady()) {
-      patternReason = "Исторические данные загружаются";
-    } else if (direction === "neutral") {
-      patternReason = "Направление нейтральное";
-    } else {
-      const pr = patternService.getResult()!;
-      const topSim = pr.topMatches[0]?.similarity ?? 0;
-      const pScore = patternComp?.score ?? 0;
-      const pAbs = Math.abs(pScore);
-      const dirOk = pScore * dirSign > 0;
-      const simOk = topSim >= MIN_PATTERN_SIMILARITY;
-      const strengthOk = pAbs >= MIN_PATTERN_SIGNAL;
-      patternPassed = dirOk && simOk && strengthOk;
-      const simStr = `топ r=${(topSim * 100).toFixed(1)}% ${simOk ? "✓" : `< ${(MIN_PATTERN_SIMILARITY * 100).toFixed(0)}% ✗`}`;
-      const strStr = `сила |${pScore.toFixed(3)}| ${strengthOk ? "✓" : `< ${MIN_PATTERN_SIGNAL} ✗`}`;
-      const dirStr = dirOk ? "направление ✓" : "направление ✗";
-      patternReason = `${simStr} | ${strStr} | ${dirStr}`;
+    let slResult: SlResult = { price: 0, source: "нет кластера", valid: false, clusterUsd: 0, distancePct: 0 };
+    let tpResult: TpResult = { price: 0, source: "нет кластера", valid: false, clusterUsd: 0, distancePct: 0, rr: 0 };
+
+    if (direction !== "neutral") {
+      slResult = calcSlFromLiqMap(direction, price, buckets);
+      if (slResult.valid) {
+        tpResult = calcTpFromLiqMap(direction, price, buckets, slResult.distancePct);
+      }
     }
-    const gate1: GateResult = { name: "Паттерн-матчинг (первичный)", passed: patternPassed, reason: patternReason };
 
-    // Gate 2: Order Book Imbalance — стакан должен подтверждать направление
+    // Fallback display prices (for UI only when gates fail)
+    const displaySl = slResult.valid
+      ? slResult.price
+      : direction === "long"  ? parseFloat((price * (1 - 0.015)).toFixed(2))
+      : direction === "short" ? parseFloat((price * (1 + 0.015)).toFixed(2))
+      : price;
+
+    const displayTp = tpResult.valid
+      ? tpResult.price
+      : direction === "long"  ? parseFloat((price * (1 + 0.025)).toFixed(2))
+      : direction === "short" ? parseFloat((price * (1 - 0.025)).toFixed(2))
+      : price;
+
+    // ── 4 Gates ──
     const obComp = weighted.find(c => c.name === "Order Book Imbalance");
-    let obPassed = false;
-    let obReason = "";
-    if (direction === "neutral") {
-      obReason = "Направление нейтральное";
-    } else {
-      obPassed = obComp ? obComp.score * dirSign > 0 : false;
-      const obStr = `Стакан ${obComp ? (obComp.score >= 0 ? "+" : "") + obComp.score.toFixed(2) : "?"} ${obPassed ? "✓" : "✗"}`;
-      obReason = obStr + (obComp ? ` (bid/ask ${dirSign > 0 ? "перевес bid" : "перевес ask"})` : " — нет данных");
-    }
-    const gate2: GateResult = { name: "Стакан (Order Book)", passed: obPassed, reason: obReason };
 
-    const gates: GateResult[] = [gate1, gate2];
-    // Both gates required: Pattern (primary) + Order Book (secondary)
-    const allGatesPassed = direction !== "neutral" && gate1.passed && gate2.passed;
+    // Gate 1: MTF CVD Alignment — all 3 timeframes agree
+    const gate1Passed = alignment.strong && direction !== "neutral";
+    const gate1Reason = alignment.strong
+      ? `${alignment.description} — все три ТФ согласованы ✓`
+      : `${alignment.description} — не все ТФ согласованы ✗ (strong: ${alignment.strong})`;
+
+    // Gate 2: Order Book confirms direction
+    const obPassed = obComp ? obComp.score * dirSign > 0 : false;
+    const obReason = obComp
+      ? `Стакан ${obComp.score >= 0 ? "+" : ""}${obComp.score.toFixed(2)} ${obPassed ? "✓" : "✗"}`
+      : "нет данных стакана ✗";
+
+    // Gate 3: SL on cluster
+    const gate3Passed = slResult.valid;
+    const gate3Reason = slResult.valid
+      ? `${slResult.source} | dist: ${(slResult.distancePct * 100).toFixed(2)}% ✓`
+      : `${slResult.source} ✗`;
+
+    // Gate 4: TP on cluster + R:R ≥ 1.5
+    const gate4Passed = tpResult.valid;
+    const gate4Reason = tpResult.valid
+      ? `${tpResult.source} | dist: ${(tpResult.distancePct * 100).toFixed(2)}% ✓`
+      : `${tpResult.source} ✗`;
+
+    const gates: GateResult[] = [
+      { name: "MTF CVD Alignment (1m/5m/15m)", passed: gate1Passed, reason: gate1Reason },
+      { name: "Стакан (Order Book)",            passed: obPassed,    reason: obReason },
+      { name: "SL на кластере ликвидаций",      passed: gate3Passed, reason: gate3Reason },
+      { name: "TP на кластере + R:R ≥ 1.5",    passed: gate4Passed, reason: gate4Reason },
+    ];
+
+    const allGatesPassed = direction !== "neutral" && gate1Passed && obPassed && gate3Passed && gate4Passed;
 
     return {
-      score: parseFloat(score.toFixed(4)),
+      score,
       direction,
       confidence: parseFloat(confidence.toFixed(4)),
       components,
       gates,
       allGatesPassed,
       suggestedLeverage: leverage,
-      suggestedSl,
-      suggestedTp,
+      suggestedSl: displaySl,
+      suggestedTp: displayTp,
+      slValid: slResult.valid,
+      tpValid: tpResult.valid,
       atrPct: parseFloat(atrPct.toFixed(4)),
       vwap: parseFloat(vwap.toFixed(2)),
       updatedAt: new Date().toISOString(),
-      tpSource,
-      slSource,
+      tpSource: tpResult.valid ? tpResult.source : slResult.valid ? tpResult.source : "ожидание кластера",
+      slSource: slResult.valid ? slResult.source : "ожидание кластера",
     };
   }
 }

@@ -4,6 +4,7 @@ import { aggregator } from "./services/exchanges/aggregator";
 import { cvdService } from "./services/cvd";
 import { candleService } from "./services/candleService";
 import { patternService } from "./services/patternService";
+import { coinglassService } from "./services/coinglassService";
 import { telegramService } from "./services/telegram";
 import { botEngine } from "./services/botEngine";
 import { statsScheduler } from "./services/statsScheduler";
@@ -25,6 +26,7 @@ aggregator.init();
 cvdService.start();
 candleService.start();
 void patternService.start();
+coinglassService.startPolling();
 telegramService.init();
 statsScheduler.start();
 

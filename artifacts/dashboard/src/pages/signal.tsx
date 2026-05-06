@@ -99,7 +99,7 @@ export default function Signal() {
                 }`}>
                   {(signal?.score ?? 0) >= 0 ? "+" : ""}{(signal?.score ?? 0).toFixed(4)}
                 </div>
-                <div className="text-xs text-muted-foreground mt-1">Вход при 2 гейтах: Паттерн + Стакан</div>
+                <div className="text-xs text-muted-foreground mt-1">Вход при 4 гейтах: MTF CVD + Стакан + SL/TP кластеры</div>
               </div>
               <div className="text-right">
                 <div className="text-xs text-muted-foreground uppercase mb-1">Направление</div>

@@ -20,9 +20,11 @@ export interface BotState extends BotConfig {
   dailyPnl: number;
   circuitBreakerTripped: boolean;
   accountBalance: number;
+  slCooldownUntil: string | null;
+  consecutiveSl: number;
 }
 
-const MIN_TRADE_INTERVAL_MS = 5 * 60 * 1000; // 5 minutes between trades
+const MIN_TRADE_INTERVAL_MS = 5 * 60 * 1000;
 const SNAPSHOT_INTERVAL_MS = 60000;
 const CHANNEL_BROADCAST_INTERVAL_MS = 5 * 60 * 1000;
 
@@ -39,6 +41,11 @@ class BotEngine {
   private balanceInterval: ReturnType<typeof setInterval> | null = null;
   private channelBroadcastInterval: ReturnType<typeof setInterval> | null = null;
   private lastTradeAt = 0;
+
+  private lastSlAt = 0;
+  private consecutiveSl = 0;
+  private slCooldownUntil = 0;
+  private lastCooldownLogAt = 0;
 
   initChannelBroadcast() {
     this.broadcastToChannel();
@@ -154,6 +161,17 @@ class BotEngine {
     if (!this.running) return;
     if (riskManager.checkCircuitBreaker()) return;
 
+    const now = Date.now();
+
+    if (now < this.slCooldownUntil) {
+      if (now - this.lastCooldownLogAt > 60_000) {
+        const remainMin = Math.ceil((this.slCooldownUntil - now) / 60_000);
+        logger.info({ remainMin, consecutiveSl: this.consecutiveSl }, "SL cooldown active — skipping tick");
+        this.lastCooldownLogAt = now;
+      }
+      return;
+    }
+
     const price = aggregator.getPrimaryPrice();
     if (price === 0) return;
 
@@ -187,6 +205,29 @@ class BotEngine {
             `P&L: $${trade.pnl.toFixed(2)} (${(trade.pnlPct * 100).toFixed(2)}%)`
           );
 
+          if (reason === "sl") {
+            this.consecutiveSl++;
+            this.lastSlAt = now;
+
+            const cooldownMs = Math.min(
+              5 * 60_000 * Math.pow(3, this.consecutiveSl - 1),
+              4 * 60 * 60_000
+            );
+            this.slCooldownUntil = now + cooldownMs;
+
+            const cooldownMin = Math.round(cooldownMs / 60_000);
+            logger.warn({ consecutiveSl: this.consecutiveSl, cooldownMin }, "SL cooldown activated");
+
+            telegramService.notify(
+              `🔴 SL #${this.consecutiveSl} подряд\n` +
+              `⏳ Cooldown: ${cooldownMin} мин\n` +
+              `Возобновление: ${new Date(this.slCooldownUntil).toLocaleTimeString("ru-RU")}`
+            );
+          } else if (reason === "tp") {
+            this.consecutiveSl = 0;
+            this.slCooldownUntil = 0;
+          }
+
           if (this.mode === "live") {
             try {
               await connector.placeOrder({
@@ -199,7 +240,6 @@ class BotEngine {
       }
     }
 
-    const now = Date.now();
     if (now - this.lastTradeAt < MIN_TRADE_INTERVAL_MS) return;
     if (openPositions.length >= 2) return;
 
@@ -285,6 +325,10 @@ class BotEngine {
       dailyPnl: stats.dailyPnl,
       circuitBreakerTripped: stats.circuitBreakerTripped,
       accountBalance: riskManager.getAccountBalance(),
+      slCooldownUntil: this.slCooldownUntil > Date.now()
+        ? new Date(this.slCooldownUntil).toISOString()
+        : null,
+      consecutiveSl: this.consecutiveSl,
     };
   }
 }
