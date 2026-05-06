@@ -11,10 +11,6 @@ const CHANNEL_ID = "@bitcoinmarginmaster";
 class TelegramService {
   private bot: Telegraf | null = null;
   private registeredChats = new Set<number>(adminChatIds);
-  private lastChannelSignalScore: number = 0;
-  private lastChannelSignalAt: number = 0;
-  private readonly CHANNEL_SIGNAL_COOLDOWN_MS = 5 * 60 * 1000;
-  private readonly CHANNEL_SIGNAL_THRESHOLD = 0.35;
 
   init() {
     const token = process.env["TELEGRAM_BOT_TOKEN"];
@@ -119,60 +115,6 @@ class TelegramService {
       .catch((err) => {
         logger.warn({ err, channel: CHANNEL_ID }, "Failed to send channel message");
       });
-  }
-
-  maybePublishSignal(params: {
-    score: number;
-    direction: string;
-    confidence: number;
-    price: number;
-    suggestedLeverage: number;
-    suggestedSl: number;
-    suggestedTp: number;
-    exchange: string;
-    dataExchanges?: string;
-  }) {
-    if (!this.bot) return;
-
-    const { score, direction } = params;
-    const absScore = Math.abs(score);
-
-    if (absScore < this.CHANNEL_SIGNAL_THRESHOLD) return;
-
-    const now = Date.now();
-    const directionChanged = Math.sign(score) !== Math.sign(this.lastChannelSignalScore);
-    const cooldownExpired = now - this.lastChannelSignalAt > this.CHANNEL_SIGNAL_COOLDOWN_MS;
-
-    if (!directionChanged && !cooldownExpired) return;
-
-    this.lastChannelSignalScore = score;
-    this.lastChannelSignalAt = now;
-
-    const emoji = direction === "long" ? "🟢📈" : direction === "short" ? "🔴📉" : "⚪";
-    const strengthLabel =
-      absScore > 0.7 ? "STRONG" : absScore > 0.5 ? "MODERATE" : "WEAK";
-    const timeStr = new Date().toLocaleTimeString("ru-RU", { timeZone: "Europe/Moscow", hour12: false }) + " МСК";
-    const dataStr = params.dataExchanges ?? params.exchange;
-    const slDist = Math.abs(params.price - params.suggestedSl);
-    const tpDist = Math.abs(params.suggestedTp - params.price);
-    const slPct = (slDist / params.price * 100).toFixed(2);
-    const tpPct = (tpDist / params.price * 100).toFixed(2);
-
-    const msg =
-      `${emoji} <b>BTC ${direction.toUpperCase()} — ${strengthLabel}</b>\n` +
-      `━━━━━━━━━━━━━━━━━━━\n` +
-      `💰 Цена: <b>$${params.price.toFixed(1)}</b>\n` +
-      `💪 Уверенность: <b>${(params.confidence * 100).toFixed(0)}%</b>\n` +
-      `⚡ Плечо: <b>${params.suggestedLeverage}x</b>\n` +
-      `🛑 SL: <b>$${params.suggestedSl.toFixed(1)}</b> (-${slPct}%)\n` +
-      `🎯 TP: <b>$${params.suggestedTp.toFixed(1)}</b> (+${tpPct}%)\n` +
-      `📡 Данные: ${dataStr}\n` +
-      `🕐 ${timeStr}\n` +
-      `━━━━━━━━━━━━━━━━━━━\n` +
-      `#BTC #bitcoin #scalping`;
-
-    this.notifyChannel(msg);
-    logger.info({ direction, score, dataExchanges: dataStr }, "Channel signal published");
   }
 
   publishTrade(params: {

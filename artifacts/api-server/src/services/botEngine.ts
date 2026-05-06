@@ -26,7 +26,6 @@ export interface BotState extends BotConfig {
 
 const MIN_TRADE_INTERVAL_MS = 5 * 60 * 1000;
 const SNAPSHOT_INTERVAL_MS = 60000;
-const CHANNEL_BROADCAST_INTERVAL_MS = 5 * 60 * 1000;
 
 class BotEngine {
   private running = false;
@@ -39,42 +38,12 @@ class BotEngine {
   private priceInterval: ReturnType<typeof setInterval> | null = null;
   private snapshotInterval: ReturnType<typeof setInterval> | null = null;
   private balanceInterval: ReturnType<typeof setInterval> | null = null;
-  private channelBroadcastInterval: ReturnType<typeof setInterval> | null = null;
   private lastTradeAt = 0;
 
   private lastSlAt = 0;
   private consecutiveSl = 0;
   private slCooldownUntil = 0;
   private lastCooldownLogAt = 0;
-
-  initChannelBroadcast() {
-    this.broadcastToChannel();
-    this.channelBroadcastInterval = setInterval(() => this.broadcastToChannel(), CHANNEL_BROADCAST_INTERVAL_MS);
-    logger.info({ interval: CHANNEL_BROADCAST_INTERVAL_MS }, "Channel signal broadcast started");
-  }
-
-  private broadcastToChannel() {
-    try {
-      const price = aggregator.getPrimaryPrice();
-      if (price === 0) return;
-      const s = signalEngine.compute();
-      const orderExchange = aggregator.getBestConnectorForTrading().name;
-      const dataExchanges = aggregator.getActiveExchangeNames().join(" + ");
-      telegramService.maybePublishSignal({
-        score: s.score,
-        direction: s.direction,
-        confidence: s.confidence,
-        price,
-        suggestedLeverage: s.suggestedLeverage,
-        suggestedSl: s.suggestedSl,
-        suggestedTp: s.suggestedTp,
-        exchange: orderExchange,
-        dataExchanges,
-      });
-    } catch (e) {
-      logger.warn({ err: e }, "Channel broadcast failed");
-    }
-  }
 
   async start(config: BotConfig) {
     if (this.running) { logger.warn("Bot already running"); return; }

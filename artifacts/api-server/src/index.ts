@@ -33,7 +33,6 @@ statsScheduler.start();
 void dbService.initializeTodayStats();
 
 setTimeout(() => {
-  botEngine.initChannelBroadcast();
   signalTracker.start();
 }, 15000);
 
