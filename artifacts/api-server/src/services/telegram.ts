@@ -11,6 +11,8 @@ const CHANNEL_ID = "@bitcoinmarginmaster";
 class TelegramService {
   private bot: Telegraf | null = null;
   private registeredChats = new Set<number>(adminChatIds);
+  private pollingOffset = 0;
+  private pollingTimer: ReturnType<typeof setTimeout> | null = null;
 
   init() {
     const token = process.env["TELEGRAM_BOT_TOKEN"];
@@ -25,9 +27,9 @@ class TelegramService {
       const chatId = ctx.chat.id;
       this.registeredChats.add(chatId);
       ctx.reply(
-        `BTC Scalping Bot connected.\nChat ID: ${chatId}\n\nCommands:\n/status - bot status\n/signal - current signal\n/positions - open positions\n/stop - emergency stop`
+        `✅ BTC Scalping Bot подключён.\nChat ID: ${chatId}\n\nКоманды:\n/status — статус бота\n/signal — текущий сигнал\n/stop — аварийная остановка`
       );
-      logger.info({ chatId }, "New Telegram chat registered");
+      logger.info({ chatId }, "Telegram chat registered via /start");
     });
 
     this.bot.command("status", async (ctx) => {
@@ -35,10 +37,10 @@ class TelegramService {
         const { botEngine } = await import("./botEngine");
         const state = botEngine.getState();
         ctx.reply(
-          `Status: ${state.running ? "🟢 RUNNING" : "🔴 STOPPED"}\nMode: ${state.mode.toUpperCase()}\nLeverage: ${state.maxLeverage}x\nRisk/trade: ${state.riskPct}%\nTrades today: ${state.tradesExecuted}\nDaily P&L: $${state.dailyPnl.toFixed(2)}\nCircuit breaker: ${state.circuitBreakerTripped ? "🔴 TRIPPED" : "🟢 OK"}`
+          `Статус: ${state.running ? "🟢 РАБОТАЕТ" : "🔴 ОСТАНОВЛЕН"}\nРежим: ${state.mode.toUpperCase()}\nПлечо: ${state.maxLeverage}x\nРиск/сделка: ${state.riskPct}%\nСделок сегодня: ${state.tradesExecuted}\nP&L сегодня: $${state.dailyPnl.toFixed(2)}\nЦепочный автомат: ${state.circuitBreakerTripped ? "🔴 СРАБОТАЛ" : "🟢 OK"}`
         );
-      } catch (e) {
-        ctx.reply("Error fetching status");
+      } catch {
+        ctx.reply("Ошибка получения статуса");
       }
     });
 
@@ -47,27 +49,10 @@ class TelegramService {
         const { signalEngine } = await import("./signal");
         const s = signalEngine.compute();
         ctx.reply(
-          `Signal: ${s.direction.toUpperCase()} (score: ${s.score.toFixed(3)})\nConfidence: ${(s.confidence * 100).toFixed(0)}%\nSuggested leverage: ${s.suggestedLeverage}x\nSL: $${s.suggestedSl.toFixed(2)}\nTP: $${s.suggestedTp.toFixed(2)}`
+          `Сигнал: ${s.direction.toUpperCase()} (score: ${s.score.toFixed(3)})\nУверенность: ${(s.confidence * 100).toFixed(0)}%\nПлечо: ${s.suggestedLeverage}x\nSL: $${s.suggestedSl.toFixed(2)}\nTP: $${s.suggestedTp.toFixed(2)}`
         );
-      } catch (e) {
-        ctx.reply("Error fetching signal");
-      }
-    });
-
-    this.bot.command("positions", async (ctx) => {
-      try {
-        const { riskManager } = await import("./riskManager");
-        const positions = riskManager.getPositions();
-        if (positions.length === 0) {
-          ctx.reply("No open positions");
-          return;
-        }
-        const text = positions.map((p) =>
-          `${p.side.toUpperCase()} ${p.size.toFixed(4)} BTC @ $${p.entryPrice.toFixed(2)} (${p.leverage}x)\nCurrent: $${p.currentPrice.toFixed(2)} | P&L: $${p.pnl.toFixed(2)} (${(p.pnlPct * 100).toFixed(2)}%)\nSL: $${p.stopLoss.toFixed(2)} | TP: $${p.takeProfit.toFixed(2)}`
-        ).join("\n\n");
-        ctx.reply(text);
-      } catch (e) {
-        ctx.reply("Error fetching positions");
+      } catch {
+        ctx.reply("Ошибка получения сигнала");
       }
     });
 
@@ -75,46 +60,78 @@ class TelegramService {
       try {
         const { botEngine } = await import("./botEngine");
         botEngine.stop();
-        ctx.reply("Emergency stop executed. Bot stopped.");
+        ctx.reply("⛔ Аварийная остановка. Бот остановлен.");
         logger.warn({ chatId: ctx.chat.id }, "Emergency stop via Telegram");
-      } catch (e) {
-        ctx.reply("Error stopping bot");
+      } catch {
+        ctx.reply("Ошибка остановки бота");
       }
     });
 
-    this.bot.launch().catch((err) => {
-      logger.error({ err }, "Failed to launch Telegram bot");
-    });
+    // Manual polling — avoids AbortSignal incompatibility in node-fetch@2.x
+    this.startPolling();
 
-    process.once("SIGINT", () => this.bot?.stop("SIGINT"));
-    process.once("SIGTERM", () => this.bot?.stop("SIGTERM"));
-
-    logger.info("Telegram bot started");
+    logger.info("Telegram bot started (manual polling)");
   }
 
-  notify(message: string) {
+  // Polls Telegram for updates using direct API calls (no AbortSignal)
+  private startPolling() {
+    const poll = async () => {
+      try {
+        const updates = await this.bot!.telegram.getUpdates(10, 100, this.pollingOffset, [
+          "message",
+        ]);
+
+        for (const update of updates) {
+          this.pollingOffset = update.update_id + 1;
+
+          // Auto-register any chat that contacts the bot
+          const chatId = (update as any).message?.chat?.id as number | undefined;
+          if (chatId && !this.registeredChats.has(chatId)) {
+            this.registeredChats.add(chatId);
+            logger.info({ chatId }, "Auto-registered Telegram chat");
+          }
+
+          // Let Telegraf handle commands (/start, /status, etc.)
+          void this.bot!.handleUpdate(update).catch(() => {});
+        }
+      } catch (err) {
+        logger.warn({ err }, "Telegram polling error (will retry)");
+      }
+
+      this.pollingTimer = setTimeout(() => void poll(), 3000);
+    };
+
+    void poll();
+  }
+
+  // Send to all registered private chats (bot chat — forwarded to channel by user's Telegram setup)
+  // Falls back to direct channel post if no chats are registered yet
+  notify(message: string, parseMode: "HTML" | "Markdown" | undefined = undefined) {
     if (!this.bot) return;
 
+    const opts = parseMode ? { parse_mode: parseMode as "HTML" | "Markdown" } : {};
+
     if (this.registeredChats.size === 0) {
-      // No private chats registered — fall back to channel so nothing is lost
-      this.notifyChannel(`⚙️ ${message}`);
+      // Not yet registered — send directly to channel as fallback
+      this.bot.telegram
+        .sendMessage(CHANNEL_ID, message, { parse_mode: "HTML", ...opts })
+        .catch((err) => logger.warn({ err }, "Telegram notify fallback to channel failed"));
       return;
     }
 
     for (const chatId of this.registeredChats) {
-      this.bot.telegram.sendMessage(chatId, message).catch((err) => {
-        logger.warn({ err, chatId }, "Failed to send Telegram message");
-      });
+      this.bot.telegram
+        .sendMessage(chatId, message, opts)
+        .catch((err) => logger.warn({ err, chatId }, "Failed to send Telegram message"));
     }
   }
 
+  // Direct channel post — for reports and announcements (bypasses forwarding by design)
   notifyChannel(message: string) {
     if (!this.bot) return;
     this.bot.telegram
       .sendMessage(CHANNEL_ID, message, { parse_mode: "HTML" })
-      .catch((err) => {
-        logger.warn({ err, channel: CHANNEL_ID }, "Failed to send channel message");
-      });
+      .catch((err) => logger.warn({ err, channel: CHANNEL_ID }, "Failed to send channel message"));
   }
 
   publishTrade(params: {

@@ -102,7 +102,7 @@ class SignalTracker {
 
     logger.info({ side, price, sl: signal.suggestedSl, tp: signal.suggestedTp, score: signal.score }, "SignalTracker: signal opened");
 
-    telegramService.notifyChannel(
+    telegramService.notify(
       `${emoji} <b>BTC ${side.toUpperCase()} — ${strengthLabel}</b>\n` +
       `━━━━━━━━━━━━━━━━━━━\n` +
       `💰 Цена входа: <b>$${price.toFixed(1)}</b>\n` +
@@ -114,7 +114,8 @@ class SignalTracker {
       `📡 Данные: ${dataExchanges}\n` +
       `🕐 ${timeStr}\n` +
       `━━━━━━━━━━━━━━━━━━━\n` +
-      `#BTC #bitcoin #scalping`
+      `#BTC #bitcoin #scalping`,
+      "HTML"
     );
   }
 
@@ -155,7 +156,7 @@ class SignalTracker {
     };
     const timeStr = new Date().toLocaleTimeString("ru-RU", { timeZone: "Europe/Moscow", hour12: false }) + " МСК";
 
-    telegramService.notifyChannel(
+    telegramService.notify(
       `${emoji} <b>ЗАКРЫТИЕ ${side.toUpperCase()}</b> — ${reasonLabel[reason]}\n` +
       `━━━━━━━━━━━━━━━━━━━\n` +
       `💰 Цена выхода: <b>$${exitPrice.toFixed(1)}</b>\n` +
@@ -163,7 +164,8 @@ class SignalTracker {
       `📡 Данные: ${dataExchanges}\n` +
       `🕐 ${timeStr}\n` +
       `━━━━━━━━━━━━━━━━━━━\n` +
-      `#BTC #bitcoin #scalping`
+      `#BTC #bitcoin #scalping`,
+      "HTML"
     );
   }
 }
