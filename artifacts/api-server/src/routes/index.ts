@@ -7,6 +7,7 @@ import riskRouter from "./risk";
 import historyRouter from "./history";
 import liquidationsRouter from "./liquidations";
 import patternRouter from "./pattern";
+import adminRouter from "./admin";
 
 const router: IRouter = Router();
 
@@ -18,5 +19,6 @@ router.use(riskRouter);
 router.use(historyRouter);
 router.use(liquidationsRouter);
 router.use(patternRouter);
+router.use(adminRouter);
 
 export default router;

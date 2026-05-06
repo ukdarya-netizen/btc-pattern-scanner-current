@@ -34,6 +34,14 @@ class StatsScheduler {
     logger.info("Stats scheduler started (daily 21:00, weekly Sun 12:00, monthly 1st 10:00 MSK)");
   }
 
+  async sendDailyNow() {
+    await this.sendDailyReport(mskNow());
+  }
+
+  async sendWeeklyNow() {
+    await this.sendWeeklyReport(mskNow());
+  }
+
   stop() {
     if (this.intervalId) clearInterval(this.intervalId);
   }
