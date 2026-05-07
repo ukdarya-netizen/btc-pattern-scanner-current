@@ -12,3 +12,9 @@ id = "940ez16Y8vD-qK9IqrCwF"
 uri = "file://btc_bot_code.zip"
 type = "unspecified"
 title = "btc_bot_code.zip — все ключевые файлы"
+
+[[outputs]]
+id = "6NYl2JjVWCgjrC_bg2r0s"
+uri = "file://btc-scalping-bot-audit.zip"
+type = "unspecified"
+title = "BTC Scalping Bot — исходный код (аудит)"
