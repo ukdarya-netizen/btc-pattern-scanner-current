@@ -7,11 +7,6 @@ import { telegramService } from "./telegram";
 const VIRTUAL_SIZE_BTC = 0.01;       // ~$800-1000 notional per signal
 const SIGNAL_SCORE_THRESHOLD = 0.35; // minimum |score| to open a signal
 
-// Progress milestones towards TP to notify at (fraction 0..1)
-const TP_MILESTONES = [0.25, 0.5, 0.75] as const;
-// SL proximity warning: fire when this fraction of SL distance has been consumed
-const SL_WARNING_AT = 0.75;
-
 interface ActiveSignal {
   id: string;
   side: "long" | "short";
@@ -23,10 +18,6 @@ interface ActiveSignal {
   score: number;
   openedAt: Date;
   dataExchanges: string;
-  /** TP milestones already notified (0.25, 0.5, 0.75) */
-  notifiedMilestones: Set<number>;
-  /** Whether the SL proximity warning has been sent */
-  slWarningNotified: boolean;
 }
 
 class SignalTracker {
@@ -58,7 +49,7 @@ class SignalTracker {
 
     // --- Manage active signal ---
     if (this.active) {
-      const { side, stopLoss, takeProfit, entryPrice } = this.active;
+      const { side, stopLoss, takeProfit } = this.active;
 
       const hitTp = side === "long" ? price >= takeProfit : price <= takeProfit;
       const hitSl = side === "long" ? price <= stopLoss : price >= stopLoss;
@@ -76,11 +67,7 @@ class SignalTracker {
 
       if (reversed) {
         void this.closeSignal(price, "signal", price);
-        return;
       }
-
-      // --- Progress notifications ---
-      this.checkMilestones(price, entryPrice, takeProfit, stopLoss, side);
       return;
     }
 
@@ -105,8 +92,6 @@ class SignalTracker {
       score: signal.score,
       openedAt: new Date(),
       dataExchanges,
-      notifiedMilestones: new Set(),
-      slWarningNotified: false,
     };
 
     const slPct = (Math.abs(signal.suggestedSl - price) / price * 100).toFixed(2);
@@ -131,78 +116,6 @@ class SignalTracker {
       `━━━━━━━━━━━━━━━━━━━\n` +
       `#BTC #bitcoin #scalping`
     );
-  }
-
-  /**
-   * Fires one-shot milestone notifications while a signal is active:
-   * - 25%, 50%, 75% of the way to TP
-   * - SL proximity warning when price consumes 75% of the SL distance
-   */
-  private checkMilestones(
-    price: number,
-    entryPrice: number,
-    takeProfit: number,
-    stopLoss: number,
-    side: "long" | "short",
-  ) {
-    if (!this.active) return;
-
-    const tpRange = Math.abs(takeProfit - entryPrice);
-    const slRange = Math.abs(stopLoss - entryPrice);
-    if (tpRange === 0 || slRange === 0) return;
-
-    // Progress toward TP (0 = entry, 1 = TP)
-    const tpProgress =
-      side === "long"
-        ? (price - entryPrice) / tpRange
-        : (entryPrice - price) / tpRange;
-
-    // Progress consumed toward SL (0 = entry, 1 = SL)
-    const slProgress =
-      side === "long"
-        ? (entryPrice - price) / slRange
-        : (price - entryPrice) / slRange;
-
-    const timeStr = new Date().toLocaleTimeString("ru-RU", { timeZone: "Europe/Moscow", hour12: false }) + " МСК";
-    const priceFmt = `$${price.toFixed(1)}`;
-    const tpFmt = `$${takeProfit.toFixed(1)}`;
-    const slFmt = `$${stopLoss.toFixed(1)}`;
-
-    // TP milestone notifications
-    for (const milestone of TP_MILESTONES) {
-      if (!this.active.notifiedMilestones.has(milestone) && tpProgress >= milestone) {
-        this.active.notifiedMilestones.add(milestone);
-        const pct = Math.round(milestone * 100);
-        const bar = "█".repeat(Math.round(milestone * 10)) + "░".repeat(10 - Math.round(milestone * 10));
-        const emoji = milestone >= 0.75 ? "🔥" : milestone >= 0.5 ? "📈" : "⚡";
-        logger.info({ price, milestone: pct, side }, "SignalTracker: TP milestone reached");
-        telegramService.notifyChannel(
-          `${emoji} <b>BTC ${side.toUpperCase()} — ${pct}% к TP</b>\n` +
-          `━━━━━━━━━━━━━━━━━━━\n` +
-          `[${bar}] ${pct}%\n` +
-          `💰 Текущая цена: <b>${priceFmt}</b>\n` +
-          `🎯 TP: <b>${tpFmt}</b>\n` +
-          `🛑 SL: <b>${slFmt}</b>\n` +
-          `🕐 ${timeStr}\n` +
-          `#BTC #bitcoin #scalping`
-        );
-      }
-    }
-
-    // SL proximity warning (only if not moving toward TP)
-    if (!this.active.slWarningNotified && slProgress >= SL_WARNING_AT && tpProgress < 0.1) {
-      this.active.slWarningNotified = true;
-      logger.info({ price, slProgress, side }, "SignalTracker: SL proximity warning");
-      telegramService.notifyChannel(
-        `⚠️ <b>BTC ${side.toUpperCase()} — ВНИМАНИЕ: цена близко к SL</b>\n` +
-        `━━━━━━━━━━━━━━━━━━━\n` +
-        `💰 Текущая цена: <b>${priceFmt}</b>\n` +
-        `🛑 SL: <b>${slFmt}</b>\n` +
-        `🎯 TP: <b>${tpFmt}</b>\n` +
-        `🕐 ${timeStr}\n` +
-        `#BTC #bitcoin #scalping`
-      );
-    }
   }
 
   private async closeSignal(exitPrice: number, reason: "tp" | "sl" | "signal", currentPrice: number) {
