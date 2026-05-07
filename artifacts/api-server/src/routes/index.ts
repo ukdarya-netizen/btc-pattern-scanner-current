@@ -8,6 +8,7 @@ import historyRouter from "./history";
 import liquidationsRouter from "./liquidations";
 import patternRouter from "./pattern";
 import adminRouter from "./admin";
+import fractalRouter from "./fractal";
 
 const router: IRouter = Router();
 
@@ -20,5 +21,6 @@ router.use(historyRouter);
 router.use(liquidationsRouter);
 router.use(patternRouter);
 router.use(adminRouter);
+router.use(fractalRouter);
 
 export default router;

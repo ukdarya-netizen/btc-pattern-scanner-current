@@ -23,6 +23,17 @@ Optional: `TELEGRAM_ADMIN_CHAT_IDS` (comma-separated chat IDs for private bot al
 - `artifacts/api-server/src/routes/` — API routes incl. `/admin` for manual reports
 - DB schema: `artifacts/api-server/src/db/`
 
+## Fractal Pattern Engine
+- `fractalService.ts` — DTW-based pattern matching on 1D (2001 candles, ~2019→now) + 4H (1000 candles via BingX REST)
+- Algorithm: DTW price distance (0.7) + Pearson volume correlation (0.3) = similarity_score per match
+- Collects top-20 matches per timeframe, derives probability (win-rate), avg SL/TP, expected move
+- Combined signal: 1D + 4H agree → average score; single TF → 20% penalty
+- Gate threshold: overall_signal_score ≥ 0.45 + win-rate ≥ 55% + R:R ≥ 1.5
+- **Fractal is the primary gate in signalTracker** — without a valid fractal signal, no trades open
+- Refreshes: 1D every 6h, 4H every 4h
+- API endpoint: `GET /api/fractal/signal` — returns combined + per-TF signals with full historical performance
+- 4H data: BingX public REST (Bybit blocked with 403 in Replit), fallback to CryptoCompare 4H aggregate
+
 ## Architecture decisions
 - **SignalTracker is the single source of truth**: opens signal when `|score| ≥ 0.35` + valid SL/TP clusters, publishes to channel via `notifyChannel()`, saves to DB on close. No time-based cooldown — only "is there an active signal".
 - **Signal close triggers**: SL/TP hit OR direction reversal (score crosses ±0.35 to opposite side)

@@ -4,6 +4,7 @@ import { aggregator } from "./services/exchanges/aggregator";
 import { cvdService } from "./services/cvd";
 import { candleService } from "./services/candleService";
 import { patternService } from "./services/patternService";
+import { fractalService } from "./services/fractalService";
 import { coinglassService } from "./services/coinglassService";
 import { telegramService } from "./services/telegram";
 import { botEngine } from "./services/botEngine";
@@ -32,9 +33,13 @@ statsScheduler.start();
 
 void dbService.initializeTodayStats();
 
+// FractalService loads 1D + 4H history (can take 10-20s on first start)
+void fractalService.start();
+
+// SignalTracker starts after fractalService has had time to load data
 setTimeout(() => {
   signalTracker.start();
-}, 15000);
+}, 30000);
 
 app.listen(port, (err) => {
   if (err) {
