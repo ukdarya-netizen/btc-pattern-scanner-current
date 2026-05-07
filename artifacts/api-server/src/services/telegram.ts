@@ -68,9 +68,13 @@ class TelegramService {
     });
 
     // Manual polling — avoids AbortSignal incompatibility in node-fetch@2.x
-    this.startPolling();
-
-    logger.info("Telegram bot started (manual polling)");
+    // Only poll in production to avoid 409 conflict when dev + deployed run simultaneously
+    if (process.env["REPLIT_DEPLOYMENT"] === "1") {
+      this.startPolling();
+      logger.info("Telegram bot started (manual polling, production)");
+    } else {
+      logger.info("Telegram bot started (send-only, dev — polling disabled to avoid 409 conflict with production)");
+    }
   }
 
   // Polls Telegram for updates using direct API calls (no AbortSignal)
