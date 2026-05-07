@@ -3,7 +3,6 @@ import { aggregator } from "./exchanges/aggregator";
 import { signalEngine } from "./signal";
 import { dbService } from "./dbService";
 import { telegramService } from "./telegram";
-import { fractalService } from "./fractalService";
 
 const VIRTUAL_SIZE_BTC = 0.01;       // ~$800-1000 notional per signal
 const SIGNAL_SCORE_THRESHOLD = 0.35; // minimum |score| to open a signal
@@ -81,16 +80,8 @@ class SignalTracker {
 
     const engineDirection = signal.direction as "long" | "short";
 
-    // ─── Fractal gate (primary gate) ───────────────────────────────────────
-    const fractalGate = fractalService.gateCheck(engineDirection);
-    if (!fractalGate.pass) {
-      logger.debug({ reason: fractalGate.reason, score: fractalGate.score }, "SignalTracker: fractal gate blocked signal");
-      return;
-    }
-
     const side = engineDirection;
     const dataExchanges = aggregator.getActiveExchangeNames().join(" + ");
-    const fractalSig = fractalService.getFractalSignal();
 
     this.active = {
       id: `sig-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
@@ -111,14 +102,15 @@ class SignalTracker {
     const strengthLabel = absScore2 > 0.7 ? "STRONG" : absScore2 > 0.5 ? "MODERATE" : "WEAK";
     const timeStr = new Date().toLocaleTimeString("ru-RU", { timeZone: "Europe/Moscow", hour12: false }) + " МСК";
     const emoji = side === "long" ? "🟢📈" : "🔴📉";
-    const fractalLine = fractalSig
-      ? `🔮 Фрактал: <b>${(fractalSig.overall_signal_score * 100).toFixed(0)}%</b> (win-rate ${(fractalSig.probability * 100).toFixed(0)}%)\n`
+    const fractalLine = signal.fractalSignal && signal.fractalSignal.valid
+      ? `🔮 Фрактал: <b>${(signal.fractalSignal.overall_signal_score * 100).toFixed(0)}%</b> (win-rate ${(signal.fractalSignal.probability * 100).toFixed(0)}%)\n`
       : "";
 
     logger.info({
       side, price,
       sl: signal.suggestedSl, tp: signal.suggestedTp, score: signal.score,
-      fractalScore: fractalGate.score, fractalReason: fractalGate.reason,
+      fractalScore: signal.fractalSignal?.overall_signal_score,
+      fractalReason: signal.fractalSignal?.reason,
     }, "SignalTracker: signal opened (fractal gate passed)");
 
     telegramService.notifyChannel(

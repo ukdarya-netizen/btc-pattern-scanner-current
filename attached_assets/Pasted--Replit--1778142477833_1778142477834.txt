@@ -1,0 +1,573 @@
+Детальное Техническое Задание для Replit Бота: Интеграция Фрактального Паттерн-Мэтчинга и Подтверждения Объемами
+
+1. Введение
+
+Это техническое задание (ТЗ) предназначено для выполнения конкретных изменений в коде вашего BTC скальпинг-бота. Цель — сделать фрактальный паттерн-мэтчинг основным фильтром для торговых сигналов, подтверждаемым анализом объемов, кластеров и стакана. Следуйте инструкциям пошагово и точно, чтобы избежать ошибок.
+
+2. Общие Инструкции для Replit Бота
+
+•
+Точность: Внимательно читайте и следуйте инструкциям. Обращайте внимание на номера строк и точное содержимое для замены.
+
+•
+Резервное копирование: Перед внесением любых изменений, сделайте резервную копию всех файлов, которые будут модифицированы.
+
+•
+Пути к файлам: Все пути к файлам указаны относительно корневой директории проекта artifacts/api-server/src/.
+
+3. Модификация Файла: artifacts/api-server/src/services/signal.ts
+
+Этот файл отвечает за вычисление торговых сигналов и их фильтрацию через различные "гейты". Мы интегрируем фрактальный сигнал как первичный гейт и используем его SL/TP.
+
+3.1. Добавление Импортов
+
+Найдите:
+
+TypeScript
+
+
+import { patternService } from "./patternService";
+
+
+
+Замените на:
+
+TypeScript
+
+
+import { patternService } from "./patternService";
+import { fractalService, FRACTAL_MIN_SIGNAL_SCORE, FractalSignal } from "./fractalService";
+
+
+
+3.2. Обновление Интерфейса SignalResult
+
+Найдите:
+
+TypeScript
+
+
+  tpSource?: string;
+  slSource?: string;
+}
+
+
+
+Замените на:
+
+TypeScript
+
+
+  tpSource?: string;
+  slSource?: string;
+  fractalSignal?: FractalSignal; // Добавляем информацию о фрактальном сигнале
+}
+
+
+
+3.3. Интеграция Фрактального Гейта и Использование Его SL/TP
+
+Найдите блок кода, начинающийся примерно со строки 613 (или ищите // Determine direction first):
+
+TypeScript
+
+
+    // Determine direction first (needed for funding modifier)
+    const alignment = cvdService.getAlignment();
+    let direction: "long" | "short" | "neutral" = "neutral";
+
+    // Gate 1 check: MTF CVD alignment strong = direction source
+    if (alignment.strong) {
+      direction = alignment.trend === "bullish" ? "long" : "short";
+    } else if (rawScore > 0.25) {
+      direction = "long";
+    } else if (rawScore < -0.25) {
+      direction = "short";
+    }
+
+    // Apply funding modifier
+    rawScore = clamp(applyFundingModifier(rawScore, fundingAnalysis, direction));
+
+    const score = parseFloat(rawScore.toFixed(4));
+    const confidence = clamp(Math.abs(score) * 1.5, 0, 1);
+
+    const price = aggregator.getPrimaryPrice() || 100_000;
+    const atr = candleService.getAtr();
+    const atrPct = atr > 0 ? (atr / price) * 100 : 0;
+    const vwap = candleService.getVwap();
+
+    // ── Leverage: HIGH volatility = LESS leverage (fixed, not inverted) ──
+    let leverage: number;
+    if (atrPct > 0.5) {
+      leverage = 20;
+    } else if (atrPct > 0.3) {
+      leverage = 35;
+    } else if (atrPct > 0.2) {
+      leverage = 50;
+    } else if (atrPct > 0.1) {
+      leverage = 75;
+    } else {
+      leverage = 100;
+    }
+    const signalQuality = Math.abs(score);
+    leverage = Math.round(leverage * (0.7 + signalQuality * 0.3));
+    leverage = Math.max(10, leverage);
+
+    // ── SL / TP from liquidation clusters ──
+    const buckets = getLiqBuckets();
+    const dirSign = direction === "long" ? 1 : direction === "short" ? -1 : 0;
+
+    let slResult: SlResult = { price: 0, source: "нет кластера", valid: false, clusterUsd: 0, distancePct: 0 };
+    let tpResult: TpResult = { price: 0, source: "нет кластера", valid: false, clusterUsd: 0, distancePct: 0, rr: 0 };
+
+    if (direction !== "neutral") {
+      slResult = calcSlFromLiqMap(direction, price, buckets);
+      if (slResult.valid) {
+        tpResult = calcTpFromLiqMap(direction, price, buckets, slResult.distancePct);
+      }
+    }
+
+    // Fallback display prices (for UI only when gates fail)
+    const displaySl = slResult.valid
+      ? slResult.price
+      : direction === "long"  ? parseFloat((price * (1 - 0.015)).toFixed(2))
+      : direction === "short" ? parseFloat((price * (1 + 0.015)).toFixed(2))
+      : price;
+
+    const displayTp = tpResult.valid
+      ? tpResult.price
+      : direction === "long"  ? parseFloat((price * (1 + 0.025)).toFixed(2))
+      : direction === "short" ? parseFloat((price * (1 - 0.025)).toFixed(2))
+      : price;
+
+    // ── 4 Gates ──
+    const obComp = weighted.find(c => c.name === "Order Book Imbalance");
+
+    // Gate 1: MTF CVD Alignment — all 3 timeframes agree
+    const gate1Passed = alignment.strong && direction !== "neutral";
+    const gate1Reason = alignment.strong
+      ? `${alignment.description} — все три ТФ согласованы ✓`
+      : `${alignment.description} — не все ТФ согласованы ✗ (strong: ${alignment.strong})`;
+
+
+
+Замените этот блок на следующий:
+
+TypeScript
+
+
+    // Determine direction first (needed for funding modifier)
+    const alignment = cvdService.getAlignment();
+    let direction: "long" | "short" | "neutral" = "neutral";
+
+    // Gate 1 check: MTF CVD alignment strong = direction source
+    if (alignment.strong) {
+      direction = alignment.trend === "bullish" ? "long" : "short";
+    } else if (rawScore > 0.25) {
+      direction = "long";
+    } else if (rawScore < -0.25) {
+      direction = "short";
+    }
+
+    // Apply funding modifier
+    rawScore = clamp(applyFundingModifier(rawScore, fundingAnalysis, direction));
+
+    const score = parseFloat(rawScore.toFixed(4));
+    const confidence = clamp(Math.abs(score) * 1.5, 0, 1);
+
+    const price = aggregator.getPrimaryPrice() || 100_000;
+    const atr = candleService.getAtr();
+    const atrPct = atr > 0 ? (atr / price) * 100 : 0;
+    const vwap = candleService.getVwap();
+
+    // ── Leverage: HIGH volatility = LESS leverage (fixed, not inverted) ──
+    let leverage: number;
+    if (atrPct > 0.5) {
+      leverage = 20;
+    } else if (atrPct > 0.3) {
+      leverage = 35;
+    } else if (atrPct > 0.2) {
+      leverage = 50;
+    } else if (atrPct > 0.1) {
+      leverage = 75;
+    } else {
+      leverage = 100;
+    }
+    const signalQuality = Math.abs(score);
+    leverage = Math.round(leverage * (0.7 + signalQuality * 0.3));
+    leverage = Math.max(10, leverage);
+
+    // ── SL / TP from liquidation clusters ──
+    const buckets = getLiqBuckets();
+    const dirSign = direction === "long" ? 1 : direction === "short" ? -1 : 0;
+
+    let slResult: SlResult = { price: 0, source: "нет кластера", valid: false, clusterUsd: 0, distancePct: 0 };
+    let tpResult: TpResult = { price: 0, source: "нет кластера", valid: false, clusterUsd: 0, distancePct: 0, rr: 0 };
+
+    // --- NEW: Fetch Fractal Signal and use as primary gate --- 
+    const fractalSig = fractalService.getFractalSignal();
+    const fractalGatePassed = 
+      fractalSig.valid && 
+      fractalSig.overall_signal_score >= FRACTAL_MIN_SIGNAL_SCORE && 
+      fractalSig.direction === direction;
+    const fractalGateReason = fractalSig.valid 
+      ? `Фрактал: ${fractalSig.overall_signal_score.toFixed(2)} (${(fractalSig.probability * 100).toFixed(0)}%) ${fractalSig.reason}` 
+      : fractalSig.reason;
+
+    // If fractal gate passed, use its suggested SL/TP
+    if (fractalGatePassed && fractalSig.suggested_sl_pct && fractalSig.suggested_tp_pct) {
+      slResult.price = price * (1 + fractalSig.suggested_sl_pct);
+      slResult.source = `Фрактал: ${fractalSig.suggested_sl_pct * 100}%`;
+      slResult.valid = true;
+      slResult.distancePct = Math.abs(fractalSig.suggested_sl_pct);
+
+      tpResult.price = price * (1 + fractalSig.suggested_tp_pct);
+      tpResult.source = `Фрактал: ${fractalSig.suggested_tp_pct * 100}%`;
+      tpResult.valid = true;
+      tpResult.distancePct = Math.abs(fractalSig.suggested_tp_pct);
+      tpResult.rr = tpResult.distancePct / slResult.distancePct; // Recalculate RR based on fractal SL/TP
+    } else if (direction !== "neutral") {
+      // Fallback to liquidation clusters if fractal not valid or not passed
+      slResult = calcSlFromLiqMap(direction, price, buckets);
+      if (slResult.valid) {
+        tpResult = calcTpFromLiqMap(direction, price, buckets, slResult.distancePct);
+      }
+    }
+
+    // Fallback display prices (for UI only when gates fail)
+    const displaySl = slResult.valid
+      ? slResult.price
+      : direction === "long"  ? parseFloat((price * (1 - 0.015)).toFixed(2))
+      : direction === "short" ? parseFloat((price * (1 + 0.015)).toFixed(2))
+      : price;
+
+    const displayTp = tpResult.valid
+      ? tpResult.price
+      : direction === "long"  ? parseFloat((price * (1 + 0.025)).toFixed(2))
+      : direction === "short" ? parseFloat((price * (1 - 0.025)).toFixed(2))
+      : price;
+
+    // ── Gates ──
+    const obComp = weighted.find(c => c.name === "Order Book Imbalance");
+
+    // Gate 0: Fractal Pattern Match
+    const gate0Passed = fractalGatePassed;
+    const gate0Reason = fractalGateReason;
+
+    // Gate 1: MTF CVD Alignment — all 3 timeframes agree
+    const gate1Passed = alignment.strong && direction !== "neutral";
+    const gate1Reason = alignment.strong
+      ? `${alignment.description} — все три ТФ согласованы ✓`
+      : `${alignment.description} — не все ТФ согласованы ✗ (strong: ${alignment.strong})`;
+
+
+
+3.4. Добавление Гейта для Фандинга
+
+Найдите блок кода, начинающийся примерно со строки 681 (или ищите // ── 4 Gates ──):
+
+TypeScript
+
+
+    // ── 4 Gates ──
+    const obComp = weighted.find(c => c.name === "Order Book Imbalance");
+
+    // Gate 1: MTF CVD Alignment — all 3 timeframes agree
+    const gate1Passed = alignment.strong && direction !== "neutral";
+    const gate1Reason = alignment.strong
+      ? `${alignment.description} — все три ТФ согласованы ✓`
+      : `${alignment.description} — не все ТФ согласованы ✗ (strong: ${alignment.strong})`;
+
+    // Gate 2: Order Book confirms direction
+    const obPassed = obComp ? obComp.score * dirSign > 0 : false;
+    const obReason = obComp
+      ? `Стакан ${obComp.score >= 0 ? "+" : ""}${obComp.score.toFixed(2)} ${obPassed ? "✓" : "✗"}`
+      : "нет данных стакана ✗";
+
+    // Gate 3: SL on cluster
+    const gate3Passed = slResult.valid;
+    const gate3Reason = slResult.valid
+      ? `${slResult.source} | dist: ${(slResult.distancePct * 100).toFixed(2)}% ✓`
+      : `${slResult.source} ✗`;
+
+    // Gate 4: TP on cluster + R:R ≥ 1.5
+    const gate4Passed = tpResult.valid;
+    const gate4Reason = tpResult.valid
+      ? `${tpResult.source} | dist: ${(tpResult.distancePct * 100).toFixed(2)}% ✓`
+      : `${tpResult.source} ✗`;
+
+    const gates: GateResult[] = [
+      { name: "MTF CVD Alignment (1m/5m/15m)", passed: gate1Passed, reason: gate1Reason },
+      { name: "Стакан (Order Book)",            passed: obPassed,    reason: obReason },
+      { name: "SL на кластере ликвидаций",      passed: gate3Passed, reason: gate3Reason },
+      { name: "TP на кластере + R:R ≥ 1.5",    passed: gate4Passed, reason: gate4Reason },
+    ];
+
+    const allGatesPassed = direction !== "neutral" && gate1Passed && obPassed && gate3Passed && gate4Passed;
+
+
+
+Замените этот блок на следующий:
+
+TypeScript
+
+
+    // ── Gates ──
+    const obComp = weighted.find(c => c.name === "Order Book Imbalance");
+
+    // Gate 0: Fractal Pattern Match (PRIMARY FILTER)
+    const gate0Passed = fractalGatePassed;
+    const gate0Reason = fractalGateReason;
+
+    // Gate 1: MTF CVD Alignment — all 3 timeframes agree
+    const gate1Passed = alignment.strong && direction !== "neutral";
+    const gate1Reason = alignment.strong
+      ? `${alignment.description} — все три ТФ согласованы ✓`
+      : `${alignment.description} — не все ТФ согласованы ✗ (strong: ${alignment.strong})`;
+
+    // Gate 2: Order Book confirms direction
+    const obPassed = obComp ? obComp.score * dirSign > 0 : false;
+    const obReason = obComp
+      ? `Стакан ${obComp.score >= 0 ? "+" : ""}${obComp.score.toFixed(2)} ${obPassed ? "✓" : "✗"}`
+      : "нет данных стакана ✗";
+
+    // Gate 3: SL on cluster
+    const gate3Passed = slResult.valid;
+    const gate3Reason = slResult.valid
+      ? `${slResult.source} | dist: ${(slResult.distancePct * 100).toFixed(2)}% ✓`
+      : `${slResult.source} ✗`;
+
+    // Gate 4: TP on cluster + R:R ≥ 1.5
+    const gate4Passed = tpResult.valid;
+    const gate4Reason = tpResult.valid
+      ? `${tpResult.source} | dist: ${(tpResult.distancePct * 100).toFixed(2)}% ✓`
+      : `${tpResult.source} ✗`;
+
+    // Gate 5: Funding Rate (contrarian filter)
+    const fundingAnalysis = analyzeFunding(aggregator.getPrimaryFundingRate());
+    const gate5Passed = !fundingAnalysis.extreme || fundingAnalysis.contrarian === direction;
+    const gate5Reason = gate5Passed 
+      ? `Фандинг не экстремальный или контр-тренд ✓` 
+      : `Фандинг ${fundingAnalysis.bias} — ${fundingAnalysis.contrarian} ✗`;
+
+    const gates: GateResult[] = [
+      { name: "Фрактальный Паттерн",        passed: gate0Passed, reason: gate0Reason },
+      { name: "MTF CVD Alignment (1m/5m/15m)", passed: gate1Passed, reason: gate1Reason },
+      { name: "Стакан (Order Book)",            passed: obPassed,    reason: obReason },
+      { name: "SL на кластере ликвидаций",      passed: gate3Passed, reason: gate3Reason },
+      { name: "TP на кластере + R:R ≥ 1.5",    passed: gate4Passed, reason: gate4Reason },
+      { name: "Фандинг",                      passed: gate5Passed, reason: gate5Reason },
+    ];
+
+    const allGatesPassed = direction !== "neutral" && gate0Passed && gate1Passed && obPassed && gate3Passed && gate4Passed && gate5Passed;
+
+
+
+3.5. Обновление Возвращаемого Значения SignalResult
+
+Найдите блок кода, начинающийся примерно со строки 717 (или ищите return {):
+
+TypeScript
+
+
+    return {
+      score,
+      direction,
+      confidence: parseFloat(confidence.toFixed(4)),
+      components,
+      gates,
+      allGatesPassed,
+      suggestedLeverage: leverage,
+      suggestedSl: displaySl,
+      suggestedTp: displayTp,
+      slValid: slResult.valid,
+      tpValid: tpResult.valid,
+      atrPct: parseFloat(atrPct.toFixed(4)),
+      vwap: parseFloat(vwap.toFixed(2)),
+      updatedAt: new Date().toISOString(),
+      tpSource: tpResult.valid ? tpResult.source : slResult.valid ? tpResult.source : "ожидание кластера",
+      slSource: slResult.valid ? slResult.source : "ожидание кластера",
+    };
+
+
+
+Замените этот блок на следующий:
+
+TypeScript
+
+
+    return {
+      score,
+      direction,
+      confidence: parseFloat(confidence.toFixed(4)),
+      components,
+      gates,
+      allGatesPassed,
+      suggestedLeverage: leverage,
+      suggestedSl: displaySl,
+      suggestedTp: displayTp,
+      slValid: slResult.valid,
+      tpValid: tpResult.valid,
+      atrPct: parseFloat(atrPct.toFixed(4)),
+      vwap: parseFloat(vwap.toFixed(2)),
+      updatedAt: new Date().toISOString(),
+      tpSource: tpResult.valid ? tpResult.source : slResult.valid ? tpResult.source : "ожидание кластера",
+      slSource: slResult.valid ? slResult.source : "ожидание кластера",
+      fractalSignal: fractalSig, // Добавляем фрактальный сигнал в результат
+    };
+
+
+
+4. Модификация Файла: artifacts/api-server/src/services/botEngine.ts
+
+Этот файл управляет фактическим открытием и закрытием позиций. Здесь мы убедимся, что бот использует обновленную логику signal.ts.
+
+4.1. Корректировка MIN_TRADE_INTERVAL_MS
+
+Найдите:
+
+TypeScript
+
+
+const MIN_TRADE_INTERVAL_MS = 5 * 60 * 1000;
+
+
+
+Замените на (рекомендуется увеличить интервал, так как фракталы более долгосрочны):
+
+TypeScript
+
+
+const MIN_TRADE_INTERVAL_MS = 30 * 60 * 1000; // Увеличено до 30 минут для фрактальной стратегии
+
+
+
+4.2. Добавление Проверки fractalSignal.overall_signal_score (Опционально, но Рекомендуется)
+
+Хотя signal.allGatesPassed теперь включает фрактальный гейт, дополнительная проверка overall_signal_score может добавить еще один уровень фильтрации.
+
+Найдите блок кода, начинающийся примерно со строки 215 (или ищите const signal = signalEngine.compute();):
+
+TypeScript
+
+
+    const signal = signalEngine.compute();
+    if (!signal.allGatesPassed) return;
+
+
+
+Замените на:
+
+TypeScript
+
+
+    const signal = signalEngine.compute();
+    if (!signal.allGatesPassed) return;
+
+    // Дополнительная проверка: убедиться, что фрактальный сигнал достаточно силен
+    if (!signal.fractalSignal || signal.fractalSignal.overall_signal_score < FRACTAL_MIN_SIGNAL_SCORE) {
+      logger.debug("BotEngine: Fractal signal not strong enough or missing, skipping trade");
+      return;
+    }
+
+
+
+Также, убедитесь, что FRACTAL_MIN_SIGNAL_SCORE импортирован в botEngine.ts. Добавьте к импортам в начале файла:
+
+TypeScript
+
+
+import { fractalService, FRACTAL_MIN_SIGNAL_SCORE } from "./fractalService";
+
+
+
+5. Модификация Файла: artifacts/api-server/src/services/signalTracker.ts
+
+Этот файл теперь будет использовать обновленный signalEngine.compute(), который уже включает фрактальный гейт. Таким образом, его собственная проверка фракталов становится избыточной.
+
+5.1. Удаление Избыточной Проверки Фрактального Гейта
+
+Найдите блок кода, начинающийся примерно со строки 84 (или ищите // ─── Fractal gate (primary gate) ───────────────────────────────────────):
+
+TypeScript
+
+
+    // ─── Fractal gate (primary gate) ───────────────────────────────────────
+    const fractalGate = fractalService.gateCheck(engineDirection);
+    if (!fractalGate.pass) {
+      logger.debug({ reason: fractalGate.reason, score: fractalGate.score }, "SignalTracker: fractal gate blocked signal");
+      return;
+    }
+
+
+
+Удалите эти строки полностью.
+
+5.2. Обновление Отображения Фрактальной Информации
+
+Найдите блок кода, начинающийся примерно со строки 114 (или ищите const fractalLine = fractalSig):
+
+TypeScript
+
+
+    const fractalLine = fractalSig
+      ? `🔮 Фрактал: <b>${(fractalSig.overall_signal_score * 100).toFixed(0)}%</b> (win-rate ${(fractalSig.probability * 100).toFixed(0)}%)\n`
+      : "";
+
+
+
+Замените на:
+
+TypeScript
+
+
+    const fractalLine = signal.fractalSignal && signal.fractalSignal.valid
+      ? `🔮 Фрактал: <b>${(signal.fractalSignal.overall_signal_score * 100).toFixed(0)}%</b> (win-rate ${(signal.fractalSignal.probability * 100).toFixed(0)}%)\n`
+      : "";
+
+
+
+Найдите блок кода, начинающийся примерно со строки 118 (или ищите logger.info({):
+
+TypeScript
+
+
+    logger.info({
+      side, price,
+      sl: signal.suggestedSl, tp: signal.suggestedTp, score: signal.score,
+      fractalScore: fractalGate.score, fractalReason: fractalGate.reason,
+    }, "SignalTracker: signal opened (fractal gate passed)");
+
+
+
+Замените на:
+
+TypeScript
+
+
+    logger.info({
+      side, price,
+      sl: signal.suggestedSl, tp: signal.suggestedTp, score: signal.score,
+      fractalScore: signal.fractalSignal?.overall_signal_score, fractalReason: signal.fractalSignal?.reason,
+    }, "SignalTracker: signal opened (fractal gate passed)");
+
+
+
+6. Заключение
+
+После выполнения этих изменений ваш бот будет работать по следующей логике:
+
+1.
+fractalService будет постоянно искать фрактальные паттерны и генерировать FractalSignal.
+
+2.
+signal.ts будет использовать этот FractalSignal как первичный гейт. Только если фрактальный паттерн найден и достаточно силен, signal.ts продолжит проверять остальные гейты (CVD, стакан, кластеры ликвидаций, фандинг).
+
+3.
+botEngine.ts будет открывать позиции только тогда, когда signal.allGatesPassed (который теперь включает фрактальный гейт) истинен, и, опционально, если overall_signal_score фрактала достаточно высок.
+
+4.
+signalTracker.ts будет уведомлять о сигналах, которые прошли все эти гейты.
+
+Это значительно повысит качество и релевантность торговых сигналов, а также уменьшит их частоту, соответствуя вашей стратегии "паттерн -> объемы -> вход".
+

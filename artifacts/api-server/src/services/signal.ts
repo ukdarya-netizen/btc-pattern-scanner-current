@@ -2,6 +2,8 @@ import { aggregator } from "./exchanges/aggregator";
 import { cvdService } from "./cvd";
 import { candleService } from "./candleService";
 import { patternService } from "./patternService";
+import { fractalService, FRACTAL_MIN_SIGNAL_SCORE } from "./fractalService";
+import type { FractalSignal } from "./fractalService";
 import { coinalyzeService } from "./coinalyzeService";
 import { coinglassService } from "./coinglassService";
 import type { LiqHeatmapBucket } from "./coinglassService";
@@ -37,6 +39,7 @@ export interface SignalResult {
   updatedAt: string;
   tpSource?: string;
   slSource?: string;
+  fractalSignal?: FractalSignal;
 }
 
 // Unified bucket type for SL/TP logic
@@ -651,14 +654,45 @@ class SignalEngine {
     leverage = Math.round(leverage * (0.7 + signalQuality * 0.3));
     leverage = Math.max(10, leverage);
 
-    // ── SL / TP from liquidation clusters ──
+    // ── SL / TP: fractal-first, cluster fallback ──
     const buckets = getLiqBuckets();
     const dirSign = direction === "long" ? 1 : direction === "short" ? -1 : 0;
 
     let slResult: SlResult = { price: 0, source: "нет кластера", valid: false, clusterUsd: 0, distancePct: 0 };
     let tpResult: TpResult = { price: 0, source: "нет кластера", valid: false, clusterUsd: 0, distancePct: 0, rr: 0 };
 
-    if (direction !== "neutral") {
+    // ── Fractal gate (primary filter) ──
+    const fractalSig = fractalService.getFractalSignal();
+    const fractalGatePassed =
+      fractalSig !== null &&
+      fractalSig.valid &&
+      fractalSig.overall_signal_score >= FRACTAL_MIN_SIGNAL_SCORE &&
+      fractalSig.direction === direction;
+    const fractalGateReason = fractalSig !== null && fractalSig.valid
+      ? `Фрактал: ${fractalSig.overall_signal_score.toFixed(2)} (${(fractalSig.probability * 100).toFixed(0)}%) ${fractalSig.reason}`
+      : (fractalSig?.reason ?? "Фрактальный сигнал не готов");
+
+    if (fractalGatePassed && fractalSig && fractalSig.suggested_sl_pct > 0 && fractalSig.suggested_tp_pct > 0) {
+      // Convert stored percentage (e.g. 1.187) to decimal (0.01187)
+      const slPctDecimal = fractalSig.suggested_sl_pct / 100;
+      const tpPctDecimal = fractalSig.suggested_tp_pct / 100;
+
+      slResult.price = parseFloat((direction === "long"
+        ? price * (1 - slPctDecimal)
+        : price * (1 + slPctDecimal)).toFixed(2));
+      slResult.source = `Фрактал: ${fractalSig.suggested_sl_pct.toFixed(2)}%`;
+      slResult.valid = true;
+      slResult.distancePct = slPctDecimal;
+
+      tpResult.price = parseFloat((direction === "long"
+        ? price * (1 + tpPctDecimal)
+        : price * (1 - tpPctDecimal)).toFixed(2));
+      tpResult.source = `Фрактал: ${fractalSig.suggested_tp_pct.toFixed(2)}%`;
+      tpResult.valid = true;
+      tpResult.distancePct = tpPctDecimal;
+      tpResult.rr = tpPctDecimal / slPctDecimal;
+    } else if (direction !== "neutral") {
+      // Fallback to liquidation clusters
       slResult = calcSlFromLiqMap(direction, price, buckets);
       if (slResult.valid) {
         tpResult = calcTpFromLiqMap(direction, price, buckets, slResult.distancePct);
@@ -678,8 +712,12 @@ class SignalEngine {
       : direction === "short" ? parseFloat((price * (1 - 0.025)).toFixed(2))
       : price;
 
-    // ── 4 Gates ──
+    // ── Gates ──
     const obComp = weighted.find(c => c.name === "Order Book Imbalance");
+
+    // Gate 0: Fractal Pattern Match (PRIMARY FILTER)
+    const gate0Passed = fractalGatePassed;
+    const gate0Reason = fractalGateReason;
 
     // Gate 1: MTF CVD Alignment — all 3 timeframes agree
     const gate1Passed = alignment.strong && direction !== "neutral";
@@ -705,14 +743,22 @@ class SignalEngine {
       ? `${tpResult.source} | dist: ${(tpResult.distancePct * 100).toFixed(2)}% ✓`
       : `${tpResult.source} ✗`;
 
+    // Gate 5: Funding Rate (contrarian filter) — uses already-computed fundingAnalysis
+    const gate5Passed = !fundingAnalysis.extreme || fundingAnalysis.contrarian === direction;
+    const gate5Reason = gate5Passed
+      ? `Фандинг не экстремальный или контр-тренд ✓`
+      : `Фандинг ${fundingAnalysis.bias} — ${fundingAnalysis.contrarian} ✗`;
+
     const gates: GateResult[] = [
+      { name: "Фрактальный Паттерн",           passed: gate0Passed, reason: gate0Reason },
       { name: "MTF CVD Alignment (1m/5m/15m)", passed: gate1Passed, reason: gate1Reason },
       { name: "Стакан (Order Book)",            passed: obPassed,    reason: obReason },
       { name: "SL на кластере ликвидаций",      passed: gate3Passed, reason: gate3Reason },
       { name: "TP на кластере + R:R ≥ 1.5",    passed: gate4Passed, reason: gate4Reason },
+      { name: "Фандинг",                        passed: gate5Passed, reason: gate5Reason },
     ];
 
-    const allGatesPassed = direction !== "neutral" && gate1Passed && obPassed && gate3Passed && gate4Passed;
+    const allGatesPassed = direction !== "neutral" && gate0Passed && gate1Passed && obPassed && gate3Passed && gate4Passed && gate5Passed;
 
     return {
       score,
@@ -731,6 +777,7 @@ class SignalEngine {
       updatedAt: new Date().toISOString(),
       tpSource: tpResult.valid ? tpResult.source : slResult.valid ? tpResult.source : "ожидание кластера",
       slSource: slResult.valid ? slResult.source : "ожидание кластера",
+      fractalSignal: fractalSig ?? undefined,
     };
   }
 }
