@@ -5,7 +5,7 @@ import { dbService } from "./dbService";
 import { telegramService } from "./telegram";
 
 const VIRTUAL_SIZE_BTC = 0.01;       // ~$800-1000 notional per signal
-const SIGNAL_SCORE_THRESHOLD = 0.35; // minimum |score| to open a signal
+const SIGNAL_SCORE_THRESHOLD = 0.45; // minimum |score| to open a signal (aligned with fractal score)
 
 interface ActiveSignal {
   id: string;
@@ -77,6 +77,10 @@ class SignalTracker {
     if (signal.direction === "neutral") return;
     if (!signal.suggestedSl || !signal.suggestedTp) return;
     if (signal.suggestedSl === 0 || signal.suggestedTp === 0) return;
+    if (!signal.allGatesPassed) {
+      logger.debug({ score: signal.score, direction: signal.direction }, "SignalTracker: allGatesPassed false, skipping");
+      return;
+    }
 
     const engineDirection = signal.direction as "long" | "short";
 

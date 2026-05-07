@@ -154,28 +154,66 @@ function similarity(curr: OhlcvCandle[], hist: OhlcvCandle[]): number {
 
 // ─── Fetch helpers ────────────────────────────────────────────────────────────
 async function fetch1DCandles(): Promise<OhlcvCandle[]> {
-  // CryptoCompare: free, 2000 days from 2019
-  const url = "https://min-api.cryptocompare.com/data/v2/histoday?fsym=BTC&tsym=USD&limit=2000&toTs=-1";
-  try {
-    const resp = await fetch(url, { signal: AbortSignal.timeout(20000) });
-    if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
-    const json = await resp.json() as {
-      Response: string;
-      Data: { Data: { time: number; open: number; high: number; low: number; close: number; volumefrom: number }[] };
-    };
-    if (json.Response !== "Success") throw new Error(`CC error: ${json.Response}`);
-    const rows = json.Data.Data;
-    return rows
-      .filter(r => r.close > 0)
-      .map(r => ({
-        ts: r.time * 1000,
-        open: r.open, high: r.high, low: r.low, close: r.close,
-        volume: r.volumefrom,
-      }));
-  } catch (e) {
-    logger.warn({ err: e }, "FractalService: CryptoCompare 1D fetch failed, using Bybit");
+  // CryptoCompare: paginate backwards to collect data from 2013
+  const allCandles: OhlcvCandle[] = [];
+  let toTs = -1; // start from current time
+  const TARGET_YEAR = 2013;
+
+  logger.info("FractalService: fetching 1D candles from CryptoCompare (paginated, from 2013)...");
+
+  for (let page = 0; page < 10; page++) {
+    try {
+      const url = `https://min-api.cryptocompare.com/data/v2/histoday?fsym=BTC&tsym=USD&limit=2000&toTs=${toTs}`;
+      const resp = await fetch(url, { signal: AbortSignal.timeout(20000) });
+      if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+      const json = await resp.json() as {
+        Response: string;
+        Data: { Data: { time: number; open: number; high: number; low: number; close: number; volumefrom: number }[] };
+      };
+      if (json.Response !== "Success") throw new Error(`CC error: ${json.Response}`);
+
+      const rows = json.Data.Data.filter(r => r.close > 0);
+      if (rows.length === 0) break;
+
+      const batch: OhlcvCandle[] = rows
+        .filter(r => new Date(r.time * 1000).getFullYear() >= TARGET_YEAR)
+        .map(r => ({
+          ts: r.time * 1000,
+          open: r.open, high: r.high, low: r.low, close: r.close,
+          volume: r.volumefrom,
+        }));
+
+      // Prepend (oldest first after sort)
+      allCandles.unshift(...batch);
+
+      const oldestYear = new Date(rows[0].time * 1000).getFullYear();
+      logger.debug(`FractalService: 1D page ${page + 1} — ${batch.length} candles, oldest year: ${oldestYear}`);
+
+      // Stop if we've reached the target year or got fewer than expected
+      if (oldestYear <= TARGET_YEAR || rows.length < 2000) break;
+
+      // Move toTs back to just before the oldest candle in this batch
+      toTs = rows[0].time - 1;
+    } catch (e) {
+      logger.warn({ err: e }, "FractalService: CryptoCompare 1D page failed, stopping pagination");
+      break;
+    }
   }
+
+  if (allCandles.length > 0) {
+    // Deduplicate and sort ascending
+    const unique = Array.from(new Map(allCandles.map(c => [c.ts, c])).values())
+      .sort((a, b) => a.ts - b.ts);
+    logger.info(
+      `FractalService: 1D candles ready — ${unique.length} total, ` +
+      `from ${new Date(unique[0].ts).toISOString().slice(0, 10)} ` +
+      `to ${new Date(unique[unique.length - 1].ts).toISOString().slice(0, 10)}`
+    );
+    return unique;
+  }
+
   // Bybit fallback
+  logger.warn("FractalService: CryptoCompare returned no 1D candles, falling back to Bybit");
   const klines = await aggregator.fetchDailyKlines(500);
   return klines.map(k => ({ ...k, volume: 0 }));
 }

@@ -1,0 +1,229 @@
+Детальное Техническое Задание для Replit-бота (Версия 2)
+
+Цель: Финальная синхронизация логики уведомлений и торговли, а также улучшение качества данных для фрактального анализа. Это ТЗ предназначено для "не очень умного" бота, поэтому инструкции максимально подробны и пошаговы.
+
+1. Изменения в api-server/src/services/signalTracker.ts
+
+Задача: Сделать так, чтобы уведомления в Telegram отправлялись только тогда, когда торговый движок (botEngine) действительно готов открыть сделку. Это означает, что signalTracker должен проверять signal.allGatesPassed, как это делает botEngine.
+
+Текущая проблема: signalTracker использует только absScore < SIGNAL_SCORE_THRESHOLD и наличие suggestedSl/suggestedTp, игнорируя signal.allGatesPassed. Это приводит к "шумным" уведомлениям о сигналах, которые не прошли все фильтры.
+
+Инструкции по изменению:
+
+1.
+Откройте файл: /home/ubuntu/btc_bot_audit_2/artifacts/api-server/src/services/signalTracker.ts
+
+2.
+Найдите секцию --- Open new signal --- (примерно строка 74):
+
+TypeScript
+
+
+// --- Open new signal ---
+const absScore = Math.abs(signal.score);
+if (absScore < SIGNAL_SCORE_THRESHOLD) return;
+if (signal.direction === "neutral") return;
+if (!signal.suggestedSl || !signal.suggestedTp) return;
+if (signal.suggestedSl === 0 || signal.suggestedTp === 0) return;
+
+
+
+
+
+3.
+Добавьте проверку signal.allGatesPassed сразу после существующих проверок.
+
+Новый код для вставки:
+
+TypeScript
+
+
+// --- Open new signal ---
+const absScore = Math.abs(signal.score);
+if (absScore < SIGNAL_SCORE_THRESHOLD) return;
+if (signal.direction === "neutral") return;
+if (!signal.suggestedSl || !signal.suggestedTp) return;
+if (signal.suggestedSl === 0 || signal.suggestedTp === 0) return;
+// НОВАЯ ПРОВЕРКА: Уведомляем только если все гейты пройдены (как для реальной торговли)
+if (!signal.allGatesPassed) {
+  logger.debug({ reason: "allGatesPassed false", signal }, "SignalTracker: skipping signal notification");
+  return;
+}
+
+
+
+
+
+4.
+Обновите SIGNAL_SCORE_THRESHOLD (строка 8):
+
+Текущий код:
+
+TypeScript
+
+
+const SIGNAL_SCORE_THRESHOLD = 0.35; // minimum |score| to open a signal
+
+
+
+Измените на:
+
+TypeScript
+
+
+const SIGNAL_SCORE_THRESHOLD = 0.45; // minimum |score| to open a signal (aligned with fractal score)
+
+
+
+Пояснение: Это значение должно быть согласовано с FRACTAL_MIN_SIGNAL_SCORE (0.45) и общим порогом, при котором allGatesPassed становится истинным, чтобы избежать уведомлений о слабых сигналах, которые все равно не пройдут.
+
+
+
+2. Изменения в api-server/src/services/fractalService.ts
+
+Задача: Увеличить глубину исторических данных для 1D свечей, чтобы обеспечить анализ фракталов с 2013 года, как было запрошено.
+
+Текущая проблема: CryptoCompare с limit=2000 и Bybit с 500 свечами не позволяют получить данные с 2013 года. Это ограничивает историческую глубину фрактального анализа.
+
+Инструкции по изменению:
+
+1.
+Откройте файл: /home/ubuntu/btc_bot_audit_2/artifacts/api-server/src/services/fractalService.ts
+
+2.
+Найдите функцию fetch1DCandles() (примерно строка 220):
+
+Текущий код (фрагмент):
+
+TypeScript
+
+
+private async fetch1DCandles(): Promise<OhlcvCandle[]> {
+    // ...
+    // CryptoCompare (up to 2000 days)
+    const ccRes = await axios.get(`https://min-api.cryptocompare.com/data/histoday?fsym=BTC&tsym=USDT&limit=2000&e=Binance`, {
+        headers: { 'authorization': `Apikey ${process.env.CRYPTOCOMPARE_API_KEY}` }
+    } );
+    // ...
+    // Bybit fallback (up to 500 days)
+    const bybitCandles = await aggregator.fetchKlines("Bybit", "BTCUSDT", "1d", 500);
+    // ...
+}
+
+
+
+
+
+3.
+Измените логику fetch1DCandles() для получения данных с 2013 года.
+
+Пояснение: Поскольку CryptoCompare имеет ограничение limit=2000, для получения данных с 2013 года потребуется несколько запросов. Мы будем делать запросы, начиная с текущей даты и двигаясь назад во времени, пока не достигнем 2013 года или не соберем достаточно данных.
+
+Замените всю функцию fetch1DCandles() на следующую:
+
+TypeScript
+
+
+private async fetch1DCandles(): Promise<OhlcvCandle[]> {
+    const allCandles: OhlcvCandle[] = [];
+    let hasMore = true;
+    let toTs = Math.floor(Date.now() / 1000); // Current timestamp in seconds
+    const targetYear = 2013; // Target year for historical data
+
+    logger.info("Fetching 1D candles from CryptoCompare (multiple requests for deep history)...");
+
+    while (hasMore) {
+        try {
+            const ccRes = await axios.get(`https://min-api.cryptocompare.com/data/histoday?fsym=BTC&tsym=USDT&limit=2000&toTs=${toTs}&e=Binance`, {
+                headers: { 'authorization': `Apikey ${process.env.CRYPTOCOMPARE_API_KEY}` }
+            } );
+
+            if (ccRes.data && ccRes.data.Data && ccRes.data.Data.length > 0) {
+                const newCandles = ccRes.data.Data.map((c: any) => ({
+                    time: c.time * 1000, // Convert to milliseconds
+                    open: c.open,
+                    high: c.high,
+                    low: c.low,
+                    close: c.close,
+                    volume: c.volumeto,
+                })).filter((c: OhlcvCandle) => new Date(c.time).getFullYear() >= targetYear);
+
+                allCandles.unshift(...newCandles); // Add to the beginning to maintain chronological order
+
+                // Find the timestamp of the oldest candle fetched in this batch
+                const oldestCandleTime = newCandles.length > 0 ? newCandles[0].time : 0;
+                toTs = Math.floor(oldestCandleTime / 1000) - 1; // Request data before this timestamp
+
+                // Stop if we reached the target year or no more data
+                if (new Date(oldestCandleTime).getFullYear() <= targetYear || ccRes.data.Data.length < 2000) {
+                    hasMore = false;
+                }
+                logger.debug(`Fetched ${newCandles.length} 1D candles. Total: ${allCandles.length}. Oldest: ${new Date(allCandles[0].time).toISOString()}`);
+
+            } else {
+                hasMore = false; // No more data from CryptoCompare
+            }
+        } catch (e) {
+            logger.error({ err: e }, "Failed to fetch 1D candles from CryptoCompare");
+            hasMore = false; // Stop on error
+        }
+    }
+
+    if (allCandles.length === 0) {
+        logger.warn("CryptoCompare returned no 1D candles. Falling back to aggregator.");
+        // Fallback to Bybit if CryptoCompare fails completely
+        const bybitCandles = await aggregator.fetchKlines("Bybit", "BTCUSDT", "1d", 500);
+        if (bybitCandles.length > 0) {
+            return bybitCandles.map(c => ({ ...c, volume: c.volume ?? 0 })); // Ensure volume is number
+        }
+    }
+
+    // Ensure candles are sorted by time ascending and unique
+    const uniqueCandles = Array.from(new Map(allCandles.map(c => [c.time, c])).values());
+    uniqueCandles.sort((a, b) => a.time - b.time);
+
+    logger.info(`Finished fetching 1D candles. Total: ${uniqueCandles.length}. From: ${new Date(uniqueCandles[0].time).toISOString()} To: ${new Date(uniqueCandles[uniqueCandles.length - 1].time).toISOString()}`);
+    return uniqueCandles;
+}
+
+
+
+
+
+4.
+Обновите комментарии (примерно строка 111):
+
+Текущий комментарий:
+
+TypeScript
+
+
+// FRACTAL_MIN_SIGNAL_SCORE: Minimum overall_signal_score for a fractal to be considered valid
+export const FRACTAL_MIN_SIGNAL_SCORE = 0.45;
+
+
+
+Измените на:
+
+TypeScript
+
+
+// FRACTAL_MIN_SIGNAL_SCORE: Минимальный overall_signal_score для валидного фрактала (от 0 до 1)
+export const FRACTAL_MIN_SIGNAL_SCORE = 0.45;
+
+
+
+
+
+3. Заключение
+
+После выполнения этих изменений:
+
+•
+Telegram-уведомления станут значительно реже и будут соответствовать реальным торговым сигналам, так как signalTracker будет проверять allGatesPassed.
+
+•
+Фрактальный анализ будет использовать гораздо более глубокую историю данных (с 2013 года), что повысит его надежность и точность.
+
+Пожалуйста, убедитесь, что Replit-бот выполнит эти инструкции точно. После применения изменений, бот будет работать гораздо более согласованно и эффективно. Если возникнут вопросы, обращайтесь.
+
