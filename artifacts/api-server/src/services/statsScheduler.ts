@@ -210,37 +210,38 @@ class StatsScheduler {
     try {
       const dateStr = `${msk.getUTCDate().toString().padStart(2, "0")}.${(msk.getUTCMonth() + 1).toString().padStart(2, "0")}.${msk.getUTCFullYear()}`;
 
-      const price = aggregator.getPrimaryPrice();
+      // 1. Базовые данные
+      const ticker = aggregator.getAggregatedTicker();
+      const price = ticker?.lastPrice || aggregator.getPrimaryPrice();
       const fundingRate = aggregator.getPrimaryFundingRate();
       const alignment = cvdService.getAlignment();
 
-      // CVD sentiment
+      // 2. CVD сентимент
       let cvdEmoji = "⚪";
       let cvdLabel = "Нейтральный";
       if (alignment.score > 0.2) { cvdEmoji = "🟢"; cvdLabel = "Бычий"; }
       else if (alignment.score < -0.2) { cvdEmoji = "🔴"; cvdLabel = "Медвежий"; }
 
-      // OI delta
-      const oi = coinglassService.getOiDelta();
-      const oiChange = (oi.delta5m * 100).toFixed(3);
-      const oiSign = oi.delta5m >= 0 ? "+" : "";
-
-      // Funding sentiment
+      // 3. Фандинг
       let fundingLabel = "Норма ✅";
       if (fundingRate > 0.001) fundingLabel = "Экстремум лонгов ⚠️";
       else if (fundingRate > 0.0005) fundingLabel = "Лонги перегреты";
       else if (fundingRate < -0.001) fundingLabel = "Экстремум шортов ⚠️";
       else if (fundingRate < -0.0002) fundingLabel = "Шорты перегреты";
 
-      // Total liq from coinalyze map (sum of all buckets as proxy for market stress)
-      const liqMap = coinalyzeService.getCachedMap();
-      let totalLiqUsd = 0;
-      if (liqMap && liqMap.buckets.length > 0) {
-        totalLiqUsd = liqMap.buckets.reduce((s, b) => s + b.totalUsd, 0);
+      // 4. Абсолютный OI
+      const oiUsd = ticker?.openInterest || aggregator.getPrimaryOpenInterest();
+      const oiStr = oiUsd > 0 ? `$${(oiUsd / 1_000_000_000).toFixed(2)}B` : "нет данных";
+
+      // 5. Реальные ликвидации за 24ч (CoinGlass)
+      const liqInfo = await coinglassService.getLiquidationInfo();
+      let liqStr = "нет данных";
+      if (liqInfo && liqInfo.h24TotalVolUsd > 0) {
+        const total  = (liqInfo.h24TotalVolUsd / 1_000_000).toFixed(1);
+        const longs  = (liqInfo.longVolUsd24h  / 1_000_000).toFixed(1);
+        const shorts = (liqInfo.shortVolUsd24h / 1_000_000).toFixed(1);
+        liqStr = `$${total}M (Лонги: $${longs}M | Шорты: $${shorts}M)`;
       }
-      const liqStr = totalLiqUsd > 0
-        ? `$${(totalLiqUsd / 1_000_000).toFixed(1)}M`
-        : "нет данных";
 
       const msg =
         `☀️ <b>РЫНОЧНЫЙ ОТЧЁТ — ${dateStr} (11:00 МСК)</b>\n` +
@@ -248,8 +249,8 @@ class StatsScheduler {
         `💰 BTC: <b>$${price.toFixed(1)}</b>\n` +
         `${cvdEmoji} CVD Сентимент: <b>${cvdLabel}</b> (${alignment.description})\n` +
         `💸 Фандинг: <b>${(fundingRate * 100).toFixed(4)}%</b> — ${fundingLabel}\n` +
-        `🔄 OI (5м): <b>${oiSign}${oiChange}%</b> — ${oi.interpretation}\n` +
-        `💥 Кластеры ликвидаций: <b>${liqStr}</b>\n` +
+        `🔄 Открытый интерес: <b>${oiStr}</b>\n` +
+        `💥 Ликвидации (24ч): <b>${liqStr}</b>\n` +
         `━━━━━━━━━━━━━━━━━━━\n` +
         `#BTC #рынок #daily`;
 
