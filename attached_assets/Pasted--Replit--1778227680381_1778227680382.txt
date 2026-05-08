@@ -1,0 +1,277 @@
+Техническое Задание для Replit-бота: Корректировка Чувствительности Сигналов и Ежедневный Рыночный Отчет
+
+Цель:
+
+1.
+Повысить чувствительность бота к движениям цены BTC (от 2% и выше) путем "смягчения" фильтров, сохраняя при этом качество сигналов.
+
+2.
+Добавить новый функционал: Ежедневный утренний отчет в 11:00 по МСК в Telegram-канал, содержащий ключевые рыночные данные.
+
+Важно: Все изменения должны быть внесены в файлы, находящиеся в директории /home/ubuntu/btc_bot_audit_final/artifacts/api-server/src/services/.
+
+
+
+
+Часть 1: Корректировка Чувствительности Сигналов
+
+Эти изменения направлены на то, чтобы бот генерировал больше сигналов, не пропуская значимые движения рынка.
+
+1.1. Изменения в fractalService.ts (Фрактальный паттерн-мэтчинг)
+
+Этот файл отвечает за поиск исторических паттернов. Текущие настройки могут быть слишком строгими.
+
+Файл: /home/ubuntu/btc_bot_audit_final/artifacts/api-server/src/services/fractalService.ts
+
+Инструкции для Replit-бота:
+
+1.
+Найди строку: const MIN_SIMILARITY = 0.55; (строка 22)
+
+•
+Замени на: const MIN_SIMILARITY = 0.50;
+
+•
+Объяснение: Это уменьшит минимальный порог схожести для фракталов, позволяя боту находить больше потенциальных паттернов, даже если они не идеально совпадают с историческими.
+
+
+
+2.
+Найди строку: export const FRACTAL_MIN_SIGNAL_SCORE = 0.45; (строка 33)
+
+•
+Замени на: export const FRACTAL_MIN_SIGNAL_SCORE = 0.40;
+
+•
+Объяснение: Это снизит минимальную "силу" фрактального сигнала, необходимую для прохождения первого гейта. Больше фракталов будут считаться "валидными" для дальнейшей проверки.
+
+
+
+1.2. Изменения в signal.ts (Общая логика сигналов и гейты)
+
+Этот файл содержит логику всех остальных гейтов и финальный расчет allGatesPassed.
+
+Файл: /home/ubuntu/btc_bot_audit_final/artifacts/api-server/src/services/signal.ts
+
+Инструкции для Replit-бота:
+
+1.
+Найди строку: const MIN_SL_CLUSTER_USD = 3_000_000; (строка 49)
+
+•
+Замени на: const MIN_SL_CLUSTER_USD = 2_000_000;
+
+•
+Объяснение: Уменьшение минимального объема кластера для Stop Loss позволит боту находить больше подходящих уровней SL, что разблокирует сделки, которые ранее отсекались из-за отсутствия достаточно крупного кластера.
+
+
+
+2.
+Найди строку: const MIN_TP_CLUSTER_USD = 2_000_000; (строка 55)
+
+•
+Замени на: const MIN_TP_CLUSTER_USD = 1_500_000;
+
+•
+Объяснение: Аналогично SL, снижение минимального объема кластера для Take Profit увеличит количество потенциальных целей для фиксации прибыли.
+
+
+
+3.
+Найди строку: const MIN_RR_RATIO = 1.5; (строка 58)
+
+•
+Замени на: const MIN_RR_RATIO = 1.2;
+
+•
+Объяснение: Снижение минимального соотношения риск/прибыль (Risk/Reward) позволит боту входить в сделки, где потенциальная прибыль ненамного превышает риск. Это увеличит количество сигналов, особенно для быстрых скальпов. (Можно рассмотреть 1.0 для еще более агрессивного скальпинга, но 1.2 — хороший компромисс).
+
+
+
+1.3. Изменения в signalTracker.ts (Порог для уведомлений)
+
+Файл: /home/ubuntu/btc_bot_audit_final/artifacts/api-server/src/services/signalTracker.ts
+
+Инструкции для Replit-бота:
+
+1.
+Найди строку: const SIGNAL_SCORE_THRESHOLD = 0.45; (строка 8)
+
+•
+Замени на: const SIGNAL_SCORE_THRESHOLD = 0.40;
+
+•
+Объяснение: Этот порог должен быть синхронизирован с FRACTAL_MIN_SIGNAL_SCORE из fractalService.ts. Его снижение позволит получать уведомления о сигналах с чуть меньшей уверенностью, что соответствует общей цели повышения чувствительности.
+
+
+
+
+
+
+Часть 2: Ежедневный Рыночный Отчет в 11:00 МСК
+
+Этот функционал будет добавлен в statsScheduler.ts для отправки сводки рыночных данных в Telegram.
+
+Файл: /home/ubuntu/btc_bot_audit_final/artifacts/api-server/src/services/statsScheduler.ts
+
+Инструкции для Replit-бота:
+
+1.
+Добавь импорты: В начале файла, после существующих импортов (например, после строки 3 import { logger } from "../lib/logger";), добавь следующие строки:
+
+TypeScript
+
+
+import { aggregator } from "./exchanges/aggregator";
+import { coinglassService } from "./coinglassService";
+import { coinalyzeService } from "./coinalyzeService";
+import { cvdService } from "./cvd";
+
+
+
+•
+Объяснение: Эти импорты необходимы для доступа к данным, которые будут использоваться в отчете.
+
+
+
+2.
+Добавь новую переменную lastMarketReport: В классе StatsScheduler, после строки private lastMonthly = ""; (строка 30), добавь:
+
+TypeScript
+
+
+private lastMarketReport = "";
+
+
+
+•
+Объяснение: Эта переменная будет использоваться для отслеживания, был ли уже отправлен отчет за текущий день, чтобы избежать дублирования.
+
+
+
+3.
+Добавь вызов sendDailyMarketReport в метод check(): В методе check(), после блока if (dayOfMonth === 1 && hour === 10 && minute === 0 && this.lastMonthly !== dateKey) (после строки 70), добавь новый блок:
+
+TypeScript
+
+
+if (hour === 11 && minute === 0 && this.lastMarketReport !== dateKey) {
+  this.lastMarketReport = dateKey;
+  await this.sendDailyMarketReport(msk);
+}
+
+
+
+•
+Объяснение: Этот блок будет проверять, если текущее время 11:00 по МСК и отчет за сегодня еще не был отправлен, то вызовет новую функцию для отправки отчета.
+
+
+
+4.
+Добавь новую функцию sendDailyMarketReport(msk: Date): В классе StatsScheduler, после функции private async sendMonthlyReport(msk: Date) (после строки 197), добавь следующий код:
+
+TypeScript
+
+
+private async sendDailyMarketReport(msk: Date) {
+  try {
+    const now = new Date();
+    const dayStart = new Date(now.getTime() - 24 * 60 * 60 * 1000); // Последние 24 часа
+
+    const dateStr = `${msk.getUTCDate().toString().padStart(2, "0")}.${(msk.getUTCMonth() + 1).toString().padStart(2, "0")}.${msk.getUTCFullYear()}`;
+
+    // --- Сбор данных ---
+    const currentPrice = aggregator.getPrimaryPrice();
+    const fundingRate = aggregator.getFundingRate();
+    const oiData = coinglassService.getCachedOpenInterest();
+    const liqData = coinglassService.getCachedHeatmap();
+    const longShortRatio = coinglassService.getCachedLongShortRatio();
+    const cvdData = cvdService.getCachedCvdData();
+
+    // Расчет изменения OI за 24 часа
+    let oiChange24h = 0;
+    if (oiData && oiData.history && oiData.history.length > 0) {
+      const currentOi = oiData.history[oiData.history.length - 1].oi;
+      const oi24hAgoEntry = oiData.history.find(entry => (now.getTime() - entry.timestamp) <= 24 * 60 * 60 * 1000);
+      if (oi24hAgoEntry) {
+        oiChange24h = (currentOi - oi24hAgoEntry.oi) / oi24hAgoEntry.oi * 100;
+      }
+    }
+
+    // Расчет общих ликвидаций за 24 часа
+    let totalLiquidations24h = 0;
+    if (liqData && liqData.history) {
+      const liq24hAgoEntry = liqData.history.find(entry => (now.getTime() - entry.timestamp) <= 24 * 60 * 60 * 1000);
+      if (liq24hAgoEntry) {
+        // Предполагаем, что history содержит суммарные ликвидации за период, или нужно агрегировать
+        // Для простоты, возьмем разницу между текущим и 24ч назад, если это кумулятивные данные
+        // Если это данные по часам, то нужно суммировать за 24 часа
+        // Здесь требуется уточнение структуры liqData.history
+        // Для примера, возьмем последние 24 записи и просуммируем их, если это часовые данные
+        const relevantLiqs = liqData.history.filter(entry => (now.getTime() - entry.timestamp) <= 24 * 60 * 60 * 1000);
+        totalLiquidations24h = relevantLiqs.reduce((sum, entry) => sum + entry.longLiqUsd + entry.shortLiqUsd, 0);
+      }
+    }
+
+    // Определение сентимента по Long/Short Ratio
+    let sentiment = "Нейтральный";
+    let longShortPct = 0;
+    if (longShortRatio) {
+      longShortPct = longShortRatio.longShortRatio * 100;
+      if (longShortRatio.longShortRatio > 1.05) sentiment = "Бычий (лонги преобладают)";
+      else if (longShortRatio.longShortRatio < 0.95) sentiment = "Медвежий (шорты преобладают)";
+    }
+
+    // Определение сентимента по CVD (простое)
+    let cvdSentiment = "Нейтральный";
+    if (cvdData && cvdData.alignment) {
+      if (cvdData.alignment.score > 0.2) cvdSentiment = "Бычий (покупатели активны)";
+      else if (cvdData.alignment.score < -0.2) cvdSentiment = "Медвежий (продавцы активны)";
+    }
+
+    const msg =
+      `☀️ <b>ЕЖЕДНЕВНЫЙ РЫНОЧНЫЙ ОТЧЕТ — ${dateStr} (11:00 МСК)</b>\n` +
+      `━━━━━━━━━━━━━━━━━━━\n` +
+      `💰 Текущая цена BTC: <b>$${currentPrice.toFixed(1)}</b>\n` +
+      `📊 Сентимент (Long/Short Ratio): <b>${longShortPct.toFixed(2)}%</b> (${sentiment})\n` +
+      `📈 Сентимент (CVD): <b>${cvdSentiment}</b>\n` +
+      `💸 Ставка фандинга: <b>${(fundingRate * 100).toFixed(4)}%</b>\n` +
+      `🔄 Изменение OI (24ч): <b>${oiChange24h >= 0 ? "+" : ""}${oiChange24h.toFixed(2)}%</b>\n` +
+      `💥 Ликвидации (24ч): <b>$${(totalLiquidations24h / 1_000_000).toFixed(2)}M</b>\n` +
+      `━━━━━━━━━━━━━━━━━━━\n` +
+      `#BTC #рынок #отчет #daily`
+    ;
+
+    telegramService.notifyChannel(msg);
+    logger.info({ date: dateStr }, "Daily market report sent");
+  } catch (e) {
+    logger.error({ err: e }, "Failed to send daily market report");
+  }
+}
+
+
+
+•
+Объяснение: Эта функция собирает различные рыночные данные, форматирует их в читабельный отчет и отправляет в Telegram-канал. Обратите внимание, что для totalLiquidations24h я сделал предположение о структуре liqData.history. Если она другая, возможно, потребуется небольшая корректировка этой части кода.
+
+
+
+
+
+
+Порядок применения изменений:
+
+1.
+Сначала внесите все изменения в fractalService.ts.
+
+2.
+Затем внесите все изменения в signal.ts.
+
+3.
+После этого внесите все изменения в signalTracker.ts.
+
+4.
+В последнюю очередь внесите все изменения в statsScheduler.ts (импорты, новая переменная, вызов в check(), новая функция).
+
+После каждого изменения рекомендуется проводить бэктестинг или тестирование в режиме "paper trading", чтобы оценить влияние на частоту и качество сигналов. Слишком агрессивное снижение порогов может привести к увеличению количества ложных сигналов. Ищите баланс между частотой и точностью.
+

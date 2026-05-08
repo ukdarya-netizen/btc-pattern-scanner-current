@@ -21,4 +21,9 @@ router.post("/admin/notify", (req, res) => {
   res.json({ ok: true });
 });
 
+router.post("/admin/report/market", async (_req, res) => {
+  await statsScheduler.sendMarketReportNow();
+  res.json({ ok: true, sent: "market" });
+});
+
 export default router;

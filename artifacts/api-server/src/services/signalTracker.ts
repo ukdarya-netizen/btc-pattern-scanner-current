@@ -5,7 +5,7 @@ import { dbService } from "./dbService";
 import { telegramService } from "./telegram";
 
 const VIRTUAL_SIZE_BTC = 0.01;       // ~$800-1000 notional per signal
-const SIGNAL_SCORE_THRESHOLD = 0.45; // minimum |score| to open a signal (aligned with fractal score)
+const SIGNAL_SCORE_THRESHOLD = 0.40; // minimum |score| to open a signal (aligned with fractal score)
 
 interface ActiveSignal {
   id: string;

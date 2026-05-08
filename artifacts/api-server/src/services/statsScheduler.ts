@@ -1,6 +1,10 @@
 import { dbService } from "./dbService";
 import { telegramService } from "./telegram";
 import { logger } from "../lib/logger";
+import { aggregator } from "./exchanges/aggregator";
+import { coinglassService } from "./coinglassService";
+import { coinalyzeService } from "./coinalyzeService";
+import { cvdService } from "./cvd";
 
 const DAYS_RU = ["Воскресенье", "Понедельник", "Вторник", "Среда", "Четверг", "Пятница", "Суббота"];
 const MONTHS_RU = ["Январь", "Февраль", "Март", "Апрель", "Май", "Июнь", "Июль", "Август", "Сентябрь", "Октябрь", "Ноябрь", "Декабрь"];
@@ -28,6 +32,7 @@ class StatsScheduler {
   private lastDaily = "";
   private lastWeekly = "";
   private lastMonthly = "";
+  private lastMarketReport = "";
 
   start() {
     this.intervalId = setInterval(() => void this.check(), 60 * 1000);
@@ -67,6 +72,11 @@ class StatsScheduler {
     if (dayOfMonth === 1 && hour === 10 && minute === 0 && this.lastMonthly !== dateKey) {
       this.lastMonthly = dateKey;
       await this.sendMonthlyReport(msk);
+    }
+
+    if (hour === 11 && minute === 0 && this.lastMarketReport !== dateKey) {
+      this.lastMarketReport = dateKey;
+      await this.sendDailyMarketReport(msk);
     }
   }
 
@@ -194,6 +204,64 @@ class StatsScheduler {
     } catch (e) {
       logger.error({ err: e }, "Failed to send monthly report");
     }
+  }
+
+  private async sendDailyMarketReport(msk: Date) {
+    try {
+      const dateStr = `${msk.getUTCDate().toString().padStart(2, "0")}.${(msk.getUTCMonth() + 1).toString().padStart(2, "0")}.${msk.getUTCFullYear()}`;
+
+      const price = aggregator.getPrimaryPrice();
+      const fundingRate = aggregator.getPrimaryFundingRate();
+      const alignment = cvdService.getAlignment();
+
+      // CVD sentiment
+      let cvdEmoji = "⚪";
+      let cvdLabel = "Нейтральный";
+      if (alignment.score > 0.2) { cvdEmoji = "🟢"; cvdLabel = "Бычий"; }
+      else if (alignment.score < -0.2) { cvdEmoji = "🔴"; cvdLabel = "Медвежий"; }
+
+      // OI delta
+      const oi = coinglassService.getOiDelta();
+      const oiChange = (oi.delta5m * 100).toFixed(3);
+      const oiSign = oi.delta5m >= 0 ? "+" : "";
+
+      // Funding sentiment
+      let fundingLabel = "Норма ✅";
+      if (fundingRate > 0.001) fundingLabel = "Экстремум лонгов ⚠️";
+      else if (fundingRate > 0.0005) fundingLabel = "Лонги перегреты";
+      else if (fundingRate < -0.001) fundingLabel = "Экстремум шортов ⚠️";
+      else if (fundingRate < -0.0002) fundingLabel = "Шорты перегреты";
+
+      // Total liq from coinalyze map (sum of all buckets as proxy for market stress)
+      const liqMap = coinalyzeService.getCachedMap();
+      let totalLiqUsd = 0;
+      if (liqMap && liqMap.buckets.length > 0) {
+        totalLiqUsd = liqMap.buckets.reduce((s, b) => s + b.totalUsd, 0);
+      }
+      const liqStr = totalLiqUsd > 0
+        ? `$${(totalLiqUsd / 1_000_000).toFixed(1)}M`
+        : "нет данных";
+
+      const msg =
+        `☀️ <b>РЫНОЧНЫЙ ОТЧЁТ — ${dateStr} (11:00 МСК)</b>\n` +
+        `━━━━━━━━━━━━━━━━━━━\n` +
+        `💰 BTC: <b>$${price.toFixed(1)}</b>\n` +
+        `${cvdEmoji} CVD Сентимент: <b>${cvdLabel}</b> (${alignment.description})\n` +
+        `💸 Фандинг: <b>${(fundingRate * 100).toFixed(4)}%</b> — ${fundingLabel}\n` +
+        `🔄 OI (5м): <b>${oiSign}${oiChange}%</b> — ${oi.interpretation}\n` +
+        `💥 Кластеры ликвидаций: <b>${liqStr}</b>\n` +
+        `━━━━━━━━━━━━━━━━━━━\n` +
+        `#BTC #рынок #daily`;
+
+      telegramService.notifyChannel(msg);
+      logger.info({ date: dateStr, price, funding: fundingRate }, "Daily market report sent");
+    } catch (e) {
+      logger.error({ err: e }, "Failed to send daily market report");
+    }
+  }
+
+  async sendMarketReportNow() {
+    await this.sendDailyMarketReport(mskNow());
   }
 }
 

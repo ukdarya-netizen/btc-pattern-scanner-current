@@ -46,16 +46,16 @@ export interface SignalResult {
 type Bucket = { price: number; longLiqUsd: number; shortLiqUsd: number; totalUsd: number };
 
 // ─── Constants ───────────────────────────────────────────────
-const MIN_SL_CLUSTER_USD  = 3_000_000;
+const MIN_SL_CLUSTER_USD  = 2_000_000;
 const MAX_SL_RANGE_PCT    = 0.04;
 const MIN_SL_DISTANCE_PCT = 0.004;
 const MAX_SL_DISTANCE_PCT = 0.025;
 const SL_CLUSTER_BUFFER   = 0.0008;
 
-const MIN_TP_CLUSTER_USD  = 2_000_000;
+const MIN_TP_CLUSTER_USD  = 1_500_000;
 const MAX_TP_RANGE_PCT    = 0.08;
 const MIN_TP_DISTANCE_PCT = 0.015;
-const MIN_RR_RATIO        = 1.5;
+const MIN_RR_RATIO        = 1.2;
 const TP_CLUSTER_BUFFER   = 0.001;
 
 function clamp(val: number, min = -1, max = 1): number {
