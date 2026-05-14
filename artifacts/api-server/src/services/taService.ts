@@ -356,6 +356,25 @@ class TAService {
     return this.snapshot?.ready === true;
   }
 
+  getCvdTrend(tf: "1h" | "4h", lookback = 20): { trend: "bullish" | "bearish" | "neutral"; delta: number; description: string } {
+    const candles = (tf === "1h" ? this.candles1h : this.candles4h).slice(-lookback);
+    if (candles.length < 3) return { trend: "neutral", delta: 0, description: "нет данных" };
+
+    let cumDelta = 0;
+    for (const c of candles) {
+      const bull = c.close >= c.open;
+      cumDelta += bull ? c.volume : -c.volume;
+    }
+
+    const avgVol = candles.reduce((s, c) => s + c.volume, 0) / candles.length;
+    const normalized = avgVol > 0 ? cumDelta / (avgVol * candles.length) : 0;
+
+    const trend = normalized > 0.08 ? "bullish" : normalized < -0.08 ? "bearish" : "neutral";
+    const deltaK = (Math.abs(cumDelta) / 1000).toFixed(1);
+    const sign = cumDelta >= 0 ? "+" : "-";
+    return { trend, delta: cumDelta, description: `${sign}${deltaK}K` };
+  }
+
   // Force immediate refresh (e.g. on startup)
   async forceRefresh() {
     this.lastRefresh1h = 0;
