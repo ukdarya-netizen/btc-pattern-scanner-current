@@ -19,7 +19,7 @@ const PATTERN_LEN_4H = 60;          // candles in pattern window for 4H
 const FORWARD_LEN_1D = 7;           // candles ahead to evaluate outcome (1D → 7 days)
 const FORWARD_LEN_4H = 12;          // candles ahead to evaluate outcome (4H → 2 days)
 const TOP_N = 20;                   // top matches to collect per timeframe
-const MIN_SIMILARITY = 0.50;        // discard matches below this score
+const MIN_SIMILARITY = 0.40;        // discard matches below this score (смягчено)
 const WEIGHT_PRICE = 0.7;           // DTW price weight in similarity_score
 const WEIGHT_VOLUME = 0.3;          // Pearson volume weight
 const WIN_TP_PCT = 0.015;           // ≥1.5% move = "TP hit" in historical analysis
@@ -30,7 +30,7 @@ const REFRESH_1D_MS = 6 * 60 * 60 * 1000;   // 6 h
 const REFRESH_4H_MS = 4 * 60 * 60 * 1000;   // 4 h
 
 // Minimum overall_signal_score to be a valid gate-pass
-export const FRACTAL_MIN_SIGNAL_SCORE = 0.40;
+export const FRACTAL_MIN_SIGNAL_SCORE = 0.30; // смягчено
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 export interface OhlcvCandle {

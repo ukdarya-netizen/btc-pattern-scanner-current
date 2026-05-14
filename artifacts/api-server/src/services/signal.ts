@@ -8,6 +8,7 @@ import { coinalyzeService } from "./coinalyzeService";
 import { coinglassService } from "./coinglassService";
 import type { LiqHeatmapBucket } from "./coinglassService";
 import type { LiqMapBucket } from "./coinalyzeService";
+import { telegramService } from "./telegram";
 
 export interface SignalComponent {
   name: string;
@@ -47,6 +48,10 @@ type Bucket = { price: number; longLiqUsd: number; shortLiqUsd: number; totalUsd
 
 // ─── Constants ───────────────────────────────────────────────
 const MIN_SL_CLUSTER_USD  = 2_000_000;
+
+// Debug gate notifications — rate-limited to avoid flooding the channel
+let lastGateDebugTs = 0;
+const GATE_DEBUG_INTERVAL_MS = 5 * 60 * 1000; // max once per 5 min
 const MAX_SL_RANGE_PCT    = 0.04;
 const MIN_SL_DISTANCE_PCT = 0.004;
 const MAX_SL_DISTANCE_PCT = 0.025;
@@ -759,6 +764,19 @@ class SignalEngine {
     ];
 
     const allGatesPassed = direction !== "neutral" && gate0Passed && gate1Passed && obPassed && gate3Passed && gate4Passed && gate5Passed;
+
+    // Debug: notify Telegram when a meaningful signal is blocked by a gate (rate-limited)
+    if (!allGatesPassed && direction !== "neutral" && Math.abs(score) >= 0.25) {
+      const now = Date.now();
+      if (now - lastGateDebugTs > GATE_DEBUG_INTERVAL_MS) {
+        lastGateDebugTs = now;
+        const failedGates = gates.filter(g => !g.passed);
+        const lines = failedGates.map(g => `  • ${g.name}: ${g.reason}`).join("\n");
+        const debugMsg =
+          `[DEBUG] 🚫 <b>${direction.toUpperCase()}</b> score=${score.toFixed(3)} — сигнал заблокирован:\n${lines}`;
+        telegramService.notifyChannel(debugMsg);
+      }
+    }
 
     return {
       score,
