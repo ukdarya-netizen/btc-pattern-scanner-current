@@ -1,0 +1,317 @@
+Техническое Задание для Replit-бота: Высококонцентрированная Стратегия
+
+Дата: 14 мая 2026
+Цель: Переработать логику бота для реализации высококонцентрированной стратегии, основанной на агрессивном CVD, крупных кластерах ликвидности, мониторинге стакана и отслеживании крупных сделок. Фрактальный паттерн-мэтчинг будет полностью исключен.
+
+
+
+
+1. Внедрение Дебаг-Логирования Причин Отклонения Сигналов в Telegram (src/services/signal.ts)
+
+Цель: Бот должен отправлять в Telegram сообщение каждый раз, когда потенциальный сигнал отклоняется одним из гейтов, с указанием точной причины.
+
+Инструкции:
+
+Откройте файл src/services/signal.ts.
+
+1.1. Добавление импорта telegramService:
+
+Найдите строку, которая выглядит как:
+
+TypeScript
+
+
+import { logger } from "../lib/logger";
+
+
+
+ЗАМЕНИТЕ ЕЁ НА:
+
+TypeScript
+
+
+import { logger } from "../lib/logger";
+import { telegramService } from "./telegram"; // Добавлено для дебаг-уведомлений
+
+
+
+1.2. Внедрение логирования для каждого гейта:
+
+Найдите функцию compute(): SignalResult (начинается примерно со строки 581).
+
+Внутри этой функции, для каждого блока if (!gate.pass) (их несколько), добавьте вызов telegramService.notifyChannel.
+
+•
+Gate 1: MTF CVD Alignment (примерно строки 610-612)
+
+•
+Найдите if (!cvdGate.pass)
+
+•
+Добавьте telegramService.notifyChannel([DEBUG] 🚫 ${engineDirection.toUpperCase()} сигнал отклонен: CVD. Причина: ${cvdGate.reason} (Score: ${cvdGate.score.toFixed(2)}));
+
+
+
+•
+Gate 2: Orderbook Liquidation Clusters (SL) (примерно строки 620-622)
+
+•
+Найдите if (!slGate.pass)
+
+•
+Добавьте telegramService.notifyChannel([DEBUG] 🚫 ${engineDirection.toUpperCase()} сигнал отклонен: SL кластер. Причина: ${slGate.reason});
+
+
+
+•
+Gate 3: Orderbook Liquidation Clusters (TP) (примерно строки 630-632)
+
+•
+Найдите if (!tpGate.pass)
+
+•
+Добавьте telegramService.notifyChannel([DEBUG] 🚫 ${engineDirection.toUpperCase()} сигнал отклонен: TP кластер. Причина: ${tpGate.reason});
+
+
+
+•
+Gate 4: Funding Rate (примерно строки 640-642)
+
+•
+Найдите if (!fundingGate.pass)
+
+•
+Добавьте telegramService.notifyChannel([DEBUG] 🚫 ${engineDirection.toUpperCase()} сигнал отклонен: Фандинг. Причина: ${fundingGate.reason} (Score: ${fundingGate.score.toFixed(2)}));
+
+
+
+
+
+
+2. Корректировка Параметров Чувствительности и Новые Фильтры
+
+Цель: Усилить фильтры на основе CVD, кластеров ликвидности, добавить мониторинг стакана и крупных сделок для получения редких, но высоковероятных сигналов.
+
+2.1. В файле src/services/cvdService.ts (Агрессивный CVD):
+
+Откройте файл src/services/cvdService.ts.
+
+Изменение CVD_SCORE_THRESHOLD:
+Найдите строку, которая определяет порог для CVD (может быть в разных местах, ищите CVD_SCORE_THRESHOLD или похожую константу).
+
+TypeScript
+
+
+const CVD_SCORE_THRESHOLD = 0.60; // Пример: текущее значение
+
+
+
+ЗАМЕНИТЕ ЕЁ НА:
+
+TypeScript
+
+
+const CVD_SCORE_THRESHOLD = 0.80; // Усиленный порог для агрессивного CVD
+
+
+
+2.2. В файле src/services/liquidationService.ts (Крупные Кластеры Ликвидаций):
+
+Откройте файл src/services/liquidationService.ts.
+
+Изменение MIN_SL_CLUSTER_USD и MIN_TP_CLUSTER_USD:
+Найдите строки (примерно):
+
+TypeScript
+
+
+const MIN_SL_CLUSTER_USD = 2_000_000; // текущее значение
+const MIN_TP_CLUSTER_USD = 2_000_000; // текущее значение
+
+
+
+ЗАМЕНИТЕ ИХ НА:
+
+TypeScript
+
+
+const MIN_SL_CLUSTER_USD = 5_000_000; // Усиленный порог для SL кластеров
+const MIN_TP_CLUSTER_USD = 5_000_000; // Усиленный порог для TP кластеров
+
+
+
+2.3. Внедрение Мониторинга Стакана (Order Book Imbalance) (src/services/orderbookService.ts):
+
+Цель: Добавить фильтр, который проверяет перекос лимитных заявок в стакане. Если есть "плиты" против направления сигнала, сигнал отклоняется.
+
+Откройте файл src/services/orderbookService.ts (или создайте, если нет).
+
+Добавьте новую функцию для проверки дисбаланса:
+
+TypeScript
+
+
+// src/services/orderbookService.ts
+
+export interface OrderBookImbalanceResult {
+  pass: boolean;
+  reason: string;
+}
+
+export function checkImbalance(direction: 'long' | 'short'): OrderBookImbalanceResult {
+  // Здесь должна быть логика получения данных стакана и их анализа.
+  // Пример: получить данные с биржи, посчитать объем на 1% от текущей цены в обе стороны.
+  // Для примера, заглушка:
+  const bidVolume = getOrderBookVolume('bid', 0.005); // Объем покупок на 0.5% ниже цены
+  const askVolume = getOrderBookVolume('ask', 0.005); // Объем продаж на 0.5% выше цены
+
+  const imbalanceThreshold = 2.0; // Например, если объем одной стороны в 2 раза больше другой
+
+  if (direction === 'long') {
+    if (askVolume > bidVolume * imbalanceThreshold) {
+      return { pass: false, reason: `Сильное сопротивление в стакане (${(askVolume / bidVolume).toFixed(1)}x Ask > Bid)` };
+    }
+  } else if (direction === 'short') {
+    if (bidVolume > askVolume * imbalanceThreshold) {
+      return { pass: false, reason: `Сильная поддержка в стакане (${(bidVolume / askVolume).toFixed(1)}x Bid > Ask)` };
+    }
+  }
+
+  return { pass: true, reason: "" };
+}
+
+// Вспомогательная функция (нужно реализовать получение реальных данных)
+function getOrderBookVolume(side: 'bid' | 'ask', depthPercentage: number): number {
+  // Здесь должна быть реальная интеграция с API биржи для получения стакана
+  // и расчета объема в пределах depthPercentage от текущей цены.
+  return Math.random() * 10_000_000; // Заглушка: случайное значение
+}
+
+
+
+Интеграция в src/services/signal.ts:
+
+1.
+Добавьте импорт:
+
+TypeScript
+
+
+import { checkImbalance } from "./orderbookService";
+
+
+
+
+
+2.
+Добавьте новый гейт в функцию compute() (например, после Gate 1 CVD):
+
+TypeScript
+
+
+    // Gate X: Order Book Imbalance
+    const imbalanceGate = checkImbalance(engineDirection);
+    if (!imbalanceGate.pass) {
+      const debugMsg = `[DEBUG] 🚫 ${engineDirection.toUpperCase()} сигнал отклонен: Дисбаланс стакана. Причина: ${imbalanceGate.reason}`;
+      logger.debug({ reason: imbalanceGate.reason }, debugMsg);
+      telegramService.notifyChannel(debugMsg); // Отправка в Telegram
+      return this.buildResult(engineDirection, 0, 0, 0, 0, 0, 0, false, imbalanceGate.reason, 0);
+    }
+
+
+
+
+
+2.4. Внедрение Whale Tracking (Крупные Принты) (src/services/whaleTrackerService.ts):
+
+Цель: Отслеживать единичные крупные сделки (принты) в ленте. Сигнал должен быть подтвержден появлением крупного игрока.
+
+Откройте файл src/services/whaleTrackerService.ts (или создайте, если нет).
+
+Добавьте новую функцию для проверки крупных принтов:
+
+TypeScript
+
+
+// src/services/whaleTrackerService.ts
+
+export interface WhaleTrackResult {
+  pass: boolean;
+  reason: string;
+}
+
+export function checkWhaleActivity(direction: 'long' | 'short'): WhaleTrackResult {
+  // Здесь должна быть логика получения данных о крупных сделках (принтах) с биржи.
+  // Пример: получить последние сделки, отфильтровать по объему.
+  const minWhaleTradeUsd = 1_000_000; // Минимальный объем сделки для "кита"
+  const recentWhaleTrade = getRecentLargeTrade(direction, minWhaleTradeUsd); // Нужно реализовать
+
+  if (!recentWhaleTrade) {
+    return { pass: false, reason: `Нет крупных сделок в направлении ${direction.toUpperCase()}` };
+  }
+
+  return { pass: true, reason: "Крупная сделка обнаружена" };
+}
+
+// Вспомогательная функция (нужно реализовать получение реальных данных)
+function getRecentLargeTrade(direction: 'long' | 'short', minVolume: number): boolean {
+  // Здесь должна быть реальная интеграция с API биржи для получения ленты сделок
+  // и фильтрации по объему и направлению.
+  // Заглушка: имитация обнаружения крупной сделки
+  return Math.random() > 0.7; // 30% шанс обнаружить кита
+}
+
+
+
+Интеграция в src/services/signal.ts:
+
+1.
+Добавьте импорт:
+
+TypeScript
+
+
+import { checkWhaleActivity } from "./whaleTrackerService";
+
+
+
+
+
+2.
+Добавьте новый гейт в функцию compute() (например, после Gate 3 TP):
+
+TypeScript
+
+
+    // Gate Y: Whale Tracking (Large Prints)
+    const whaleGate = checkWhaleActivity(engineDirection);
+    if (!whaleGate.pass) {
+      const debugMsg = `[DEBUG] 🚫 ${engineDirection.toUpperCase()} сигнал отклонен: Отсутствие китов. Причина: ${whaleGate.reason}`;
+      logger.debug({ reason: whaleGate.reason }, debugMsg);
+      telegramService.notifyChannel(debugMsg); // Отправка в Telegram
+      return this.buildResult(engineDirection, 0, 0, 0, 0, 0, 0, false, whaleGate.reason, 0);
+    }
+
+
+
+
+
+
+
+
+Заключение
+
+После внесения всех этих изменений, ваш бот будет работать по новой, более агрессивной стратегии, фокусируясь на сильных рыночных движениях и подтверждениях от крупных игроков. Ожидается значительное снижение количества сигналов, но повышение их качества.
+
+1.
+Вносите изменения строго по инструкции, строка за строкой.
+
+2.
+Особое внимание уделите реализации getOrderBookVolume и getRecentLargeTrade — это критически важные функции для получения реальных данных.
+
+3.
+Проведите тщательное тестирование в режиме "paper trading".
+
+4.
+Внимательно отслеживайте Telegram-уведомления с дебаг-информацией. Они будут вашим главным инструментом для дальнейшей тонкой настройки фильтров.
+

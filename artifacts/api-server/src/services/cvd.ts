@@ -132,7 +132,7 @@ class CvdService {
     const mean   = last20.reduce((s, v) => s + v, 0) / last20.length;
     const variance = last20.reduce((s, v) => s + (v - mean) ** 2, 0) / last20.length;
     const stddev = Math.sqrt(variance);
-    const threshold = stddev * 0.5 + 0.001;
+    const threshold = stddev * 0.8 + 0.001; // агрессивный CVD: требует более сильного отклонения
 
     if (delta > threshold)  return "bullish";
     if (delta < -threshold) return "bearish";

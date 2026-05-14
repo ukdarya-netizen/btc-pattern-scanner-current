@@ -9,6 +9,9 @@ import { coinglassService } from "./coinglassService";
 import type { LiqHeatmapBucket } from "./coinglassService";
 import type { LiqMapBucket } from "./coinalyzeService";
 import { telegramService } from "./telegram";
+import { checkWhaleActivity } from "./whaleTrackerService";
+
+const OB_MIN_IMBALANCE = 0.35; // require ≥35% directional imbalance in order book
 
 export interface SignalComponent {
   name: string;
@@ -47,7 +50,7 @@ export interface SignalResult {
 type Bucket = { price: number; longLiqUsd: number; shortLiqUsd: number; totalUsd: number };
 
 // ─── Constants ───────────────────────────────────────────────
-const MIN_SL_CLUSTER_USD  = 2_000_000;
+const MIN_SL_CLUSTER_USD  = 5_000_000;
 
 // Debug gate notifications — rate-limited to avoid flooding the channel
 let lastGateDebugTs = 0;
@@ -57,7 +60,7 @@ const MIN_SL_DISTANCE_PCT = 0.004;
 const MAX_SL_DISTANCE_PCT = 0.025;
 const SL_CLUSTER_BUFFER   = 0.0008;
 
-const MIN_TP_CLUSTER_USD  = 1_500_000;
+const MIN_TP_CLUSTER_USD  = 5_000_000;
 const MAX_TP_RANGE_PCT    = 0.08;
 const MIN_TP_DISTANCE_PCT = 0.015;
 const MIN_RR_RATIO        = 1.2;
@@ -730,8 +733,8 @@ class SignalEngine {
       ? `${alignment.description} — все три ТФ согласованы ✓`
       : `${alignment.description} — не все ТФ согласованы ✗ (strong: ${alignment.strong})`;
 
-    // Gate 2: Order Book confirms direction
-    const obPassed = obComp ? obComp.score * dirSign > 0 : false;
+    // Gate 2: Order Book confirms direction (requires ≥35% imbalance, not just any positive)
+    const obPassed = obComp ? obComp.score * dirSign >= OB_MIN_IMBALANCE : false;
     const obReason = obComp
       ? `Стакан ${obComp.score >= 0 ? "+" : ""}${obComp.score.toFixed(2)} ${obPassed ? "✓" : "✗"}`
       : "нет данных стакана ✗";
@@ -748,9 +751,14 @@ class SignalEngine {
       ? `${tpResult.source} | dist: ${(tpResult.distancePct * 100).toFixed(2)}% ✓`
       : `${tpResult.source} ✗`;
 
-    // Gate 5: Funding Rate (contrarian filter) — uses already-computed fundingAnalysis
-    const gate5Passed = !fundingAnalysis.extreme || fundingAnalysis.contrarian === direction;
-    const gate5Reason = gate5Passed
+    // Gate 5: Whale activity — large directional trades in last 2 min
+    const whaleGate = checkWhaleActivity(direction as "long" | "short");
+    const gate5Passed = direction === "neutral" ? false : whaleGate.pass;
+    const gate5Reason = whaleGate.reason;
+
+    // Gate 6: Funding Rate (contrarian filter) — uses already-computed fundingAnalysis
+    const gate6Passed = !fundingAnalysis.extreme || fundingAnalysis.contrarian === direction;
+    const gate6Reason = gate6Passed
       ? `Фандинг не экстремальный или контр-тренд ✓`
       : `Фандинг ${fundingAnalysis.bias} — ${fundingAnalysis.contrarian} ✗`;
 
@@ -760,10 +768,11 @@ class SignalEngine {
       { name: "Стакан (Order Book)",            passed: obPassed,    reason: obReason },
       { name: "SL на кластере ликвидаций",      passed: gate3Passed, reason: gate3Reason },
       { name: "TP на кластере + R:R ≥ 1.5",    passed: gate4Passed, reason: gate4Reason },
-      { name: "Фандинг",                        passed: gate5Passed, reason: gate5Reason },
+      { name: "Активность китов (2м)",          passed: gate5Passed, reason: gate5Reason },
+      { name: "Фандинг",                        passed: gate6Passed, reason: gate6Reason },
     ];
 
-    const allGatesPassed = direction !== "neutral" && gate0Passed && gate1Passed && obPassed && gate3Passed && gate4Passed && gate5Passed;
+    const allGatesPassed = direction !== "neutral" && gate0Passed && gate1Passed && obPassed && gate3Passed && gate4Passed && gate5Passed && gate6Passed;
 
     // Debug: notify Telegram when a meaningful signal is blocked by a gate (rate-limited)
     if (!allGatesPassed && direction !== "neutral" && Math.abs(score) >= 0.25) {
