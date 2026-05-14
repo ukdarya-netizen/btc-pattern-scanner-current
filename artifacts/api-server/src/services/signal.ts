@@ -723,9 +723,9 @@ class SignalEngine {
     // ── Gates ──
     const obComp = weighted.find(c => c.name === "Order Book Imbalance");
 
-    // Gate 0: Fractal Pattern Match (PRIMARY FILTER)
-    const gate0Passed = fractalGatePassed;
-    const gate0Reason = fractalGateReason;
+    // Gate 0: Fractal — display only, not a gate
+    const gate0Passed = true;
+    const gate0Reason = fractalGateReason + " (display only)";
 
     // Gate 1: MTF CVD Alignment — all 3 timeframes agree
     const gate1Passed = alignment.strong && direction !== "neutral";
@@ -772,7 +772,7 @@ class SignalEngine {
       { name: "Фандинг",                        passed: gate6Passed, reason: gate6Reason },
     ];
 
-    const allGatesPassed = direction !== "neutral" && gate0Passed && gate1Passed && obPassed && gate3Passed && gate4Passed && gate5Passed && gate6Passed;
+    const allGatesPassed = direction !== "neutral" && gate1Passed && obPassed && gate3Passed && gate4Passed && gate5Passed && gate6Passed;
 
     // Debug: notify Telegram when a meaningful signal is blocked by a gate (rate-limited)
     if (!allGatesPassed && direction !== "neutral" && Math.abs(score) >= 0.25) {
