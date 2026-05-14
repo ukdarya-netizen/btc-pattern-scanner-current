@@ -1,0 +1,186 @@
+Техническое задание для Replit-бота: Исправление утреннего отчета (Версия 2)
+
+Цель: Исправить функцию sendDailyMarketReport в файле src/services/statsScheduler.ts, чтобы она выводила корректные данные по ликвидациям за 24 часа и абсолютному открытому интересу (OI), как запрашивал пользователь.
+
+Файл для редактирования: src/services/statsScheduler.ts
+
+Важно: Этот документ содержит очень подробные и пошаговые инструкции. Пожалуйста, следуй им строго, строка за строкой, чтобы избежать ошибок.
+
+
+
+
+Шаг 1: Открой файл src/services/statsScheduler.ts
+
+Шаг 2: Найди функцию sendDailyMarketReport
+
+Прокрути файл до строки, которая начинается с private async sendDailyMarketReport(msk: Date) {. Это примерно строка 209.
+
+Шаг 3: Замени содержимое функции sendDailyMarketReport
+
+Тебе нужно полностью заменить весь код внутри этой функции (от try { до } перед async sendMarketReportNow() {).
+
+Найди этот блок кода (примерно строки 210-261):
+
+TypeScript
+
+
+    try {
+      const dateStr = `${msk.getUTCDate().toString().padStart(2, "0")}.${(msk.getUTCMonth() + 1).toString().padStart(2, "0")}.${msk.getUTCFullYear()}`;
+
+      const price = aggregator.getPrimaryPrice();
+      const fundingRate = aggregator.getPrimaryFundingRate();
+      const alignment = cvdService.getAlignment();
+
+      // CVD sentiment
+      let cvdEmoji = "⚪";
+      let cvdLabel = "Нейтральный";
+      if (alignment.score > 0.2) { cvdEmoji = "🟢"; cvdLabel = "Бычий"; }
+      else if (alignment.score < -0.2) { cvdEmoji = "🔴"; cvdLabel = "Медвежий"; }
+
+      // OI delta
+      const oi = coinglassService.getOiDelta();
+      const oiChange = (oi.delta5m * 100).toFixed(3);
+      const oiSign = oi.delta5m >= 0 ? "+" : "";
+
+      // Funding sentiment
+      let fundingLabel = "Норма ✅";
+      if (fundingRate > 0.001) fundingLabel = "Экстремум лонгов ⚠️";
+      else if (fundingRate > 0.0005) fundingLabel = "Лонги перегреты";
+      else if (fundingRate < -0.001) fundingLabel = "Экстремум шортов ⚠️";
+      else if (fundingRate < -0.0002) fundingLabel = "Шорты перегреты";
+
+      // Total liq from coinalyze map (sum of all buckets as proxy for market stress)
+      const liqMap = coinalyzeService.getCachedMap();
+      let totalLiqUsd = 0;
+      if (liqMap && liqMap.buckets.length > 0) {
+        totalLiqUsd = liqMap.buckets.reduce((s, b) => s + b.totalUsd, 0);
+      }
+      const liqStr = totalLiqUsd > 0
+        ? `$${(totalLiqUsd / 1_000_000).toFixed(1)}M`
+        : "нет данных";
+
+      const msg =
+        `☀️ <b>РЫНОЧНЫЙ ОТЧЁТ — ${dateStr} (11:00 МСК)</b>\n` +
+        `━━━━━━━━━━━━━━━━━━━\n` +
+        `💰 BTC: <b>$${price.toFixed(1)}</b>\n` +
+        `${cvdEmoji} CVD Сентимент: <b>${cvdLabel}</b> (${alignment.description})\n` +
+        `💸 Фандинг: <b>${(fundingRate * 100).toFixed(4)}%</b> — ${fundingLabel}\n` +
+        `🔄 OI (5м): <b>${oiSign}${oiChange}%</b> — ${oi.interpretation}\n` +
+        `💥 Кластеры ликвидаций: <b>${liqStr}</b>\n` +
+        `━━━━━━━━━━━━━━━━━━━\n` +
+        `#BTC #рынок #daily`;
+
+      telegramService.notifyChannel(msg);
+      logger.info({ date: dateStr, price, funding: fundingRate }, "Daily market report sent");
+    } catch (e) {
+      logger.error({ err: e }, "Failed to send daily market report");
+    }
+
+
+
+Замени его на этот НОВЫЙ блок кода:
+
+TypeScript
+
+
+    try {
+      const dateStr = `${msk.getUTCDate().toString().padStart(2, "0")}.${(msk.getUTCMonth() + 1).toString().padStart(2, "0")}.${msk.getUTCFullYear()}`;
+
+      // 1. Получаем базовые данные
+      const ticker = aggregator.getAggregatedTicker();
+      const price = ticker?.lastPrice || aggregator.getPrimaryPrice();
+      const fundingRate = aggregator.getPrimaryFundingRate();
+      const alignment = cvdService.getAlignment();
+
+      // 2. CVD Сентимент
+      let cvdEmoji = "⚪";
+      let cvdLabel = "Нейтральный";
+      if (alignment.score > 0.2) { cvdEmoji = "🟢"; cvdLabel = "Бычий"; }
+      else if (alignment.score < -0.2) { cvdEmoji = "🔴"; cvdLabel = "Медвежий"; }
+
+      // 3. Фандинг
+      let fundingLabel = "Норма ✅";
+      if (fundingRate > 0.001) fundingLabel = "Экстремум лонгов ⚠️";
+      else if (fundingRate > 0.0005) fundingLabel = "Лонги перегреты";
+      else if (fundingRate < -0.001) fundingLabel = "Экстремум шортов ⚠️";
+      else if (fundingRate < -0.0002) fundingLabel = "Шорты перегреты";
+
+      // 4. Открытый интерес (OI) за 24 часа
+      // Используем абсолютное значение OI из тикера
+      const oiUsd = ticker?.openInterest || aggregator.getPrimaryOpenInterest();
+      const oiStr = oiUsd > 0 ? `$${(oiUsd / 1_000_000_000).toFixed(2)}B` : "нет данных";
+
+      // 5. Фактические ликвидации за 24 часа (из CoinGlass)
+      const liqInfo = await coinglassService.getLiquidationInfo();
+      let liqStr = "нет данных";
+      if (liqInfo && liqInfo.h24TotalVolUsd > 0) {
+        const total = (liqInfo.h24TotalVolUsd / 1_000_000).toFixed(1);
+        const longs = (liqInfo.longVolUsd24h / 1_000_000).toFixed(1);
+        const shorts = (liqInfo.shortVolUsd24h / 1_000_000).toFixed(1);
+        liqStr = `$${total}M (Лонги: $${longs}M | Шорты: $${shorts}M)`;
+      }
+
+      // 6. Формируем сообщение для Telegram
+      const msg =
+        `☀️ <b>РЫНОЧНЫЙ ОТЧЁТ — ${dateStr} (11:00 МСК)</b>\n` +
+        `━━━━━━━━━━━━━━━━━━━\n` +
+        `💰 BTC: <b>$${price.toFixed(1)}</b>\n` +
+        `${cvdEmoji} CVD Сентимент: <b>${cvdLabel}</b> (${alignment.description})\n` +
+        `💸 Фандинг: <b>${(fundingRate * 100).toFixed(4)}%</b> — ${fundingLabel}\n` +
+        `🔄 Открытый интерес: <b>${oiStr}</b>\n` +
+        `💥 Ликвидации (24ч): <b>${liqStr}</b>\n` +
+        `━━━━━━━━━━━━━━━━━━━\n` +
+        `#BTC #рынок #daily`;
+
+      telegramService.notifyChannel(msg);
+      logger.info({ date: dateStr, price, funding: fundingRate }, "Daily market report sent");
+    } catch (e) {
+      logger.error({ err: e }, "Failed to send daily market report");
+    }
+
+
+
+
+
+
+Что изменилось в этом блоке кода:
+
+1.
+Открытый интерес (OI):
+
+•
+Строки, отвечающие за oi и oiChange, были удалены.
+
+•
+Добавлена новая логика для получения абсолютного значения OI: const oiUsd = ticker?.openInterest || aggregator.getPrimaryOpenInterest();
+
+•
+Форматирование OI теперь отображает его в миллиардах долларов: const oiStr = oiUsd > 0 ? $${(oiUsd / 1_000_000_000).toFixed(2)}B : "нет данных";
+
+•
+В сообщении Telegram строка 🔄 OI (5м): <b>${oiSign}${oiChange}%</b> — ${oi.interpretation}\n заменена на 🔄 Открытый интерес: <b>${oiStr}</b>\n.
+
+
+
+2.
+Ликвидации за сутки:
+
+•
+Строки, отвечающие за liqMap и totalLiqUsd (использующие coinalyzeService.getCachedMap()), были удалены.
+
+•
+Добавлена новая логика для получения фактических ликвидаций за 24 часа: const liqInfo = await coinglassService.getLiquidationInfo();
+
+•
+Форматирование ликвидаций теперь включает разделение на лонги и шорты: liqStr = {total}M (Лонги: {longs}M | Шорты: $${shorts}M);
+
+•
+В сообщении Telegram строка 💥 Кластеры ликвидаций: <b>${liqStr}</b>\n заменена на 💥 Ликвидации (24ч): <b>${liqStr}</b>\n.
+
+
+
+
+
+
+Конец ТЗ. После выполнения этих изменений, пожалуйста, сохрани файл и перезапусти бота на Replit. Теперь ежедневный рыночный отчет будет содержать корректные данные по ликвидациям за 24 часа и абсолютному открытому интересу.
+
