@@ -143,6 +143,20 @@ class CvdService {
   getTrend5m(): CvdTrend  { return this.calcTrendForDeltas(this.sortedDeltas(this.buckets5m)); }
   getTrend15m(): CvdTrend { return this.calcTrendForDeltas(this.sortedDeltas(this.buckets15m)); }
 
+  get5m15mAlignment(): CvdAlignment {
+    const t5m  = this.getTrend5m();
+    const t15m = this.getTrend15m();
+    const arrow = (t: CvdTrend) => t === "bullish" ? "↑" : t === "bearish" ? "↓" : "→";
+    const description = `5m${arrow(t5m)} 15m${arrow(t15m)}`;
+    if (t5m === "bullish" && t15m === "bullish") {
+      return { trend: "bullish", score:  0.90, strong: true,  description, trends: { "1m": this.getTrend1m(), "5m": t5m, "15m": t15m } };
+    }
+    if (t5m === "bearish" && t15m === "bearish") {
+      return { trend: "bearish", score: -0.90, strong: true,  description, trends: { "1m": this.getTrend1m(), "5m": t5m, "15m": t15m } };
+    }
+    return { trend: "mixed", score: 0, strong: false, description, trends: { "1m": this.getTrend1m(), "5m": t5m, "15m": t15m } };
+  }
+
   getAlignment(): CvdAlignment {
     const t1m  = this.getTrend1m();
     const t5m  = this.getTrend5m();

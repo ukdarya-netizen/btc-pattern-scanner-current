@@ -10,8 +10,7 @@ import type { LiqHeatmapBucket } from "./coinglassService";
 import type { LiqMapBucket } from "./coinalyzeService";
 import { telegramService } from "./telegram";
 import { checkWhaleActivity } from "./whaleTrackerService";
-
-const OB_MIN_IMBALANCE = 0.35; // require ≥35% directional imbalance in order book
+import { checkImbalance } from "./orderbookService";
 
 export interface SignalComponent {
   name: string;
@@ -50,7 +49,7 @@ export interface SignalResult {
 type Bucket = { price: number; longLiqUsd: number; shortLiqUsd: number; totalUsd: number };
 
 // ─── Constants ───────────────────────────────────────────────
-const MIN_SL_CLUSTER_USD  = 5_000_000;
+const MIN_SL_CLUSTER_USD  = 10_000_000;
 
 // Debug gate notifications — rate-limited to avoid flooding the channel
 let lastGateDebugTs = 0;
@@ -60,7 +59,7 @@ const MIN_SL_DISTANCE_PCT = 0.004;
 const MAX_SL_DISTANCE_PCT = 0.025;
 const SL_CLUSTER_BUFFER   = 0.0008;
 
-const MIN_TP_CLUSTER_USD  = 5_000_000;
+const MIN_TP_CLUSTER_USD  = 7_000_000;
 const MAX_TP_RANGE_PCT    = 0.08;
 const MIN_TP_DISTANCE_PCT = 0.015;
 const MIN_RR_RATIO        = 1.2;
@@ -723,21 +722,17 @@ class SignalEngine {
     // ── Gates ──
     const obComp = weighted.find(c => c.name === "Order Book Imbalance");
 
-    // Gate 0: Fractal — display only, not a gate
-    const gate0Passed = true;
-    const gate0Reason = fractalGateReason + " (display only)";
+    // Gate 1: CVD 5m/15m — both timeframes must agree (1m ignored)
+    const align5m15m = cvdService.get5m15mAlignment();
+    const gate1Passed = align5m15m.strong && direction !== "neutral";
+    const gate1Reason = align5m15m.strong
+      ? `${align5m15m.description} — 5м и 15м согласованы ✓`
+      : `CVD (${align5m15m.description}) — 5м и 15м расходятся ✗`;
 
-    // Gate 1: MTF CVD Alignment — all 3 timeframes agree
-    const gate1Passed = alignment.strong && direction !== "neutral";
-    const gate1Reason = alignment.strong
-      ? `${alignment.description} — все три ТФ согласованы ✓`
-      : `${alignment.description} — не все ТФ согласованы ✗ (strong: ${alignment.strong})`;
-
-    // Gate 2: Order Book confirms direction (requires ≥35% imbalance, not just any positive)
-    const obPassed = obComp ? obComp.score * dirSign >= OB_MIN_IMBALANCE : false;
-    const obReason = obComp
-      ? `Стакан ${obComp.score >= 0 ? "+" : ""}${obComp.score.toFixed(2)} ${obPassed ? "✓" : "✗"}`
-      : "нет данных стакана ✗";
+    // Gate 2: Order Book — wall check within 0.5% of price
+    const obGate  = checkImbalance(direction as "long" | "short");
+    const obPassed = obGate.pass;
+    const obReason = obGate.reason;
 
     // Gate 3: SL on cluster
     const gate3Passed = slResult.valid;
@@ -763,12 +758,11 @@ class SignalEngine {
       : `Фандинг ${fundingAnalysis.bias} — ${fundingAnalysis.contrarian} ✗`;
 
     const gates: GateResult[] = [
-      { name: "Фрактальный Паттерн",           passed: gate0Passed, reason: gate0Reason },
-      { name: "MTF CVD Alignment (1m/5m/15m)", passed: gate1Passed, reason: gate1Reason },
-      { name: "Стакан (Order Book)",            passed: obPassed,    reason: obReason },
-      { name: "SL на кластере ликвидаций",      passed: gate3Passed, reason: gate3Reason },
-      { name: "TP на кластере + R:R ≥ 1.5",    passed: gate4Passed, reason: gate4Reason },
-      { name: "Активность китов (2м)",          passed: gate5Passed, reason: gate5Reason },
+      { name: "CVD (5м/15м)",                  passed: gate1Passed, reason: gate1Reason },
+      { name: "Стакан (плита 0.5%)",            passed: obPassed,    reason: obReason },
+      { name: "Активность китов (3м)",          passed: gate5Passed, reason: gate5Reason },
+      { name: "SL кластер ($10M+)",             passed: gate3Passed, reason: gate3Reason },
+      { name: "TP кластер ($7M+) + R:R",        passed: gate4Passed, reason: gate4Reason },
       { name: "Фандинг",                        passed: gate6Passed, reason: gate6Reason },
     ];
 
@@ -780,9 +774,11 @@ class SignalEngine {
       if (now - lastGateDebugTs > GATE_DEBUG_INTERVAL_MS) {
         lastGateDebugTs = now;
         const failedGates = gates.filter(g => !g.passed);
-        const lines = failedGates.map(g => `  • ${g.name}: ${g.reason}`).join("\n");
-        const debugMsg =
-          `[DEBUG] 🚫 <b>${direction.toUpperCase()}</b> score=${score.toFixed(3)} — сигнал заблокирован:\n${lines}`;
+        const firstFailed = failedGates[0];
+        const dirLabel = direction === "long" ? "ЛОНГ" : "ШОРТ";
+        const debugMsg = firstFailed
+          ? `[DEBUG] 🚫 ${dirLabel} отклонен: ${firstFailed.reason}`
+          : `[DEBUG] 🚫 ${dirLabel} заблокирован (score=${score.toFixed(3)})`;
         telegramService.notifyChannel(debugMsg);
       }
     }

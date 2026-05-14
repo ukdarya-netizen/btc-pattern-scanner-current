@@ -1,8 +1,7 @@
 import { aggregator } from "./exchanges/aggregator";
 
-const WHALE_MIN_NOTIONAL_USD = 300_000; // single trade >= $300k counts as whale
-const WHALE_WINDOW_MS        = 120_000; // look back 2 minutes
-const WHALE_REQUIRED_USD     = 300_000; // total directional whale volume to pass gate
+const WHALE_MIN_NOTIONAL_USD = 1_500_000;
+const WHALE_WINDOW_MS        = 180_000;
 
 export interface WhaleTrackResult {
   pass: boolean;
@@ -15,7 +14,7 @@ export function checkWhaleActivity(direction: "long" | "short"): WhaleTrackResul
   const trades = aggregator.getPrimaryTrades();
 
   if (trades.length === 0) {
-    return { pass: true, reason: "нет данных сделок (пропуск)", whaleBuyUsd: 0, whaleSellUsd: 0 };
+    return { pass: true, reason: "нет данных сделок (пропуск) ✓", whaleBuyUsd: 0, whaleSellUsd: 0 };
   }
 
   const cutoff = Date.now() - WHALE_WINDOW_MS;
@@ -23,30 +22,38 @@ export function checkWhaleActivity(direction: "long" | "short"): WhaleTrackResul
 
   let whaleBuyUsd  = 0;
   let whaleSellUsd = 0;
+  let maxBuyPrint  = 0;
+  let maxSellPrint = 0;
 
   for (const t of recent) {
     const notional = t.price * t.size;
     if (notional < WHALE_MIN_NOTIONAL_USD) continue;
-    if (t.side === "buy")  whaleBuyUsd  += notional;
-    else                   whaleSellUsd += notional;
+    if (t.side === "buy") {
+      whaleBuyUsd  += notional;
+      if (notional > maxBuyPrint) maxBuyPrint = notional;
+    } else {
+      whaleSellUsd += notional;
+      if (notional > maxSellPrint) maxSellPrint = notional;
+    }
   }
 
-  const dirWhale = direction === "long" ? whaleBuyUsd : whaleSellUsd;
-  const oppWhale = direction === "long" ? whaleSellUsd : whaleBuyUsd;
+  const dirMaxPrint = direction === "long" ? maxBuyPrint  : maxSellPrint;
+  const dirTotal    = direction === "long" ? whaleBuyUsd  : whaleSellUsd;
+  const label       = direction === "long" ? "покупок"    : "продаж";
 
-  if (dirWhale < WHALE_REQUIRED_USD) {
-    const label = direction === "long" ? "покупок" : "продаж";
-    const opp   = direction === "long" ? "продаж" : "покупок";
-    const reason = oppWhale > dirWhale * 2
-      ? `Киты против позиции: $${(oppWhale / 1_000).toFixed(0)}K ${opp} vs $${(dirWhale / 1_000).toFixed(0)}K ${label}`
-      : `Нет крупных ${label} за 2м ($${(dirWhale / 1_000).toFixed(0)}K)`;
-    return { pass: false, reason, whaleBuyUsd, whaleSellUsd };
+  if (dirMaxPrint < WHALE_MIN_NOTIONAL_USD) {
+    const maxM = (dirMaxPrint / 1_000_000).toFixed(2);
+    return {
+      pass: false,
+      reason: `НЕТ КИТОВ (Принты < $1.5M, макс: $${maxM}M)`,
+      whaleBuyUsd,
+      whaleSellUsd,
+    };
   }
 
-  const label = direction === "long" ? "покупок" : "продаж";
   return {
     pass: true,
-    reason: `Крупные ${label}: $${(dirWhale / 1_000_000).toFixed(2)}M за 2м ✓`,
+    reason: `Кит зафиксирован: $${(dirMaxPrint / 1_000_000).toFixed(2)}M (total ${label}: $${(dirTotal / 1_000_000).toFixed(2)}M) ✓`,
     whaleBuyUsd,
     whaleSellUsd,
   };
