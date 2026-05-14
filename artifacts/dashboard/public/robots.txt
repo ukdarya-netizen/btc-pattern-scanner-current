@@ -1,0 +1,4 @@
+User-agent: *
+Allow: /
+
+Sitemap: https://crypto-scalper-bot-shakdarya23.replit.app/sitemap.xml
