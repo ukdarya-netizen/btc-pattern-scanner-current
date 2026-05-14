@@ -7,7 +7,7 @@ import { coinglassService } from "./coinglassService";
 import type { LiqHeatmapBucket } from "./coinglassService";
 import type { LiqMapBucket } from "./coinalyzeService";
 import { telegramService } from "./telegram";
-import { cvdService } from "./cvd";
+
 
 export interface SignalComponent {
   name: string;
@@ -418,16 +418,6 @@ function calcPatternDisplay(): SignalComponent {
   };
 }
 
-function calcCVDDisplay(): SignalComponent {
-  const alignment = cvdService.getAlignment();
-  const arrow = (t: string) => t === "bullish" ? "↑" : t === "bearish" ? "↓" : "→";
-  return {
-    name: "CVD (display)",
-    score: 0,
-    weight: 0,
-    description: `1m${arrow(alignment.trends["1m"])} 5m${arrow(alignment.trends["5m"])} 15m${arrow(alignment.trends["15m"])} | CVD: ${cvdService.getCurrentCvd().toFixed(2)}`,
-  };
-}
 
 function calcCrossExchangeDisplay(): SignalComponent {
   const agg = aggregator.getAggregatedTicker();
@@ -461,7 +451,6 @@ class SignalEngine {
       calcOpenInterestDisplay(),
       calcLiquidationDisplay(),
       calcPatternDisplay(),
-      calcCVDDisplay(),
       calcCrossExchangeDisplay(),
     ];
 
