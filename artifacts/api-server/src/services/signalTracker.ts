@@ -106,16 +106,10 @@ class SignalTracker {
     const strengthLabel = absScore2 > 0.7 ? "STRONG" : absScore2 > 0.5 ? "MODERATE" : "WEAK";
     const timeStr = new Date().toLocaleTimeString("ru-RU", { timeZone: "Europe/Moscow", hour12: false }) + " МСК";
     const emoji = side === "long" ? "🟢📈" : "🔴📉";
-    const fractalLine = signal.fractalSignal && signal.fractalSignal.valid
-      ? `🔮 Фрактал: <b>${(signal.fractalSignal.overall_signal_score * 100).toFixed(0)}%</b> (win-rate ${(signal.fractalSignal.probability * 100).toFixed(0)}%)\n`
-      : "";
-
     logger.info({
       side, price,
       sl: signal.suggestedSl, tp: signal.suggestedTp, score: signal.score,
-      fractalScore: signal.fractalSignal?.overall_signal_score,
-      fractalReason: signal.fractalSignal?.reason,
-    }, "SignalTracker: signal opened (fractal gate passed)");
+    }, "SignalTracker: signal opened");
 
     telegramService.notifyChannel(
       `${emoji} <b>BTC ${side.toUpperCase()} — ${strengthLabel}</b>\n` +
@@ -126,7 +120,6 @@ class SignalTracker {
       `🛑 SL: <b>$${signal.suggestedSl.toFixed(1)}</b> (-${slPct}%)\n` +
       `🎯 TP: <b>$${signal.suggestedTp.toFixed(1)}</b> (+${tpPct}%)\n` +
       `📊 Score: ${signal.score >= 0 ? "+" : ""}${signal.score.toFixed(3)}\n` +
-      fractalLine +
       `📡 Данные: ${dataExchanges}\n` +
       `🕐 ${timeStr}\n` +
       `━━━━━━━━━━━━━━━━━━━\n` +

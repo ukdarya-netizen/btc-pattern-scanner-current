@@ -4,7 +4,7 @@ import { aggregator } from "./services/exchanges/aggregator";
 import { cvdService } from "./services/cvd";
 import { candleService } from "./services/candleService";
 import { patternService } from "./services/patternService";
-import { fractalService } from "./services/fractalService";
+import { taService } from "./services/taService";
 import { coinglassService } from "./services/coinglassService";
 import { telegramService } from "./services/telegram";
 import { botEngine } from "./services/botEngine";
@@ -33,10 +33,10 @@ statsScheduler.start();
 
 void dbService.initializeTodayStats();
 
-// FractalService loads 1D + 4H history (can take 10-20s on first start)
-void fractalService.start();
+// TAService loads 1H/4H/1D candles for EMA/VWAP/S&R/patterns
+void taService.forceRefresh().then(() => taService.start());
 
-// SignalTracker starts after fractalService has had time to load data
+// SignalTracker starts after TA data has had time to load
 setTimeout(() => {
   signalTracker.start();
 }, 30000);

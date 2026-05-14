@@ -212,7 +212,7 @@ class StatsScheduler {
 
       // 1. Базовые данные
       const ticker = aggregator.getAggregatedTicker();
-      const price = ticker?.lastPrice || aggregator.getPrimaryPrice();
+      const price = aggregator.getPrimaryPrice() || (ticker as { lastPrice?: number } | null)?.lastPrice || 0;
       const fundingRate = aggregator.getPrimaryFundingRate();
       const alignment = cvdService.getAlignment();
 
