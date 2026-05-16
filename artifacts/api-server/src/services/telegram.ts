@@ -138,6 +138,19 @@ class TelegramService {
       .catch((err) => logger.warn({ err, channel: CHANNEL_ID }, "Failed to send channel message"));
   }
 
+  // Send to BOTH channel AND registered private admin chats — for signals/trades
+  notifyBoth(message: string) {
+    if (!this.bot) return;
+    this.bot.telegram
+      .sendMessage(CHANNEL_ID, message, { parse_mode: "HTML" })
+      .catch((err) => logger.warn({ err, channel: CHANNEL_ID }, "notifyBoth: channel send failed"));
+    for (const chatId of this.registeredChats) {
+      this.bot.telegram
+        .sendMessage(chatId, message, { parse_mode: "HTML" })
+        .catch((err) => logger.warn({ err, chatId }, "notifyBoth: private chat send failed"));
+    }
+  }
+
   publishTrade(params: {
     action: "open" | "close";
     side: string;

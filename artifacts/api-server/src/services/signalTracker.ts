@@ -87,7 +87,7 @@ class SignalTracker {
 
     const confirmLines = [ev.descLiq, ev.descOb, ev.descCvd].filter(Boolean).map(d => `  • ${d}`).join("\n");
 
-    telegramService.notifyChannel(
+    telegramService.notifyBoth(
       `${emoji} <b>BTC ${direction}</b>  ·  ${label}\n` +
       `━━━━━━━━━━━━━━━━━━━\n` +
       `${dirEmoji} <b>${direction}</b>  @  <b>$${price.toFixed(1)}</b>\n` +
@@ -157,7 +157,7 @@ class SignalTracker {
     const timeStr = new Date().toLocaleTimeString("ru-RU", { timeZone: "Europe/Moscow", hour12: false }) + " МСК";
     const typeLabel = `${TYPE_EMOJI[type]} ${TYPE_LABEL[type]}`;
 
-    telegramService.notifyChannel(
+    telegramService.notifyBoth(
       `${pnlEmoji} <b>ЗАКРЫТИЕ ${side.toUpperCase()}</b> — ${reasonLabel[reason]}\n` +
       `${typeLabel}\n` +
       `━━━━━━━━━━━━━━━━━━━\n` +
