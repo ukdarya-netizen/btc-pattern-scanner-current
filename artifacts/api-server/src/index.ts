@@ -11,6 +11,7 @@ import { botEngine } from "./services/botEngine";
 import { statsScheduler } from "./services/statsScheduler";
 import { dbService } from "./services/dbService";
 import { signalTracker } from "./services/signalTracker";
+import { signalEngine } from "./services/signal";
 
 const rawPort = process.env["PORT"];
 
@@ -36,8 +37,9 @@ void dbService.initializeTodayStats();
 // TAService loads 1H/4H/1D candles for EMA/VWAP/S&R/patterns
 void taService.forceRefresh().then(() => taService.start());
 
-// SignalTracker starts after TA data has had time to load
+// Signal engine (buffer scans) + tracker start after TA data loads
 setTimeout(() => {
+  signalEngine.start();
   signalTracker.start();
 }, 30000);
 

@@ -3,19 +3,21 @@ import { aggregator } from "./exchanges/aggregator";
 import { signalEngine } from "./signal";
 import { dbService } from "./dbService";
 import { telegramService } from "./telegram";
+import type { MarketSnapshot, EvalResult, SignalType } from "./bufferService";
 
-const VIRTUAL_SIZE_BTC = 0.01;       // ~$800-1000 notional per signal
-const SIGNAL_SCORE_THRESHOLD = 0.30; // minimum |score| to open a signal (aligned with fractal score) (смягчено)
+const VIRTUAL_SIZE_BTC = 0.01;
+
+const TYPE_EMOJI:  Record<SignalType, string> = { scalp: "⚡", intraday: "🔥", swing: "🌊" };
+const TYPE_LABEL:  Record<SignalType, string> = { scalp: "СКАЛЬП · 15m", intraday: "ИНТРАДЭЙ · 1H/4H", swing: "СВИНГ · 1D" };
 
 interface ActiveSignal {
   id: string;
+  type: SignalType;
   side: "long" | "short";
   entryPrice: number;
   stopLoss: number;
   takeProfit: number;
   leverage: number;
-  confidence: number;
-  score: number;
   openedAt: Date;
   dataExchanges: string;
 }
@@ -26,8 +28,15 @@ class SignalTracker {
 
   start() {
     if (this.tickInterval) return;
+
+    // Register callback on signalEngine — fires when a buffer reaches 3/3 agreement
+    signalEngine.onFired((type, direction, snap, ev) => {
+      void this.handleFire(type, direction, snap, ev);
+    });
+
+    // Tick every 5s: monitor SL/TP hits and reversals on active signals
     this.tickInterval = setInterval(() => this.tick(), 5000);
-    logger.info("SignalTracker started — tracking signal performance 24/7");
+    logger.info("SignalTracker started — listening for buffer fires, monitoring SL/TP");
   }
 
   stop() {
@@ -41,85 +50,51 @@ class SignalTracker {
     return this.active;
   }
 
-  private tick() {
-    const price = aggregator.getPrimaryPrice();
-    if (price === 0) return;
-
-    const signal = signalEngine.compute();
-
-    // --- Manage active signal ---
+  private async handleFire(type: SignalType, direction: "LONG" | "SHORT", snap: MarketSnapshot, ev: EvalResult) {
     if (this.active) {
-      const { side, stopLoss, takeProfit } = this.active;
-
-      const hitTp = side === "long" ? price >= takeProfit : price <= takeProfit;
-      const hitSl = side === "long" ? price <= stopLoss : price >= stopLoss;
-
-      if (hitTp || hitSl) {
-        const exitPrice = hitTp ? takeProfit : stopLoss;
-        void this.closeSignal(exitPrice, hitTp ? "tp" : "sl", price);
-        return;
-      }
-
-      // Close on direction reversal: opposite side exceeds threshold
-      const reversed =
-        (side === "long" && signal.score < -SIGNAL_SCORE_THRESHOLD) ||
-        (side === "short" && signal.score > SIGNAL_SCORE_THRESHOLD);
-
-      if (reversed) {
-        void this.closeSignal(price, "signal", price);
-      }
+      logger.info({ type, direction, active: this.active.type }, "SignalTracker: buffer fired but signal already active — ignoring");
       return;
     }
 
-    // --- Open new signal ---
-    const absScore = Math.abs(signal.score);
-    if (absScore < SIGNAL_SCORE_THRESHOLD) return;
-    if (signal.direction === "neutral") return;
-    if (!signal.suggestedSl || !signal.suggestedTp) return;
-    if (signal.suggestedSl === 0 || signal.suggestedTp === 0) return;
-    if (!signal.allGatesPassed) {
-      logger.debug({ score: signal.score, direction: signal.direction }, "SignalTracker: allGatesPassed false, skipping");
+    if (!snap.slValid || !snap.tpValid) {
+      logger.info({ type, direction, slValid: snap.slValid, tpValid: snap.tpValid }, "SignalTracker: SL/TP not valid — skipping signal");
       return;
     }
 
-    const engineDirection = signal.direction as "long" | "short";
-
-    const side = engineDirection;
+    const side = direction === "LONG" ? "long" : "short";
+    const price = snap.price;
+    const slPct = (Math.abs(snap.suggestedSl - price) / price * 100).toFixed(2);
+    const tpPct = (Math.abs(snap.suggestedTp - price) / price * 100).toFixed(2);
     const dataExchanges = aggregator.getActiveExchangeNames().join(" + ");
+    const timeStr = new Date().toLocaleTimeString("ru-RU", { timeZone: "Europe/Moscow", hour12: false }) + " МСК";
+    const emoji   = TYPE_EMOJI[type];
+    const label   = TYPE_LABEL[type];
+    const dirEmoji = side === "long" ? "🟢" : "🔴";
 
     this.active = {
       id: `sig-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+      type,
       side,
       entryPrice: price,
-      stopLoss: signal.suggestedSl,
-      takeProfit: signal.suggestedTp,
-      leverage: signal.suggestedLeverage,
-      confidence: signal.confidence,
-      score: signal.score,
-      openedAt: new Date(),
+      stopLoss:   snap.suggestedSl,
+      takeProfit: snap.suggestedTp,
+      leverage:   snap.leverage,
+      openedAt:   new Date(),
       dataExchanges,
     };
 
-    const slPct = (Math.abs(signal.suggestedSl - price) / price * 100).toFixed(2);
-    const tpPct = (Math.abs(signal.suggestedTp - price) / price * 100).toFixed(2);
-    const absScore2 = Math.abs(signal.score);
-    const strengthLabel = absScore2 > 0.7 ? "STRONG" : absScore2 > 0.5 ? "MODERATE" : "WEAK";
-    const timeStr = new Date().toLocaleTimeString("ru-RU", { timeZone: "Europe/Moscow", hour12: false }) + " МСК";
-    const emoji = side === "long" ? "🟢📈" : "🔴📉";
-    logger.info({
-      side, price,
-      sl: signal.suggestedSl, tp: signal.suggestedTp, score: signal.score,
-    }, "SignalTracker: signal opened");
+    logger.info({ type, side, price, sl: snap.suggestedSl, tp: snap.suggestedTp }, "SignalTracker: signal opened");
+
+    const confirmLines = [ev.descLiq, ev.descOb, ev.descCvd].filter(Boolean).map(d => `  • ${d}`).join("\n");
 
     telegramService.notifyChannel(
-      `${emoji} <b>BTC ${side.toUpperCase()} — ${strengthLabel}</b>\n` +
+      `${emoji} <b>BTC ${direction}</b>  ·  ${label}\n` +
       `━━━━━━━━━━━━━━━━━━━\n` +
-      `💰 Цена входа: <b>$${price.toFixed(1)}</b>\n` +
-      `💪 Уверенность: <b>${(signal.confidence * 100).toFixed(0)}%</b>\n` +
-      `⚡ Плечо: <b>${signal.suggestedLeverage}x</b>\n` +
-      `🛑 SL: <b>$${signal.suggestedSl.toFixed(1)}</b> (-${slPct}%)\n` +
-      `🎯 TP: <b>$${signal.suggestedTp.toFixed(1)}</b> (+${tpPct}%)\n` +
-      `📊 Score: ${signal.score >= 0 ? "+" : ""}${signal.score.toFixed(3)}\n` +
+      `${dirEmoji} <b>${direction}</b>  @  <b>$${price.toFixed(1)}</b>\n` +
+      `\n📋 <b>Подтверждения:</b>\n${confirmLines}\n` +
+      `\n🛑 SL: <b>$${snap.suggestedSl.toFixed(1)}</b> (-${slPct}%)\n` +
+      `🎯 TP: <b>$${snap.suggestedTp.toFixed(1)}</b> (+${tpPct}%)\n` +
+      `⚡ Плечо: <b>${snap.leverage}x</b>\n` +
       `📡 Данные: ${dataExchanges}\n` +
       `🕐 ${timeStr}\n` +
       `━━━━━━━━━━━━━━━━━━━\n` +
@@ -127,45 +102,64 @@ class SignalTracker {
     );
   }
 
-  private async closeSignal(exitPrice: number, reason: "tp" | "sl" | "signal", currentPrice: number) {
+  private tick() {
     if (!this.active) return;
-    const { id, side, entryPrice, leverage, openedAt, dataExchanges } = this.active;
-    this.active = null; // clear before async to prevent double-close
 
-    const dirMult = side === "long" ? 1 : -1;
-    const pnlPct = (exitPrice - entryPrice) / entryPrice * dirMult * leverage;
-    const notionalUsd = entryPrice * VIRTUAL_SIZE_BTC;
-    const pnl = notionalUsd * pnlPct;
+    const price = aggregator.getPrimaryPrice();
+    if (price === 0) return;
 
-    logger.info({ id, side, entryPrice, exitPrice, pnl, reason }, "SignalTracker: signal closed");
+    const { side, stopLoss, takeProfit } = this.active;
+
+    const hitTp = side === "long" ? price >= takeProfit : price <= takeProfit;
+    const hitSl = side === "long" ? price <= stopLoss  : price >= stopLoss;
+
+    if (hitTp || hitSl) {
+      const exitPrice = hitTp ? takeProfit : stopLoss;
+      void this.closeSignal(exitPrice, hitTp ? "tp" : "sl");
+    }
+  }
+
+  private async closeSignal(exitPrice: number, reason: "tp" | "sl" | "signal") {
+    if (!this.active) return;
+    const { id, type, side, entryPrice, leverage, openedAt, dataExchanges } = this.active;
+    this.active = null;
+
+    const dirMult   = side === "long" ? 1 : -1;
+    const pnlPct    = (exitPrice - entryPrice) / entryPrice * dirMult * leverage;
+    const notional  = entryPrice * VIRTUAL_SIZE_BTC;
+    const pnl       = notional * pnlPct;
+
+    logger.info({ id, type, side, entryPrice, exitPrice, pnl, reason }, "SignalTracker: signal closed");
 
     await dbService.saveTrade({
       id,
-      symbol: "BTCUSDT",
+      symbol:    "BTCUSDT",
       side,
       entryPrice,
       exitPrice,
-      size: VIRTUAL_SIZE_BTC,
+      size:      VIRTUAL_SIZE_BTC,
       leverage,
       pnl,
       pnlPct,
-      openedAt: openedAt.toISOString(),
-      closedAt: new Date().toISOString(),
+      openedAt:  openedAt.toISOString(),
+      closedAt:  new Date().toISOString(),
       closeReason: reason,
     }, "Signal");
 
-    const emoji = pnl >= 0 ? "✅" : "❌";
-    const pnlStr = `${pnl >= 0 ? "+" : ""}$${pnl.toFixed(2)}`;
-    const pnlPctStr = `${pnlPct >= 0 ? "+" : ""}${(pnlPct * 100).toFixed(1)}%`;
+    const pnlEmoji   = pnl >= 0 ? "✅" : "❌";
+    const pnlStr     = `${pnl >= 0 ? "+" : ""}$${pnl.toFixed(2)}`;
+    const pnlPctStr  = `${pnlPct >= 0 ? "+" : ""}${(pnlPct * 100).toFixed(1)}%`;
     const reasonLabel: Record<string, string> = {
       tp: "Take Profit 🎯",
       sl: "Stop Loss 🛑",
       signal: "Смена направления ↩️",
     };
     const timeStr = new Date().toLocaleTimeString("ru-RU", { timeZone: "Europe/Moscow", hour12: false }) + " МСК";
+    const typeLabel = `${TYPE_EMOJI[type]} ${TYPE_LABEL[type]}`;
 
     telegramService.notifyChannel(
-      `${emoji} <b>ЗАКРЫТИЕ ${side.toUpperCase()}</b> — ${reasonLabel[reason]}\n` +
+      `${pnlEmoji} <b>ЗАКРЫТИЕ ${side.toUpperCase()}</b> — ${reasonLabel[reason]}\n` +
+      `${typeLabel}\n` +
       `━━━━━━━━━━━━━━━━━━━\n` +
       `💰 Цена выхода: <b>$${exitPrice.toFixed(1)}</b>\n` +
       `📊 P&amp;L: <b>${pnlStr}</b> (${pnlPctStr} на плече ${leverage}x)\n` +

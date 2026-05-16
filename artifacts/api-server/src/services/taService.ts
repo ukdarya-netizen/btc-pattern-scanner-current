@@ -356,8 +356,8 @@ class TAService {
     return this.snapshot?.ready === true;
   }
 
-  getCvdTrend(tf: "1h" | "4h", lookback = 20): { trend: "bullish" | "bearish" | "neutral"; delta: number; description: string } {
-    const candles = (tf === "1h" ? this.candles1h : this.candles4h).slice(-lookback);
+  getCvdTrend(tf: "1h" | "4h" | "1d", lookback = 20): { trend: "bullish" | "bearish" | "neutral"; delta: number; description: string } {
+    const candles = (tf === "1h" ? this.candles1h : tf === "4h" ? this.candles4h : this.candles1d).slice(-lookback);
     if (candles.length < 3) return { trend: "neutral", delta: 0, description: "нет данных" };
 
     let cumDelta = 0;
