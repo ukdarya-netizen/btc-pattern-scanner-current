@@ -67,6 +67,16 @@ class TelegramService {
       }
     });
 
+    this.bot.command("debug", async (ctx) => {
+      try {
+        const { signalEngine } = await import("./signal");
+        const msg = signalEngine.buildDebugMessage();
+        ctx.replyWithHTML(msg);
+      } catch (e) {
+        ctx.reply(`Ошибка: ${(e as Error).message}`);
+      }
+    });
+
     // Manual polling — avoids AbortSignal incompatibility in node-fetch@2.x
     // Only poll in production to avoid 409 conflict when dev + deployed run simultaneously
     if (process.env["REPLIT_DEPLOYMENT"] === "1") {
@@ -136,6 +146,20 @@ class TelegramService {
     this.bot.telegram
       .sendMessage(CHANNEL_ID, message, { parse_mode: "HTML" })
       .catch((err) => logger.warn({ err, channel: CHANNEL_ID }, "Failed to send channel message"));
+  }
+
+  // Send ONLY to registered private admin chats — for debug/diagnostic messages
+  notifyAdmin(message: string) {
+    if (!this.bot) return;
+    if (this.registeredChats.size === 0) {
+      logger.info("notifyAdmin: no registered chats, skipping");
+      return;
+    }
+    for (const chatId of this.registeredChats) {
+      this.bot.telegram
+        .sendMessage(chatId, message, { parse_mode: "HTML" })
+        .catch((err) => logger.warn({ err, chatId }, "notifyAdmin: send failed"));
+    }
   }
 
   // Send to BOTH channel AND registered private admin chats — for signals/trades

@@ -8,6 +8,7 @@ import { cvdService } from "./cvd";
 import { logger } from "../lib/logger";
 import { SignalBuffer } from "./bufferService";
 import type { MarketSnapshot, EvalResult, LiqSignal, SignalType } from "./bufferService";
+import { telegramService } from "./telegram";
 
 // ─── Dashboard-compatible types ───────────────────────────────
 export interface SignalComponent {
@@ -375,6 +376,129 @@ class SignalEngine {
       }
       await new Promise(r => setTimeout(r, 500)); // small delay between types
     }
+
+    // Send debug summary to admin chats after every full scan
+    try {
+      telegramService.notifyAdmin(this.buildDebugMessage());
+    } catch (e) {
+      logger.warn({ err: e }, "Failed to send debug scan message");
+    }
+  }
+
+  buildDebugMessage(): string {
+    const timeStr = new Date().toLocaleTimeString("ru-RU", { timeZone: "Europe/Moscow", hour12: false }) + " МСК";
+    const price   = aggregator.getPrimaryPrice();
+
+    const TYPES: { type: SignalType; emoji: string; label: string }[] = [
+      { type: "scalp",    emoji: "⚡", label: "SCALP (15m)"   },
+      { type: "intraday", emoji: "🔥", label: "INTRADAY (4H)" },
+      { type: "swing",    emoji: "🌊", label: "SWING (1D)"    },
+    ];
+
+    const fmtFactor = (f: LiqSignal) =>
+      f === "LONG" ? "🟢 LONG" : f === "SHORT" ? "🔴 SHORT" : "⚪ —";
+
+    const fmtUsd = (n: number) =>
+      n >= 1_000_000 ? `$${(n / 1_000_000).toFixed(1)}M` : n >= 1_000 ? `$${(n / 1_000).toFixed(0)}K` : "$0";
+
+    const lines: string[] = [
+      `🔍 <b>Диагностика сканирования</b> · ${timeStr}`,
+      `💰 BTC: <b>$${price.toFixed(0)}</b>`,
+      `━━━━━━━━━━━━━━━━━━━`,
+    ];
+
+    for (const { type, emoji, label } of TYPES) {
+      const snap = this.lastSnaps[type];
+      const ev   = this.lastEvals[type];
+
+      lines.push(`\n${emoji} <b>${label}</b>`);
+
+      if (!snap || !ev) {
+        lines.push(`  ⏳ Данных нет (ожидание первого скана)`);
+        continue;
+      }
+
+      // Liq Map
+      const mapStr = snap.liqMapSignal
+        ? `${fmtFactor(snap.liqMapSignal)} зона ${fmtUsd(snap.liqMapZoneUsd)} @ $${snap.liqMapZonePrice.toFixed(0)}`
+        : `⚪ — (нет зоны ≥$${(LIQ_MAP_MIN_USD / 1e6).toFixed(0)}M в ±3%)`;
+
+      // Real liq
+      const threshold = LIQ_THRESHOLDS[type];
+      const realLong  = fmtUsd(snap.liqRealLongUsd);
+      const realShort = fmtUsd(snap.liqRealShortUsd);
+      const realStr   = snap.liqRealSignal
+        ? `${fmtFactor(snap.liqRealSignal)} лонги:${realLong} шорты:${realShort}`
+        : `⚪ — лонги:${realLong} шорты:${realShort} (порог ${fmtUsd(threshold)})`;
+
+      // Liq factor combined
+      let liqFactorStr: string;
+      if (snap.liqMapSignal && snap.liqRealSignal) {
+        if (snap.liqMapSignal === snap.liqRealSignal) {
+          liqFactorStr = `✅ ${fmtFactor(ev.factorLiq)} (карта + реал совпали)`;
+        } else {
+          liqFactorStr = `❌ конфликт — карта:${snap.liqMapSignal} ≠ реал:${snap.liqRealSignal}`;
+        }
+      } else if (snap.liqRealSignal) {
+        liqFactorStr = `⚠️ только реал: ${fmtFactor(snap.liqRealSignal)}`;
+      } else {
+        liqFactorStr = `❌ нет данных`;
+      }
+
+      // OB
+      const bidPct = (snap.obImbalance * 100).toFixed(1);
+      const obStr  = snap.obSignal
+        ? `✅ ${fmtFactor(snap.obSignal)} bid ${bidPct}%`
+        : `❌ нейтрально bid ${bidPct}% (нужно <${OB_SHORT_THRESHOLD * 100}% или >${OB_LONG_THRESHOLD * 100}%)`;
+
+      // CVD
+      const cvdStr = snap.cvdSignal
+        ? `✅ ${fmtFactor(snap.cvdSignal)} ${snap.cvdDesc}`
+        : `❌ нейтрально — ${snap.cvdDesc}`;
+
+      // SL/TP
+      const slStr = snap.slValid
+        ? `✅ SL $${snap.suggestedSl.toFixed(0)} (${snap.slSource})`
+        : `❌ SL: ${snap.slSource}`;
+      const tpStr = snap.tpValid
+        ? `✅ TP $${snap.suggestedTp.toFixed(0)} (${snap.tpSource})`
+        : `❌ TP: ${snap.tpSource || "нет SL или кластера"}`;
+
+      // Verdict
+      const votes = [ev.factorLiq, ev.factorOb, ev.factorCvd].filter(Boolean);
+      const longV = votes.filter(f => f === "LONG").length;
+      const shortV = votes.filter(f => f === "SHORT").length;
+      let verdict: string;
+      if (votes.length < 3) {
+        const missing = [
+          ev.factorLiq ? null : "💥Liq",
+          ev.factorOb  ? null : "📖OB",
+          ev.factorCvd ? null : "📊CVD",
+        ].filter(Boolean).join(", ");
+        verdict = `❌ ${votes.length}/3 факторов (нет: ${missing})`;
+      } else if (longV === 3 || shortV === 3) {
+        verdict = ev.shouldSignal && snap.slValid && snap.tpValid
+          ? `🔥 СИГНАЛ! Все 3 → ${longV === 3 ? "LONG" : "SHORT"}`
+          : `⚠️ Все 3 → ${longV === 3 ? "LONG" : "SHORT"}, но SL/TP невалидны`;
+      } else {
+        verdict = `❌ Противоречие: LONG×${longV} SHORT×${shortV}`;
+      }
+
+      lines.push(
+        `  💥 Liq: ${liqFactorStr}`,
+        `      ↳ Карта: ${mapStr}`,
+        `      ↳ Реал:  ${realStr}`,
+        `  📖 OB:  ${obStr}`,
+        `  📊 CVD: ${cvdStr}`,
+        `  📐 ${slStr}`,
+        `  📐 ${tpStr}`,
+        `  → ${verdict}`,
+      );
+    }
+
+    lines.push(`━━━━━━━━━━━━━━━━━━━`);
+    lines.push(`💡 /debug — запросить сейчас`);
+    return lines.join("\n");
   }
 
   start(): void {
