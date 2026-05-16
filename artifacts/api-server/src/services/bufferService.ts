@@ -74,7 +74,22 @@ export class SignalBuffer {
     let factorLiq: LiqSignal = "";
     let descLiq = "";
 
-    if (snap.liqMapSignal && snap.liqRealSignal && snap.liqMapSignal === snap.liqRealSignal) {
+    // Sweep absorption: longs swept (liqReal SHORT) while OB ≥75% bid + CVD LONG
+    // = market is absorbing the cascade → reversal LONG (and vice versa for shorts)
+    const longAbsorption  = snap.liqRealSignal === "SHORT" && snap.obImbalance >= 0.75 && snap.cvdSignal === "LONG";
+    const shortAbsorption = snap.liqRealSignal === "LONG"  && snap.obImbalance <= 0.25 && snap.cvdSignal === "SHORT";
+
+    if (longAbsorption) {
+      factorLiq = "LONG";
+      const totalLiq = (snap.liqRealLongUsd / 1_000_000).toFixed(1);
+      descLiq = `💥 Абсорбция sweep: лонги ликв. $${totalLiq}M при bid ${(snap.obImbalance * 100).toFixed(1)}%`;
+      logger.info({ type: this.type, liqReal: snap.liqRealSignal, obBid: snap.obImbalance }, "Buffer: sweep absorption → LONG");
+    } else if (shortAbsorption) {
+      factorLiq = "SHORT";
+      const totalLiq = (snap.liqRealShortUsd / 1_000_000).toFixed(1);
+      descLiq = `💥 Абсорбция sweep: шорты ликв. $${totalLiq}M при ask ${((1 - snap.obImbalance) * 100).toFixed(1)}%`;
+      logger.info({ type: this.type, liqReal: snap.liqRealSignal, obBid: snap.obImbalance }, "Buffer: sweep absorption → SHORT");
+    } else if (snap.liqMapSignal && snap.liqRealSignal && snap.liqMapSignal === snap.liqRealSignal) {
       factorLiq = snap.liqMapSignal;
       const dominant = factorLiq === "LONG" ? snap.liqRealShortUsd : snap.liqRealLongUsd;
       const zoneM = (snap.liqMapZoneUsd / 1_000_000).toFixed(1);

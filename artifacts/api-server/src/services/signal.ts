@@ -182,6 +182,9 @@ function computeAtrPct(): number {
 }
 
 // ─── Factor: Liq map near price ───────────────────────────────
+// LONG  signal: short liq clusters ABOVE price dominate → price squeezed UP (short squeeze magnet)
+// SHORT signal: long liq clusters BELOW price dominate  → price cascades DOWN (long cascade magnet)
+// This matches SL/TP logic: TP for long = short cluster above, TP for short = long cluster below.
 function getLiqMapSignal(price: number): { signal: LiqSignal; zonePrice: number; zoneUsd: number } {
   const buckets = getLiqBuckets();
   if (buckets.length === 0 || price === 0) return { signal: "", zonePrice: 0, zoneUsd: 0 };
@@ -191,15 +194,20 @@ function getLiqMapSignal(price: number): { signal: LiqSignal; zonePrice: number;
   const nearby = buckets.filter(b => b.price >= lower && b.price <= upper);
   if (nearby.length === 0) return { signal: "", zonePrice: 0, zoneUsd: 0 };
 
-  const totalShort = nearby.reduce((s, b) => s + b.shortLiqUsd, 0);
-  const totalLong  = nearby.reduce((s, b) => s + b.longLiqUsd,  0);
+  // Short liq clusters ABOVE price → shorts get squeezed → price goes UP → LONG
+  const above = nearby.filter(b => b.price > price);
+  const shortAbove = above.reduce((s, b) => s + b.shortLiqUsd, 0);
 
-  if (totalShort > totalLong && totalShort > LIQ_MAP_MIN_USD) {
-    const best = [...nearby].sort((a, b) => b.shortLiqUsd - a.shortLiqUsd)[0]!;
+  // Long liq clusters BELOW price → longs cascade → price goes DOWN → SHORT
+  const below = nearby.filter(b => b.price <= price);
+  const longBelow = below.reduce((s, b) => s + b.longLiqUsd, 0);
+
+  if (shortAbove >= LIQ_MAP_MIN_USD && shortAbove > longBelow) {
+    const best = [...above].sort((a, b) => b.shortLiqUsd - a.shortLiqUsd)[0]!;
     return { signal: "LONG", zonePrice: best.price, zoneUsd: best.shortLiqUsd };
   }
-  if (totalLong > totalShort && totalLong > LIQ_MAP_MIN_USD) {
-    const best = [...nearby].sort((a, b) => b.longLiqUsd - a.longLiqUsd)[0]!;
+  if (longBelow >= LIQ_MAP_MIN_USD && longBelow > shortAbove) {
+    const best = [...below].sort((a, b) => b.longLiqUsd - a.longLiqUsd)[0]!;
     return { signal: "SHORT", zonePrice: best.price, zoneUsd: best.longLiqUsd };
   }
   return { signal: "", zonePrice: 0, zoneUsd: 0 };
