@@ -377,9 +377,9 @@ class SignalEngine {
       await new Promise(r => setTimeout(r, 500)); // small delay between types
     }
 
-    // Send debug summary to admin chats after every full scan
+    // Send debug summary to channel + admin chats after every full scan
     try {
-      telegramService.notifyAdmin(this.buildDebugMessage());
+      telegramService.notifyBoth(this.buildDebugMessage());
     } catch (e) {
       logger.warn({ err: e }, "Failed to send debug scan message");
     }
