@@ -55,15 +55,15 @@ const SL_CLUSTER_BUFFER   = 0.0008;
 
 const MIN_TP_CLUSTER_USD  = 7_000_000;
 const MAX_TP_RANGE_PCT    = 0.08;
-const MIN_TP_DISTANCE_PCT = 0.015;
+const MIN_TP_DISTANCE_PCT = 0.006; // 0.6% min TP distance (was 1.5% — too strict)
 const MIN_RR_RATIO        = 1.2;
 const TP_CLUSTER_BUFFER   = 0.001;
 
 const LIQ_MAP_ZONE_RANGE  = 0.03;  // ±3% of price
 const LIQ_MAP_MIN_USD     = 5_000_000;
 const OB_RANGE_PCT        = 0.005; // ±0.5%
-const OB_LONG_THRESHOLD   = 0.58;
-const OB_SHORT_THRESHOLD  = 0.42;
+const OB_LONG_THRESHOLD   = 0.55;
+const OB_SHORT_THRESHOLD  = 0.45;
 
 const LIQ_THRESHOLDS: Record<SignalType, number> = {
   scalp:    500_000,
@@ -71,7 +71,8 @@ const LIQ_THRESHOLDS: Record<SignalType, number> = {
   swing:    10_000_000,
 };
 
-const SCAN_INTERVAL_MS = 15 * 60 * 1000; // scan every 15 min for all types
+const SCAN_INTERVAL_MS  = 5  * 60 * 1000; // scan every 5 min
+const DEBUG_INTERVAL_MS = 15 * 60 * 1000; // send debug message every 15 min
 
 // ─── Liq buckets helper ───────────────────────────────────────
 function getLiqBuckets(): Bucket[] {
@@ -146,27 +147,43 @@ function calcTpFromLiqMap(direction: "long" | "short", price: number, buckets: B
   if (direction === "long") {
     const candidates = buckets
       .filter(b => b.price > price && b.price <= price * (1 + MAX_TP_RANGE_PCT) && b.shortLiqUsd >= MIN_TP_CLUSTER_USD)
-      .sort((a, b) => a.price - b.price);
-    const cluster = candidates[0];
-    if (!cluster) return invalid;
-    const tpPrice = cluster.price * (1 - TP_CLUSTER_BUFFER);
-    const distancePct = (tpPrice - price) / price;
-    const rr = distancePct / slDistancePct;
-    if (distancePct < MIN_TP_DISTANCE_PCT) return { price: tpPrice, source: "TP кластер слишком близко", valid: false, clusterUsd: cluster.shortLiqUsd, distancePct, rr };
-    if (rr < MIN_RR_RATIO) return { price: tpPrice, source: `R:R ${rr.toFixed(2)} < ${MIN_RR_RATIO}`, valid: false, clusterUsd: cluster.shortLiqUsd, distancePct, rr };
-    return { price: parseFloat(tpPrice.toFixed(2)), source: `Кластер шортов $${cluster.price.toFixed(0)} (${(cluster.shortLiqUsd / 1e6).toFixed(1)}M) | R:R ${rr.toFixed(2)}`, valid: true, clusterUsd: cluster.shortLiqUsd, distancePct, rr };
+      .sort((a, b) => a.price - b.price); // nearest first
+    let lastResult: TpResult = invalid;
+    for (const cluster of candidates) {
+      const tpPrice = cluster.price * (1 - TP_CLUSTER_BUFFER);
+      const distancePct = (tpPrice - price) / price;
+      const rr = distancePct / slDistancePct;
+      if (distancePct < MIN_TP_DISTANCE_PCT) {
+        lastResult = { price: tpPrice, source: "TP кластер слишком близко", valid: false, clusterUsd: cluster.shortLiqUsd, distancePct, rr };
+        continue; // too close — try next cluster further out
+      }
+      if (rr < MIN_RR_RATIO) {
+        lastResult = { price: tpPrice, source: `R:R ${rr.toFixed(2)} < ${MIN_RR_RATIO}`, valid: false, clusterUsd: cluster.shortLiqUsd, distancePct, rr };
+        continue; // R:R too low — try next cluster further out
+      }
+      return { price: parseFloat(tpPrice.toFixed(2)), source: `Кластер шортов $${cluster.price.toFixed(0)} (${(cluster.shortLiqUsd / 1e6).toFixed(1)}M) | R:R ${rr.toFixed(2)}`, valid: true, clusterUsd: cluster.shortLiqUsd, distancePct, rr };
+    }
+    return lastResult;
   } else {
     const candidates = buckets
       .filter(b => b.price < price && b.price >= price * (1 - MAX_TP_RANGE_PCT) && b.longLiqUsd >= MIN_TP_CLUSTER_USD)
-      .sort((a, b) => b.price - a.price);
-    const cluster = candidates[0];
-    if (!cluster) return invalid;
-    const tpPrice = cluster.price * (1 + TP_CLUSTER_BUFFER);
-    const distancePct = (price - tpPrice) / price;
-    const rr = distancePct / slDistancePct;
-    if (distancePct < MIN_TP_DISTANCE_PCT) return { price: tpPrice, source: "TP кластер слишком близко", valid: false, clusterUsd: cluster.longLiqUsd, distancePct, rr };
-    if (rr < MIN_RR_RATIO) return { price: tpPrice, source: `R:R ${rr.toFixed(2)} < ${MIN_RR_RATIO}`, valid: false, clusterUsd: cluster.longLiqUsd, distancePct, rr };
-    return { price: parseFloat(tpPrice.toFixed(2)), source: `Кластер лонгов $${cluster.price.toFixed(0)} (${(cluster.longLiqUsd / 1e6).toFixed(1)}M) | R:R ${rr.toFixed(2)}`, valid: true, clusterUsd: cluster.longLiqUsd, distancePct, rr };
+      .sort((a, b) => b.price - a.price); // nearest first
+    let lastResult: TpResult = invalid;
+    for (const cluster of candidates) {
+      const tpPrice = cluster.price * (1 + TP_CLUSTER_BUFFER);
+      const distancePct = (price - tpPrice) / price;
+      const rr = distancePct / slDistancePct;
+      if (distancePct < MIN_TP_DISTANCE_PCT) {
+        lastResult = { price: tpPrice, source: "TP кластер слишком близко", valid: false, clusterUsd: cluster.longLiqUsd, distancePct, rr };
+        continue; // too close — try next cluster further out
+      }
+      if (rr < MIN_RR_RATIO) {
+        lastResult = { price: tpPrice, source: `R:R ${rr.toFixed(2)} < ${MIN_RR_RATIO}`, valid: false, clusterUsd: cluster.longLiqUsd, distancePct, rr };
+        continue; // R:R too low — try next cluster further out
+      }
+      return { price: parseFloat(tpPrice.toFixed(2)), source: `Кластер лонгов $${cluster.price.toFixed(0)} (${(cluster.longLiqUsd / 1e6).toFixed(1)}M) | R:R ${rr.toFixed(2)}`, valid: true, clusterUsd: cluster.longLiqUsd, distancePct, rr };
+    }
+    return lastResult;
   }
 }
 
@@ -266,11 +283,12 @@ function getCvdSignal(type: SignalType): { delta: number; signal: LiqSignal; des
   const arrow = (s: LiqSignal) => s === "LONG" ? "бычий" : s === "SHORT" ? "медвежий" : "нейтральный";
 
   if (type === "scalp") {
-    const trend = cvdService.getTrend15m();
+    // Use 5m trend — requires only ~50 min of data vs 2.5h for 15m
+    const trend = cvdService.getTrend5m();
     const cvd   = cvdService.getCurrentCvd();
     const signal: LiqSignal = trend === "bullish" ? "LONG" : trend === "bearish" ? "SHORT" : "";
     const sign = cvd >= 0 ? "+" : "";
-    return { delta: cvd, signal, desc: `📊 CVD 15m: δ${sign}${cvd.toFixed(2)} — ${arrow(signal)}` };
+    return { delta: cvd, signal, desc: `📊 CVD 5m: δ${sign}${cvd.toFixed(2)} — ${arrow(signal)}` };
   }
 
   if (type === "intraday") {
@@ -299,6 +317,7 @@ class SignalEngine {
   private lastSnaps: Partial<Record<SignalType, MarketSnapshot>>   = {};
   private fireCallbacks: FiredCallback[] = [];
   private scanHandle: ReturnType<typeof setInterval> | null = null;
+  private lastDebugAt = 0;
 
   onFired(cb: FiredCallback): void {
     this.fireCallbacks.push(cb);
@@ -385,11 +404,15 @@ class SignalEngine {
       await new Promise(r => setTimeout(r, 500)); // small delay between types
     }
 
-    // Send debug summary to channel + admin chats after every full scan
-    try {
-      telegramService.notifyBoth(this.buildDebugMessage());
-    } catch (e) {
-      logger.warn({ err: e }, "Failed to send debug scan message");
+    // Send debug summary every 15 min (scan runs every 5 min, debug throttled)
+    const now = Date.now();
+    if (now - this.lastDebugAt >= DEBUG_INTERVAL_MS) {
+      this.lastDebugAt = now;
+      try {
+        telegramService.notifyBoth(this.buildDebugMessage());
+      } catch (e) {
+        logger.warn({ err: e }, "Failed to send debug scan message");
+      }
     }
   }
 
@@ -472,24 +495,22 @@ class SignalEngine {
         ? `✅ TP $${snap.suggestedTp.toFixed(0)} (${snap.tpSource})`
         : `❌ TP: ${snap.tpSource || "нет SL или кластера"}`;
 
-      // Verdict
-      const votes = [ev.factorLiq, ev.factorOb, ev.factorCvd].filter(Boolean);
-      const longV = votes.filter(f => f === "LONG").length;
-      const shortV = votes.filter(f => f === "SHORT").length;
+      // Verdict — new gate: OB+CVD agree → signal; liq only blocks
       let verdict: string;
-      if (votes.length < 3) {
-        const missing = [
-          ev.factorLiq ? null : "💥Liq",
-          ev.factorOb  ? null : "📖OB",
-          ev.factorCvd ? null : "📊CVD",
-        ].filter(Boolean).join(", ");
-        verdict = `❌ ${votes.length}/3 факторов (нет: ${missing})`;
-      } else if (longV === 3 || shortV === 3) {
-        verdict = ev.shouldSignal && snap.slValid && snap.tpValid
-          ? `🔥 СИГНАЛ! Все 3 → ${longV === 3 ? "LONG" : "SHORT"}`
-          : `⚠️ Все 3 → ${longV === 3 ? "LONG" : "SHORT"}, но SL/TP невалидны`;
+      if (!ev.factorOb || !ev.factorCvd) {
+        const missing = [ev.factorOb ? null : "📖OB", ev.factorCvd ? null : "📊CVD"].filter(Boolean).join(", ");
+        verdict = `❌ нет данных (нет: ${missing})`;
+      } else if (ev.factorOb !== ev.factorCvd) {
+        verdict = `❌ OB/CVD расходятся: OB=${ev.factorOb} CVD=${ev.factorCvd}`;
+      } else if (ev.factorLiq && ev.factorLiq !== ev.factorOb) {
+        verdict = `🚫 заблок. liq: OB+CVD=${ev.factorOb}, но Liq=${ev.factorLiq}`;
+      } else if (ev.shouldSignal) {
+        const strength = ev.factorLiq === ev.factorOb ? "3/3" : "2/3 OB+CVD";
+        verdict = snap.slValid && snap.tpValid
+          ? `🔥 СИГНАЛ ${strength}! → ${ev.factorOb}`
+          : `⚠️ ${strength} ${ev.factorOb}, но SL/TP невалидны`;
       } else {
-        verdict = `❌ Противоречие: LONG×${longV} SHORT×${shortV}`;
+        verdict = `❌ нет сигнала`;
       }
 
       lines.push(

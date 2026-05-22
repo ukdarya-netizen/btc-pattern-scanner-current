@@ -109,27 +109,29 @@ export class SignalBuffer {
     const factorCvd = snap.cvdSignal;
     const descCvd   = factorCvd ? snap.cvdDesc : "";
 
-    const factors: LiqSignal[] = [factorLiq, factorOb, factorCvd];
-    const present = factors.filter(Boolean) as Array<"LONG" | "SHORT">;
-
-    if (present.length < 3) {
+    // ── Primary gate: OB + CVD must both be present and agree ──────────────
+    // These are real-time factors; liq map/real is slow/stale and acts only as a blocker.
+    if (!factorOb || !factorCvd) {
+      const why = !factorOb ? "OB нейтральный" : "CVD нейтральный";
+      logger.info({ type: this.type, ob: factorOb || "—", cvd: factorCvd || "—" }, `Buffer: ${why} — no signal`);
+      return { shouldSignal: false, direction: "", factorLiq, factorOb, factorCvd, descLiq, descOb, descCvd };
+    }
+    if (factorOb !== factorCvd) {
+      logger.info({ type: this.type, factorOb, factorCvd }, "Buffer: OB/CVD disagree — no signal");
       return { shouldSignal: false, direction: "", factorLiq, factorOb, factorCvd, descLiq, descOb, descCvd };
     }
 
-    const longVotes  = present.filter(f => f === "LONG").length;
-    const shortVotes = present.filter(f => f === "SHORT").length;
+    const direction = factorOb as "LONG" | "SHORT";
 
-    if (longVotes === 3) {
-      logger.info({ type: this.type }, "Buffer: ALL 3 LONG — signal!");
-      return { shouldSignal: true, direction: "LONG",  factorLiq, factorOb, factorCvd, descLiq, descOb, descCvd };
-    }
-    if (shortVotes === 3) {
-      logger.info({ type: this.type }, "Buffer: ALL 3 SHORT — signal!");
-      return { shouldSignal: true, direction: "SHORT", factorLiq, factorOb, factorCvd, descLiq, descOb, descCvd };
+    // ── Secondary gate: liq factor only BLOCKS if it actively opposes ──────
+    if (factorLiq && factorLiq !== direction) {
+      logger.info({ type: this.type, direction, factorLiq }, "Buffer: liq factor opposes OB+CVD — blocked");
+      return { shouldSignal: false, direction: "", factorLiq, factorOb, factorCvd, descLiq, descOb, descCvd };
     }
 
-    logger.info({ type: this.type, factorLiq, factorOb, factorCvd }, "Buffer: contradiction, no signal");
-    return { shouldSignal: false, direction: "", factorLiq, factorOb, factorCvd, descLiq, descOb, descCvd };
+    const confirmed = factorLiq === direction ? "3/3" : "2/3 OB+CVD";
+    logger.info({ type: this.type, direction, confirmed }, "Buffer: signal fired!");
+    return { shouldSignal: true, direction, factorLiq, factorOb, factorCvd, descLiq, descOb, descCvd };
   }
 
   reset(): void {
