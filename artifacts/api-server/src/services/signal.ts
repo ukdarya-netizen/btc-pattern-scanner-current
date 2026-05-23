@@ -72,7 +72,6 @@ const LIQ_THRESHOLDS: Record<SignalType, number> = {
 };
 
 const SCAN_INTERVAL_MS  = 5  * 60 * 1000; // scan every 5 min
-const DEBUG_INTERVAL_MS = 15 * 60 * 1000; // send debug message every 15 min
 
 // ─── Liq buckets helper ───────────────────────────────────────
 function getLiqBuckets(): Bucket[] {
@@ -317,7 +316,6 @@ class SignalEngine {
   private lastSnaps: Partial<Record<SignalType, MarketSnapshot>>   = {};
   private fireCallbacks: FiredCallback[] = [];
   private scanHandle: ReturnType<typeof setInterval> | null = null;
-  private lastDebugAt = 0;
 
   onFired(cb: FiredCallback): void {
     this.fireCallbacks.push(cb);
@@ -404,16 +402,6 @@ class SignalEngine {
       await new Promise(r => setTimeout(r, 500)); // small delay between types
     }
 
-    // Send debug summary every 15 min (scan runs every 5 min, debug throttled)
-    const now = Date.now();
-    if (now - this.lastDebugAt >= DEBUG_INTERVAL_MS) {
-      this.lastDebugAt = now;
-      try {
-        telegramService.notifyBoth(this.buildDebugMessage());
-      } catch (e) {
-        logger.warn({ err: e }, "Failed to send debug scan message");
-      }
-    }
   }
 
   buildDebugMessage(): string {
