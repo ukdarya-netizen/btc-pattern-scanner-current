@@ -1,6 +1,7 @@
 import { Router } from "express";
 import { aggregator } from "../services/exchanges/aggregator";
 import { cvdService } from "../services/cvd";
+import { coinglassService } from "../services/coinglassService";
 
 const router = Router();
 
@@ -91,14 +92,54 @@ router.get("/market/cvd", (_req, res) => {
 
 router.get("/market/funding", (_req, res) => {
   const agg = aggregator.getAggregatedTicker();
+  const cgOi = coinglassService.getAggregatedOi();
+
+  // Prefer CoinGlass aggregated funding rate (25 exchanges) over Bybit-only
+  const fundingRate = cgOi?.avgFundingRate ?? agg?.fundingRate ?? 0;
+  const openInterest = cgOi?.totalOiUsd ?? agg?.openInterest ?? 0;
+  const openInterestChange1h = cgOi?.h1ChangePct ?? 0;
+
   res.json({
-    fundingRate: agg?.fundingRate ?? 0,
+    fundingRate,
+    fundingRateByVol: cgOi?.avgFundingRateByVol ?? fundingRate,
     nextFundingTime: agg?.nextFundingTime
       ? new Date(agg.nextFundingTime).toISOString()
       : new Date(Date.now() + 8 * 3600000).toISOString(),
-    openInterest: agg?.openInterest ?? 0,
-    openInterestChange1h: 0,
+    openInterest,
+    openInterestChange1h,
+    openInterestChange4h: cgOi?.h4ChangePct ?? 0,
+    openInterestChange24h: cgOi?.h24ChangePct ?? 0,
     longShortRatio: 1.0,
+    source: cgOi ? "coinglass_aggregated" : "bybit",
+  });
+});
+
+router.get("/market/oi", (_req, res) => {
+  const cgOi = coinglassService.getAggregatedOi();
+  if (!cgOi) {
+    res.json({ available: false, exchanges: [] });
+    return;
+  }
+  res.json({
+    available: true,
+    totalOiUsd: cgOi.totalOiUsd,
+    m5ChangePct: cgOi.m5ChangePct,
+    m15ChangePct: cgOi.m15ChangePct,
+    h1ChangePct: cgOi.h1ChangePct,
+    h4ChangePct: cgOi.h4ChangePct,
+    h24ChangePct: cgOi.h24ChangePct,
+    avgFundingRate: cgOi.avgFundingRate,
+    avgFundingRateByVol: cgOi.avgFundingRateByVol,
+    volUsd24h: cgOi.volUsd24h,
+    oiVolRatio: cgOi.oiVolRatio,
+    exchanges: cgOi.exchanges.slice(0, 10).map(e => ({
+      exchange: e.exchange,
+      oiUsd: e.oiUsd,
+      h1ChangePct: e.h1ChangePct,
+      h4ChangePct: e.h4ChangePct,
+      fundingRate: e.fundingRate,
+    })),
+    updatedAt: new Date(cgOi.updatedAt).toISOString(),
   });
 });
 

@@ -68,19 +68,45 @@ export interface LiqHeatmap {
   updatedAt: number;
 }
 
-export interface OiSnapshot {
-  timestamp: number;
-  oi: number;
-  price: number;
+export interface OiExchangeRow {
+  exchange: string;
+  oiUsd: number;
+  h1ChangePct: number;
+  h4ChangePct: number;
+  m5ChangePct: number;
+  m15ChangePct: number;
+  fundingRate: number | null;
+  volUsd: number;
+}
+
+export interface AggregatedOiData {
+  totalOiUsd: number;
+  m5ChangePct: number;
+  m15ChangePct: number;
+  h1ChangePct: number;
+  h4ChangePct: number;
+  h24ChangePct: number;
+  avgFundingRate: number;
+  avgFundingRateByVol: number;
+  volUsd24h: number;
+  oiVolRatio: number;
+  exchanges: OiExchangeRow[];
+  updatedAt: number;
 }
 
 export interface OiDeltaResult {
   delta5m: number;
   delta15m: number;
+  delta1h: number;
+  delta4h: number;
   priceChange5m: number;
+  fundingRate: number;
   interpretation: "trend_strong" | "trend_weak" | "reversal_likely" | "neutral";
   score: number;
 }
+
+// Minimal price ring buffer for priceChange5m derivation
+interface PricePoint { timestamp: number; price: number }
 
 class CoinglassService {
   private cachedLiqInfo: LiquidationInfo | null = null;
@@ -91,21 +117,36 @@ class CoinglassService {
   private heatmapFetching = false;
   private heatmapInterval: ReturnType<typeof setInterval> | null = null;
 
-  private oiHistory: OiSnapshot[] = [];
+  private cachedAggOi: AggregatedOiData | null = null;
+  private oiPolling = false;
   private oiInterval: ReturnType<typeof setInterval> | null = null;
+  private priceHistory: PricePoint[] = [];
+  private priceInterval: ReturnType<typeof setInterval> | null = null;
 
   startPolling() {
     this.fetchHeatmap();
     this.heatmapInterval = setInterval(() => this.fetchHeatmap(), 5 * 60_000);
 
-    this.snapshotOi();
-    this.oiInterval = setInterval(() => this.snapshotOi(), 60_000);
+    void this.fetchAggregatedOi();
+    this.oiInterval = setInterval(() => { void this.fetchAggregatedOi(); }, 5 * 60_000);
+
+    // Keep a 10-point price ring buffer (1 per minute) for priceChange5m
+    this.recordPrice();
+    this.priceInterval = setInterval(() => this.recordPrice(), 60_000);
   }
 
   stopPolling() {
     if (this.heatmapInterval) clearInterval(this.heatmapInterval);
     if (this.oiInterval) clearInterval(this.oiInterval);
-    this.heatmapInterval = this.oiInterval = null;
+    if (this.priceInterval) clearInterval(this.priceInterval);
+    this.heatmapInterval = this.oiInterval = this.priceInterval = null;
+  }
+
+  private recordPrice() {
+    const price = aggregator.getPrimaryPrice();
+    if (price === 0) return;
+    this.priceHistory.push({ timestamp: Date.now(), price });
+    if (this.priceHistory.length > 12) this.priceHistory = this.priceHistory.slice(-12);
   }
 
   private async fetchHeatmap() {
@@ -122,6 +163,56 @@ class CoinglassService {
       logger.warn({ err: e }, "CoinGlass heatmap fetch failed — using cached");
     } finally {
       this.heatmapFetching = false;
+    }
+  }
+
+  private async fetchAggregatedOi() {
+    if (!API_KEY || this.oiPolling) return;
+    this.oiPolling = true;
+    try {
+      const raw = await cgRequest("/public/v2/open_interest?symbol=BTC") as Record<string, unknown>[] | null;
+      if (!Array.isArray(raw) || raw.length === 0) return;
+
+      const allRow = raw.find(r => r["exchangeName"] === "All");
+      if (!allRow) return;
+
+      const exchanges: OiExchangeRow[] = raw
+        .filter(r => r["exchangeName"] !== "All")
+        .map(r => ({
+          exchange:    String(r["exchangeName"] ?? ""),
+          oiUsd:       Number(r["openInterest"]     ?? 0),
+          h1ChangePct: Number(r["h1OIChangePercent"] ?? 0),
+          h4ChangePct: Number(r["h4OIChangePercent"] ?? 0),
+          m5ChangePct: Number(r["m5OIChangePercent"] ?? 0),
+          m15ChangePct:Number(r["m15OIChangePercent"]?? 0),
+          fundingRate: r["avgFundingRate"] != null ? Number(r["avgFundingRate"]) : null,
+          volUsd:      Number(r["volUsd"] ?? 0),
+        }))
+        .sort((a, b) => b.oiUsd - a.oiUsd);
+
+      this.cachedAggOi = {
+        totalOiUsd:        Number(allRow["openInterest"]          ?? 0),
+        m5ChangePct:       Number(allRow["m5OIChangePercent"]      ?? 0),
+        m15ChangePct:      Number(allRow["m15OIChangePercent"]     ?? 0),
+        h1ChangePct:       Number(allRow["h1OIChangePercent"]      ?? 0),
+        h4ChangePct:       Number(allRow["h4OIChangePercent"]      ?? 0),
+        h24ChangePct:      Number(allRow["h24Change"]              ?? 0),
+        avgFundingRate:    Number(allRow["avgFundingRate"]         ?? 0),
+        avgFundingRateByVol: Number(allRow["avgFundingRateByVol"] ?? 0),
+        volUsd24h:         Number(allRow["volUsd"]                 ?? 0),
+        oiVolRatio:        Number(allRow["oiVolRatio"]             ?? 0),
+        exchanges,
+        updatedAt: Date.now(),
+      };
+
+      logger.info(
+        { totalOiB: (this.cachedAggOi.totalOiUsd / 1e9).toFixed(1), oiΔ1h: this.cachedAggOi.h1ChangePct },
+        "CoinGlass aggregated OI updated",
+      );
+    } catch (e) {
+      logger.warn({ err: e }, "CoinGlass OI fetch failed — using cached");
+    } finally {
+      this.oiPolling = false;
     }
   }
 
@@ -164,15 +255,6 @@ class CoinglassService {
 
     if (buckets.length === 0) return null;
     return { buckets, currentPrice: price, updatedAt: Date.now() };
-  }
-
-  private snapshotOi() {
-    const price = aggregator.getPrimaryPrice();
-    const oi    = aggregator.getPrimaryOpenInterest();
-    if (price === 0 || oi === 0) return;
-
-    this.oiHistory.push({ timestamp: Date.now(), oi, price });
-    if (this.oiHistory.length > 30) this.oiHistory = this.oiHistory.slice(-30);
   }
 
   async getLiquidationInfo(): Promise<LiquidationInfo | null> {
@@ -218,26 +300,37 @@ class CoinglassService {
     return this.cachedHeatmap;
   }
 
+  getAggregatedOi(): AggregatedOiData | null {
+    return this.cachedAggOi;
+  }
+
   getOiDelta(): OiDeltaResult {
     const neutral: OiDeltaResult = {
-      delta5m: 0, delta15m: 0, priceChange5m: 0,
+      delta5m: 0, delta15m: 0, delta1h: 0, delta4h: 0,
+      priceChange5m: 0, fundingRate: 0,
       interpretation: "neutral", score: 0,
     };
 
-    if (this.oiHistory.length < 5) return neutral;
+    if (!this.cachedAggOi) return neutral;
 
-    const now = Date.now();
-    const snap5m  = this.oiHistory.find(s => s.timestamp <= now - 5 * 60_000);
-    const snap15m = this.oiHistory.find(s => s.timestamp <= now - 15 * 60_000);
-    const latest  = this.oiHistory[this.oiHistory.length - 1];
+    const oi = this.cachedAggOi;
+    const delta5m  = oi.m5ChangePct  / 100;
+    const delta15m = oi.m15ChangePct / 100;
+    const delta1h  = oi.h1ChangePct  / 100;
+    const delta4h  = oi.h4ChangePct  / 100;
 
-    if (!snap5m) return neutral;
+    // Derive 5m price change from ring buffer
+    let priceChange5m = 0;
+    if (this.priceHistory.length >= 2) {
+      const now = Date.now();
+      const snap5m = this.priceHistory.find(p => p.timestamp <= now - 5 * 60_000);
+      const latest = this.priceHistory[this.priceHistory.length - 1]!;
+      if (snap5m && snap5m.price > 0) {
+        priceChange5m = (latest.price - snap5m.price) / snap5m.price;
+      }
+    }
 
-    const delta5m        = (latest.oi - snap5m.oi) / snap5m.oi;
-    const priceChange5m  = (latest.price - snap5m.price) / snap5m.price;
-    const delta15m       = snap15m ? (latest.oi - snap15m.oi) / snap15m.oi : 0;
-
-    const OI_DROP_THRESHOLD = -0.005;
+    const OI_DROP_THRESHOLD = -0.003; // -0.3% in 5m = significant OI drain
 
     let score = 0;
     let interpretation: OiDeltaResult["interpretation"] = "neutral";
@@ -247,19 +340,25 @@ class CoinglassService {
       score = 0;
     } else if (delta5m > 0 && priceChange5m > 0) {
       interpretation = "trend_strong";
-      score = priceChange5m > 0 ? 0.7 : -0.7;
-    } else if (delta5m < 0 && priceChange5m > 0) {
-      interpretation = "trend_weak";
-      score = 0.3;
+      score = 0.7;
     } else if (delta5m > 0 && priceChange5m < 0) {
       interpretation = "trend_strong";
       score = -0.7;
+    } else if (delta5m < 0 && priceChange5m > 0) {
+      interpretation = "trend_weak";
+      score = 0.3;
     } else if (delta5m < 0 && priceChange5m < 0) {
       interpretation = "trend_weak";
       score = -0.3;
     }
 
-    return { delta5m, delta15m, priceChange5m, interpretation, score };
+    return {
+      delta5m, delta15m, delta1h, delta4h,
+      priceChange5m,
+      fundingRate: oi.avgFundingRate,
+      interpretation,
+      score,
+    };
   }
 }
 
