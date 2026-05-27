@@ -105,6 +105,35 @@ export interface OiDeltaResult {
   score: number;
 }
 
+export interface LongShortExchangeRow {
+  exchange: string;
+  longRate: number;
+  shortRate: number;
+  longVolUsd: number;
+  shortVolUsd: number;
+  totalVolUsd: number;
+}
+
+export interface LongShortData {
+  longRate: number;
+  shortRate: number;
+  longVolUsd: number;
+  shortVolUsd: number;
+  totalVolUsd: number;
+  // Sentiment interpretation
+  bias: "long_extreme" | "short_extreme" | "long_leaning" | "short_leaning" | "neutral";
+  exchanges: LongShortExchangeRow[];
+  updatedAt: number;
+}
+
+export interface OiHistoryPoint {
+  timestamp: number;
+  price: number;
+  totalOiUsd: number;
+  // Per-exchange OI values (USD)
+  byExchange: Record<string, number>;
+}
+
 // Minimal price ring buffer for priceChange5m derivation
 interface PricePoint { timestamp: number; price: number }
 
@@ -123,12 +152,26 @@ class CoinglassService {
   private priceHistory: PricePoint[] = [];
   private priceInterval: ReturnType<typeof setInterval> | null = null;
 
+  private cachedLongShort: LongShortData | null = null;
+  private lsPolling = false;
+  private lsInterval: ReturnType<typeof setInterval> | null = null;
+
+  private cachedOiHistory: OiHistoryPoint[] = [];
+  private oiHistoryPolling = false;
+  private oiHistoryInterval: ReturnType<typeof setInterval> | null = null;
+
   startPolling() {
     this.fetchHeatmap();
     this.heatmapInterval = setInterval(() => this.fetchHeatmap(), 5 * 60_000);
 
     void this.fetchAggregatedOi();
     this.oiInterval = setInterval(() => { void this.fetchAggregatedOi(); }, 5 * 60_000);
+
+    void this.fetchLongShort();
+    this.lsInterval = setInterval(() => { void this.fetchLongShort(); }, 5 * 60_000);
+
+    void this.fetchOiHistory();
+    this.oiHistoryInterval = setInterval(() => { void this.fetchOiHistory(); }, 15 * 60_000);
 
     // Keep a 10-point price ring buffer (1 per minute) for priceChange5m
     this.recordPrice();
@@ -138,8 +181,10 @@ class CoinglassService {
   stopPolling() {
     if (this.heatmapInterval) clearInterval(this.heatmapInterval);
     if (this.oiInterval) clearInterval(this.oiInterval);
+    if (this.lsInterval) clearInterval(this.lsInterval);
+    if (this.oiHistoryInterval) clearInterval(this.oiHistoryInterval);
     if (this.priceInterval) clearInterval(this.priceInterval);
-    this.heatmapInterval = this.oiInterval = this.priceInterval = null;
+    this.heatmapInterval = this.oiInterval = this.lsInterval = this.oiHistoryInterval = this.priceInterval = null;
   }
 
   private recordPrice() {
@@ -302,6 +347,110 @@ class CoinglassService {
 
   getAggregatedOi(): AggregatedOiData | null {
     return this.cachedAggOi;
+  }
+
+  getLongShort(): LongShortData | null {
+    return this.cachedLongShort;
+  }
+
+  getOiHistory(limit = 24): OiHistoryPoint[] {
+    return this.cachedOiHistory.slice(-limit);
+  }
+
+  private async fetchLongShort() {
+    if (!API_KEY || this.lsPolling) return;
+    this.lsPolling = true;
+    try {
+      const raw = await cgRequest(
+        "/public/v2/long_short?symbol=BTC&time_type=h1&currency=USD&limit=1",
+      ) as Record<string, unknown>[] | null;
+      if (!Array.isArray(raw) || raw.length === 0) return;
+
+      const item = raw[0] as Record<string, unknown>;
+      const longRate  = Number(item["longRate"]  ?? 50);
+      const shortRate = Number(item["shortRate"] ?? 50);
+
+      let bias: LongShortData["bias"] = "neutral";
+      if      (longRate >= 60) bias = "long_extreme";
+      else if (longRate <= 35) bias = "short_extreme";
+      else if (longRate >= 55) bias = "long_leaning";
+      else if (longRate <= 45) bias = "short_leaning";
+
+      const list = (item["list"] as Record<string, unknown>[]) ?? [];
+      const exchanges: LongShortExchangeRow[] = list
+        .filter(e => Number(e["totalVolUsd"] ?? 0) > 0)
+        .map(e => ({
+          exchange:    String(e["exchangeName"] ?? ""),
+          longRate:    Number(e["longRate"]    ?? 0),
+          shortRate:   Number(e["shortRate"]   ?? 0),
+          longVolUsd:  Number(e["longVolUsd"]  ?? 0),
+          shortVolUsd: Number(e["shortVolUsd"] ?? 0),
+          totalVolUsd: Number(e["totalVolUsd"] ?? 0),
+        }))
+        .sort((a, b) => b.totalVolUsd - a.totalVolUsd);
+
+      this.cachedLongShort = {
+        longRate,
+        shortRate,
+        longVolUsd:  Number(item["longVolUsd"]  ?? 0),
+        shortVolUsd: Number(item["shortVolUsd"] ?? 0),
+        totalVolUsd: Number(item["totalVolUsd"] ?? 0),
+        bias,
+        exchanges,
+        updatedAt: Date.now(),
+      };
+
+      logger.info({ longRate, shortRate, bias }, "CoinGlass long/short updated");
+    } catch (e) {
+      logger.warn({ err: e }, "CoinGlass long/short fetch failed — using cached");
+    } finally {
+      this.lsPolling = false;
+    }
+  }
+
+  private async fetchOiHistory() {
+    if (!API_KEY || this.oiHistoryPolling) return;
+    this.oiHistoryPolling = true;
+    try {
+      const raw = await cgRequest(
+        "/public/v2/open_interest_history?symbol=BTC&time_type=h1&currency=USD&limit=48",
+      ) as Record<string, unknown> | null;
+      if (!raw || typeof raw !== "object") return;
+
+      const dateList  = (raw["dateList"]  as number[]) ?? [];
+      const priceList = (raw["priceList"] as number[]) ?? [];
+      const dataMap   = (raw["dataMap"]   as Record<string, number[]>) ?? {};
+
+      if (dateList.length === 0) return;
+
+      const exchangeNames = Object.keys(dataMap);
+
+      // Build per-point total OI and per-exchange breakdown
+      this.cachedOiHistory = dateList.map((ts, i) => {
+        const byExchange: Record<string, number> = {};
+        let totalOiUsd = 0;
+        for (const ex of exchangeNames) {
+          const val = dataMap[ex]?.[i] ?? 0;
+          byExchange[ex] = val;
+          totalOiUsd += val;
+        }
+        return {
+          timestamp: ts,
+          price: priceList[i] ?? 0,
+          totalOiUsd,
+          byExchange,
+        };
+      });
+
+      logger.info(
+        { points: this.cachedOiHistory.length, exchanges: exchangeNames.length },
+        "CoinGlass OI history updated",
+      );
+    } catch (e) {
+      logger.warn({ err: e }, "CoinGlass OI history fetch failed — using cached");
+    } finally {
+      this.oiHistoryPolling = false;
+    }
   }
 
   getOiDelta(): OiDeltaResult {

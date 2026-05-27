@@ -143,6 +143,63 @@ router.get("/market/oi", (_req, res) => {
   });
 });
 
+router.get("/market/sentiment", (_req, res) => {
+  const ls = coinglassService.getLongShort();
+  const cgOi = coinglassService.getAggregatedOi();
+
+  if (!ls) {
+    res.json({ available: false });
+    return;
+  }
+
+  res.json({
+    available: true,
+    longRate: ls.longRate,
+    shortRate: ls.shortRate,
+    longVolUsd: ls.longVolUsd,
+    shortVolUsd: ls.shortVolUsd,
+    totalVolUsd: ls.totalVolUsd,
+    bias: ls.bias,
+    fundingRate: cgOi?.avgFundingRate ?? 0,
+    fundingRateByVol: cgOi?.avgFundingRateByVol ?? 0,
+    exchanges: ls.exchanges.slice(0, 10).map(e => ({
+      exchange: e.exchange,
+      longRate: e.longRate,
+      shortRate: e.shortRate,
+      totalVolUsd: e.totalVolUsd,
+    })),
+    updatedAt: new Date(ls.updatedAt).toISOString(),
+  });
+});
+
+router.get("/market/oi-history", (_req, res) => {
+  const limit = Math.min(parseInt(String(_req.query["limit"] ?? "24")), 48);
+  const points = coinglassService.getOiHistory(limit);
+
+  if (points.length === 0) {
+    res.json({ available: false, points: [] });
+    return;
+  }
+
+  // Return simplified points for chart rendering
+  const simplified = points.map(p => ({
+    t: p.timestamp,
+    price: p.price,
+    totalOiUsd: p.totalOiUsd,
+  }));
+
+  // Also include top exchanges for the last point
+  const latest = points[points.length - 1];
+  const topExchanges = latest
+    ? Object.entries(latest.byExchange)
+        .sort((a, b) => b[1] - a[1])
+        .slice(0, 6)
+        .map(([ex, oi]) => ({ exchange: ex, oiUsd: oi }))
+    : [];
+
+  res.json({ available: true, points: simplified, topExchanges });
+});
+
 router.get("/market/exchanges", (_req, res) => {
   res.json({ exchanges: aggregator.getStatus() });
 });
