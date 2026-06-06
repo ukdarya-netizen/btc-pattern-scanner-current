@@ -483,7 +483,7 @@ class SignalEngine {
         ? `✅ TP $${snap.suggestedTp.toFixed(0)} (${snap.tpSource})`
         : `❌ TP: ${snap.tpSource || "нет SL или кластера"}`;
 
-      // Verdict — new gate: OB+CVD agree → signal; liq only blocks
+      // Verdict — shows current confirmation state (0/2, 1/2, 2/2)
       let verdict: string;
       if (!ev.factorOb || !ev.factorCvd) {
         const missing = [ev.factorOb ? null : "📖OB", ev.factorCvd ? null : "📊CVD"].filter(Boolean).join(", ");
@@ -493,10 +493,12 @@ class SignalEngine {
       } else if (ev.factorLiq && ev.factorLiq !== ev.factorOb) {
         verdict = `🚫 заблок. liq: OB+CVD=${ev.factorOb}, но Liq=${ev.factorLiq}`;
       } else if (ev.shouldSignal) {
-        const strength = ev.factorLiq === ev.factorOb ? "3/3" : "2/3 OB+CVD";
+        const strength = ev.factorLiq === ev.factorOb ? "3/3" : "OB+CVD";
         verdict = snap.slValid && snap.tpValid
-          ? `🔥 СИГНАЛ ${strength}! → ${ev.factorOb}`
-          : `⚠️ ${strength} ${ev.factorOb}, но SL/TP невалидны`;
+          ? `🔥 СИГНАЛ ${strength} (2/2 скана)! → ${ev.factorOb}`
+          : `⚠️ ${strength} ${ev.factorOb} (2/2), но SL/TP невалидны`;
+      } else if (ev.confirmationCount === 1 && ev.pendingDirection) {
+        verdict = `⏳ 1/2 скана накоплено → ${ev.pendingDirection} (${ev.confirmationReason ?? "ждём следующего"})`;
       } else {
         verdict = `❌ нет сигнала`;
       }
