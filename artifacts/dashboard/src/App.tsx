@@ -7,6 +7,7 @@ import Terminal from "@/pages/terminal";
 import Risk from "@/pages/risk";
 import Signal from "@/pages/signal";
 import Liquidations from "@/pages/liquidations";
+import Statistics from "@/pages/statistics";
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -23,6 +24,7 @@ function Router() {
       <Route path="/risk" component={Risk} />
       <Route path="/signal" component={Signal} />
       <Route path="/liquidations" component={Liquidations} />
+      <Route path="/statistics" component={Statistics} />
       <Route component={NotFound} />
     </Switch>
   );

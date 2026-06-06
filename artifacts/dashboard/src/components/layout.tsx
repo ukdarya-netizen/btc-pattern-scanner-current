@@ -1,6 +1,6 @@
 import { ReactNode } from "react";
 import { Link, useLocation } from "wouter";
-import { Activity, BarChart2, Zap, AlertTriangle, Flame } from "lucide-react";
+import { Activity, BarChart2, Zap, AlertTriangle, Flame, TrendingUp } from "lucide-react";
 import { useGetBotState, useGetRiskStats } from "@workspace/api-client-react";
 
 export function Layout({ children }: { children: ReactNode }) {
@@ -13,6 +13,7 @@ export function Layout({ children }: { children: ReactNode }) {
     { href: "/risk", label: "Risk & Perf", icon: BarChart2 },
     { href: "/signal", label: "Signal Explorer", icon: Activity },
     { href: "/liquidations", label: "Liquidation Map", icon: Flame },
+    { href: "/statistics", label: "Statistics", icon: TrendingUp },
   ];
 
   return (
