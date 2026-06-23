@@ -3,7 +3,8 @@ import { logger } from "../lib/logger";
 import { aggregator } from "./exchanges/aggregator";
 
 const API_KEY = process.env["COINGLASS_API_KEY"] ?? "";
-const BASE = "open-api.coinglass.com";
+const BASE    = "open-api.coinglass.com";
+const BASE_V4 = "open-api-v4.coinglass.com";
 
 function cgRequest(path: string): Promise<unknown> {
   return new Promise((resolve, reject) => {
@@ -34,6 +35,68 @@ function cgRequest(path: string): Promise<unknown> {
     req.on("error", reject);
     req.end();
   });
+}
+
+function cgV4Request(path: string): Promise<unknown> {
+  return new Promise((resolve, reject) => {
+    const options = {
+      hostname: BASE_V4,
+      path,
+      method: "GET",
+      headers: {
+        "CG-API-KEY": API_KEY,
+        "Accept": "application/json",
+      },
+    };
+
+    const req = https.request(options, (res) => {
+      let data = "";
+      res.on("data", chunk => data += chunk);
+      res.on("end", () => {
+        try {
+          const parsed = JSON.parse(data) as Record<string, unknown>;
+          if (parsed["code"] !== "0" && parsed["code"] !== 0) {
+            reject(new Error(`CoinGlass V4 error: ${parsed["msg"] ?? parsed["code"]}`));
+          } else {
+            resolve(parsed["data"]);
+          }
+        } catch (e) { reject(e); }
+      });
+    });
+    req.on("error", reject);
+    req.end();
+  });
+}
+
+export interface NetflowData {
+  takerBuyUsd5m: number;
+  takerSellUsd5m: number;
+  netFlow5m: number;
+  netFlowRatio5m: number;
+  takerBuyUsd15m: number;
+  takerSellUsd15m: number;
+  netFlow15m: number;
+  netFlowRatio15m: number;
+  takerBuyUsd30m: number;
+  takerSellUsd30m: number;
+  netFlow30m: number;
+  netFlowRatio30m: number;
+  takerBuyUsd1h: number;
+  takerSellUsd1h: number;
+  netFlow1h: number;
+  netFlowRatio1h: number;
+  takerBuyUsd4h: number;
+  takerSellUsd4h: number;
+  netFlow4h: number;
+  netFlowRatio4h: number;
+  updatedAt: number;
+}
+
+export interface AggObData {
+  bidsUsd: number;
+  asksUsd: number;
+  imbalance: number;
+  updatedAt: number;
 }
 
 export interface LiquidationInfo {
@@ -160,6 +223,16 @@ class CoinglassService {
   private oiHistoryPolling = false;
   private oiHistoryInterval: ReturnType<typeof setInterval> | null = null;
 
+  // V4 — cross-exchange netflow (taker buy/sell)
+  private cachedNetflow: NetflowData | null = null;
+  private netflowPolling = false;
+  private netflowInterval: ReturnType<typeof setInterval> | null = null;
+
+  // V4 — aggregated orderbook (all exchanges)
+  private cachedAggOb: AggObData | null = null;
+  private aggObPolling = false;
+  private aggObInterval: ReturnType<typeof setInterval> | null = null;
+
   startPolling() {
     this.fetchHeatmap();
     this.heatmapInterval = setInterval(() => this.fetchHeatmap(), 5 * 60_000);
@@ -176,6 +249,13 @@ class CoinglassService {
     // Keep a 10-point price ring buffer (1 per minute) for priceChange5m
     this.recordPrice();
     this.priceInterval = setInterval(() => this.recordPrice(), 60_000);
+
+    // V4 — poll netflow + aggregated OB every 5 min
+    void this.fetchNetflow();
+    this.netflowInterval = setInterval(() => { void this.fetchNetflow(); }, 5 * 60_000);
+
+    void this.fetchAggOb();
+    this.aggObInterval = setInterval(() => { void this.fetchAggOb(); }, 5 * 60_000);
   }
 
   stopPolling() {
@@ -184,7 +264,10 @@ class CoinglassService {
     if (this.lsInterval) clearInterval(this.lsInterval);
     if (this.oiHistoryInterval) clearInterval(this.oiHistoryInterval);
     if (this.priceInterval) clearInterval(this.priceInterval);
-    this.heatmapInterval = this.oiInterval = this.lsInterval = this.oiHistoryInterval = this.priceInterval = null;
+    if (this.netflowInterval) clearInterval(this.netflowInterval);
+    if (this.aggObInterval) clearInterval(this.aggObInterval);
+    this.heatmapInterval = this.oiInterval = this.lsInterval = this.oiHistoryInterval =
+      this.priceInterval = this.netflowInterval = this.aggObInterval = null;
   }
 
   private recordPrice() {
@@ -451,6 +534,103 @@ class CoinglassService {
     } finally {
       this.oiHistoryPolling = false;
     }
+  }
+
+  private async fetchNetflow() {
+    if (!API_KEY || this.netflowPolling) return;
+    this.netflowPolling = true;
+    try {
+      const raw = await cgV4Request("/api/futures/coin/netflow?symbol=BTC") as Record<string, unknown>;
+      if (!raw || typeof raw !== "object") return;
+
+      this.cachedNetflow = {
+        takerBuyUsd5m:   Number(raw["taker_buy_volume_usd_5m"]   ?? 0),
+        takerSellUsd5m:  Number(raw["taker_sell_volume_usd_5m"]  ?? 0),
+        netFlow5m:       Number(raw["net_flow_usd_5m"]           ?? 0),
+        netFlowRatio5m:  Number(raw["net_flow_usd_5m_market_cap_ratio"] ?? 0),
+        takerBuyUsd15m:  Number(raw["taker_buy_volume_usd_15m"]  ?? 0),
+        takerSellUsd15m: Number(raw["taker_sell_volume_usd_15m"] ?? 0),
+        netFlow15m:      Number(raw["net_flow_usd_15m"]          ?? 0),
+        netFlowRatio15m: Number(raw["net_flow_usd_15m_market_cap_ratio"] ?? 0),
+        takerBuyUsd30m:  Number(raw["taker_buy_volume_usd_30m"]  ?? 0),
+        takerSellUsd30m: Number(raw["taker_sell_volume_usd_30m"] ?? 0),
+        netFlow30m:      Number(raw["net_flow_usd_30m"]          ?? 0),
+        netFlowRatio30m: Number(raw["net_flow_usd_30m_market_cap_ratio"] ?? 0),
+        takerBuyUsd1h:   Number(raw["taker_buy_volume_usd_1h"]   ?? 0),
+        takerSellUsd1h:  Number(raw["taker_sell_volume_usd_1h"]  ?? 0),
+        netFlow1h:       Number(raw["net_flow_usd_1h"]           ?? 0),
+        netFlowRatio1h:  Number(raw["net_flow_usd_1h_market_cap_ratio"] ?? 0),
+        takerBuyUsd4h:   Number(raw["taker_buy_volume_usd_4h"]   ?? 0),
+        takerSellUsd4h:  Number(raw["taker_sell_volume_usd_4h"]  ?? 0),
+        netFlow4h:       Number(raw["net_flow_usd_4h"]           ?? 0),
+        netFlowRatio4h:  Number(raw["net_flow_usd_4h_market_cap_ratio"] ?? 0),
+        updatedAt: Date.now(),
+      };
+
+      logger.info(
+        {
+          net5m:  (this.cachedNetflow.netFlow5m  / 1e6).toFixed(1) + "M",
+          net15m: (this.cachedNetflow.netFlow15m / 1e6).toFixed(1) + "M",
+          net1h:  (this.cachedNetflow.netFlow1h  / 1e6).toFixed(1) + "M",
+          r15m:   (this.cachedNetflow.netFlowRatio15m * 100).toFixed(3) + "%",
+        },
+        "CoinGlass V4 netflow updated",
+      );
+    } catch (e) {
+      logger.warn({ err: e }, "CoinGlass V4 netflow fetch failed — using cached");
+    } finally {
+      this.netflowPolling = false;
+    }
+  }
+
+  private async fetchAggOb() {
+    if (!API_KEY || this.aggObPolling) return;
+    this.aggObPolling = true;
+    try {
+      const raw = await cgV4Request(
+        "/api/futures/orderbook/aggregated-ask-bids-history?symbol=BTC&exchange_list=ALL&interval=m5&limit=3",
+      ) as Record<string, unknown>[] | null;
+      if (!Array.isArray(raw) || raw.length === 0) return;
+
+      // Use average of last 3 candles for stability
+      let totalBids = 0;
+      let totalAsks = 0;
+      for (const row of raw) {
+        totalBids += Number(row["aggregated_bids_usd"] ?? 0);
+        totalAsks += Number(row["aggregated_asks_usd"] ?? 0);
+      }
+      const bidsUsd = totalBids / raw.length;
+      const asksUsd = totalAsks / raw.length;
+      const total   = bidsUsd + asksUsd;
+
+      this.cachedAggOb = {
+        bidsUsd,
+        asksUsd,
+        imbalance: total > 0 ? bidsUsd / total : 0.5,
+        updatedAt: Date.now(),
+      };
+
+      logger.info(
+        {
+          bidsB:     (bidsUsd / 1e9).toFixed(2) + "B",
+          asksB:     (asksUsd / 1e9).toFixed(2) + "B",
+          imbalance: (this.cachedAggOb.imbalance * 100).toFixed(1) + "%",
+        },
+        "CoinGlass V4 aggregated OB updated",
+      );
+    } catch (e) {
+      logger.warn({ err: e }, "CoinGlass V4 aggregated OB fetch failed — using cached");
+    } finally {
+      this.aggObPolling = false;
+    }
+  }
+
+  getNetflow(): NetflowData | null {
+    return this.cachedNetflow;
+  }
+
+  getAggOb(): AggObData | null {
+    return this.cachedAggOb;
   }
 
   getOiDelta(): OiDeltaResult {

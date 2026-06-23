@@ -1,0 +1,1 @@
+- [CoinGlass V4 integration](coinglass-v4-integration.md) — V4 base URL (open-api-v4.coinglass.com), CG-API-KEY header, netflow replaces CVD in signal engine

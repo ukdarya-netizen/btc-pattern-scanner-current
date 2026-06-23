@@ -21,6 +21,14 @@ export interface MarketSnapshot {
   cvdSignal: LiqSignal;
   cvdDesc: string;
 
+  // V4 cross-exchange data (display + signal enhancement)
+  netflowNet15m: number;
+  netflowNet1h: number;
+  netflowRatio15m: number;
+  netflowSignal: LiqSignal;
+  cgObImbalance: number;
+  cgObSignal: LiqSignal;
+
   suggestedSl: number;
   suggestedTp: number;
   slSource: string;

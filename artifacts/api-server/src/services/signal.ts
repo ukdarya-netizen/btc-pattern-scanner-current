@@ -256,9 +256,23 @@ function getRealLiqSignal(type: SignalType): { longUsd: number; shortUsd: number
 }
 
 // ─── Factor: Order book imbalance ─────────────────────────────
-function getObSignal(price: number): { imbalance: number; signal: LiqSignal } {
+function getObSignal(price: number): {
+  imbalance: number; signal: LiqSignal;
+  cgImbalance: number; cgSignal: LiqSignal;
+} {
+  // V4 cross-exchange aggregated OB (fallback values if unavailable)
+  const cgOb = coinglassService.getAggOb();
+  const cgImbalance = cgOb ? cgOb.imbalance : 0.5;
+  const cgSignal: LiqSignal = cgOb
+    ? (cgOb.imbalance > OB_LONG_THRESHOLD ? "LONG" : cgOb.imbalance < OB_SHORT_THRESHOLD ? "SHORT" : "")
+    : "";
+
+  // Local real-time OB from Bybit/BingX (±0.5% of price)
   const ob = aggregator.getAggregatedOrderbook();
-  if (!ob || price === 0) return { imbalance: 0.5, signal: "" };
+  if (!ob || price === 0) {
+    // No local OB — use V4 alone
+    return { imbalance: cgImbalance, signal: cgSignal, cgImbalance, cgSignal };
+  }
 
   const lower = price * (1 - OB_RANGE_PCT);
   const upper = price * (1 + OB_RANGE_PCT);
@@ -267,22 +281,59 @@ function getObSignal(price: number): { imbalance: number; signal: LiqSignal } {
   const askVol = ob.mergedAsks.filter(l => l.price >= price && l.price <= upper).reduce((s, l) => s + l.size * l.price, 0);
 
   const total = bidVol + askVol;
-  if (total === 0) return { imbalance: 0.5, signal: "" };
+  if (total === 0) return { imbalance: cgImbalance, signal: cgSignal, cgImbalance, cgSignal };
 
-  const imbalance = bidVol / total;
-  const signal: LiqSignal =
-    imbalance > OB_LONG_THRESHOLD  ? "LONG"  :
-    imbalance < OB_SHORT_THRESHOLD ? "SHORT" : "";
+  const localImbalance = bidVol / total;
+  const localSignal: LiqSignal =
+    localImbalance > OB_LONG_THRESHOLD  ? "LONG"  :
+    localImbalance < OB_SHORT_THRESHOLD ? "SHORT" : "";
 
-  return { imbalance, signal };
+  // Conflict resolution:
+  // - Both agree or one is neutral → use local (real-time)
+  // - Active conflict (both have signals but opposite) → treat as neutral
+  let finalSignal: LiqSignal;
+  let finalImbalance: number;
+
+  if (localSignal && cgSignal && localSignal !== cgSignal) {
+    // Conflict: cross-exchange OB opposes local real-time OB → unreliable, go neutral
+    finalSignal    = "";
+    finalImbalance = (localImbalance + cgImbalance) / 2;
+  } else if (!localSignal && cgSignal) {
+    // Local neutral, but V4 has signal — use V4
+    finalSignal    = cgSignal;
+    finalImbalance = cgImbalance;
+  } else {
+    finalSignal    = localSignal;
+    finalImbalance = localImbalance;
+  }
+
+  return { imbalance: finalImbalance, signal: finalSignal, cgImbalance, cgSignal };
 }
 
-// ─── Factor: CVD per timeframe ────────────────────────────────
+// ─── Netflow thresholds ────────────────────────────────────────
+// Ratio = net_flow / BTC market cap. ±0.15% is a meaningful imbalance.
+const NETFLOW_THRESHOLD_15M = 0.0015; // ±0.15% market cap in 15m
+const NETFLOW_THRESHOLD_1H  = 0.0020; // ±0.20% market cap in 1h
+const NETFLOW_THRESHOLD_4H  = 0.0030; // ±0.30% market cap in 4h
+
+// ─── Factor: CVD / Netflow per timeframe ──────────────────────
+// Priority: V4 cross-exchange netflow → local CVD (fallback)
 function getCvdSignal(type: SignalType): { delta: number; signal: LiqSignal; desc: string } {
   const arrow = (s: LiqSignal) => s === "LONG" ? "бычий" : s === "SHORT" ? "медвежий" : "нейтральный";
 
+  const netflow = coinglassService.getNetflow();
+
   if (type === "scalp") {
-    // Use 5m trend — requires only ~50 min of data vs 2.5h for 15m
+    if (netflow) {
+      const ratio   = netflow.netFlowRatio15m;
+      const net15m  = netflow.netFlow15m;
+      const signal: LiqSignal = ratio > NETFLOW_THRESHOLD_15M ? "LONG" : ratio < -NETFLOW_THRESHOLD_15M ? "SHORT" : "";
+      const sign    = net15m >= 0 ? "+" : "";
+      const netM    = (net15m / 1e6).toFixed(0);
+      const ratStr  = (ratio * 100).toFixed(2);
+      return { delta: net15m, signal, desc: `🌐 Netflow 15m: ${sign}$${netM}M (${ratStr}% mcap) — ${arrow(signal)}` };
+    }
+    // Fallback to local CVD
     const trend = cvdService.getTrend5m();
     const cvd   = cvdService.getCurrentCvd();
     const signal: LiqSignal = trend === "bullish" ? "LONG" : trend === "bearish" ? "SHORT" : "";
@@ -291,12 +342,30 @@ function getCvdSignal(type: SignalType): { delta: number; signal: LiqSignal; des
   }
 
   if (type === "intraday") {
+    if (netflow) {
+      const ratio  = netflow.netFlowRatio1h;
+      const net1h  = netflow.netFlow1h;
+      const signal: LiqSignal = ratio > NETFLOW_THRESHOLD_1H ? "LONG" : ratio < -NETFLOW_THRESHOLD_1H ? "SHORT" : "";
+      const sign   = net1h >= 0 ? "+" : "";
+      const netM   = (net1h / 1e6).toFixed(0);
+      const ratStr = (ratio * 100).toFixed(2);
+      return { delta: net1h, signal, desc: `🌐 Netflow 1h: ${sign}$${netM}M (${ratStr}% mcap) — ${arrow(signal)}` };
+    }
     const r = taService.getCvdTrend("4h");
     const signal: LiqSignal = r.trend === "bullish" ? "LONG" : r.trend === "bearish" ? "SHORT" : "";
     return { delta: r.delta, signal, desc: `📊 CVD 4H: ${r.description} — ${arrow(signal)}` };
   }
 
   // swing
+  if (netflow) {
+    const ratio  = netflow.netFlowRatio4h;
+    const net4h  = netflow.netFlow4h;
+    const signal: LiqSignal = ratio > NETFLOW_THRESHOLD_4H ? "LONG" : ratio < -NETFLOW_THRESHOLD_4H ? "SHORT" : "";
+    const sign   = net4h >= 0 ? "+" : "";
+    const netM   = (net4h / 1e6).toFixed(0);
+    const ratStr = (ratio * 100).toFixed(2);
+    return { delta: net4h, signal, desc: `🌐 Netflow 4h: ${sign}$${netM}M (${ratStr}% mcap) — ${arrow(signal)}` };
+  }
   const r = taService.getCvdTrend("1d");
   const signal: LiqSignal = r.trend === "bullish" ? "LONG" : r.trend === "bearish" ? "SHORT" : "";
   return { delta: r.delta, signal, desc: `📊 CVD 1D: ${r.description} — ${arrow(signal)}` };
@@ -327,6 +396,18 @@ class SignalEngine {
     const liqReal = getRealLiqSignal(type);
     const ob      = getObSignal(price);
     const cvd     = getCvdSignal(type);
+
+    // V4 netflow snapshot values
+    const netflow = coinglassService.getNetflow();
+    const netflowNet15m  = netflow?.netFlow15m  ?? 0;
+    const netflowNet1h   = netflow?.netFlow1h   ?? 0;
+    const netflowRatio15m = netflow?.netFlowRatio15m ?? 0;
+    const netflowSignal: import("./bufferService").LiqSignal =
+      netflow
+        ? netflow.netFlowRatio15m > NETFLOW_THRESHOLD_15M ? "LONG"
+          : netflow.netFlowRatio15m < -NETFLOW_THRESHOLD_15M ? "SHORT"
+          : ""
+        : "";
 
     // Likely direction from current votes (for SL/TP)
     const longVotes  = [liqMap.signal === "LONG",  ob.signal === "LONG",  cvd.signal === "LONG" ].filter(Boolean).length;
@@ -364,10 +445,17 @@ class SignalEngine {
 
       obImbalance: ob.imbalance,
       obSignal:    ob.signal,
+      cgObImbalance: ob.cgImbalance,
+      cgObSignal:    ob.cgSignal,
 
       cvdDelta:  cvd.delta,
       cvdSignal: cvd.signal,
       cvdDesc:   cvd.desc,
+
+      netflowNet15m,
+      netflowNet1h,
+      netflowRatio15m,
+      netflowSignal,
 
       suggestedSl: sl.price,
       suggestedTp: tp.price,
@@ -464,13 +552,38 @@ class SignalEngine {
         liqFactorStr = `❌ нет данных`;
       }
 
-      // OB
-      const bidPct = (snap.obImbalance * 100).toFixed(1);
-      const obStr  = snap.obSignal
-        ? `✅ ${fmtFactor(snap.obSignal)} bid ${bidPct}%`
-        : `❌ нейтрально bid ${bidPct}% (нужно <${OB_SHORT_THRESHOLD * 100}% или >${OB_LONG_THRESHOLD * 100}%)`;
+      // OB — local + V4 cross-exchange
+      const bidPct   = (snap.obImbalance * 100).toFixed(1);
+      const cgBidPct = (snap.cgObImbalance * 100).toFixed(1);
+      const cgObLabel = snap.cgObSignal
+        ? `V4:${fmtFactor(snap.cgObSignal)} ${cgBidPct}%`
+        : `V4:⚪ ${cgBidPct}%`;
+      let obStr: string;
+      if (snap.obSignal) {
+        obStr = `✅ ${fmtFactor(snap.obSignal)} local ${bidPct}% | ${cgObLabel}`;
+      } else if (snap.cgObSignal && snap.cgObImbalance !== 0.5) {
+        // V4 filled in when local was neutral
+        obStr = `✅ ${fmtFactor(snap.cgObSignal)} (V4) ${cgBidPct}% | local нейтральный ${bidPct}%`;
+      } else {
+        obStr = `❌ нейтрально local ${bidPct}% | ${cgObLabel}`;
+      }
 
-      // CVD
+      // Netflow (global CVD) — show separately if V4 available
+      const nf = coinglassService.getNetflow();
+      let nfStr: string;
+      if (nf) {
+        const n15 = (nf.netFlow15m / 1e6).toFixed(0);
+        const n1h = (nf.netFlow1h  / 1e6).toFixed(0);
+        const r15 = (nf.netFlowRatio15m * 100).toFixed(2);
+        const sign15 = nf.netFlow15m >= 0 ? "+" : "";
+        const sign1h = nf.netFlow1h  >= 0 ? "+" : "";
+        const nfDir  = snap.netflowSignal ? fmtFactor(snap.netflowSignal) : "⚪ нейтральный";
+        nfStr = `${nfDir} 15m:${sign15}$${n15}M (${r15}%) | 1h:${sign1h}$${n1h}M`;
+      } else {
+        nfStr = `нет V4 данных`;
+      }
+
+      // CVD (now = netflow when V4 available)
       const cvdStr = snap.cvdSignal
         ? `✅ ${fmtFactor(snap.cvdSignal)} ${snap.cvdDesc}`
         : `❌ нейтрально — ${snap.cvdDesc}`;
@@ -508,6 +621,7 @@ class SignalEngine {
         `      ↳ Карта: ${mapStr}`,
         `      ↳ Реал:  ${realStr}`,
         `  📖 OB:  ${obStr}`,
+        `  🌐 NF:  ${nfStr}`,
         `  📊 CVD: ${cvdStr}`,
         `  📐 ${slStr}`,
         `  📐 ${tpStr}`,
