@@ -1,6 +1,7 @@
 import { Router } from "express";
 import { statsScheduler } from "../services/statsScheduler";
 import { telegramService } from "../services/telegram";
+import { coinglassService } from "../services/coinglassService";
 
 const router = Router();
 
@@ -24,6 +25,11 @@ router.post("/admin/notify", (req, res) => {
 router.post("/admin/report/market", async (_req, res) => {
   await statsScheduler.sendMarketReportNow();
   res.json({ ok: true, sent: "market" });
+});
+
+router.get("/admin/coinglass-check", async (_req, res) => {
+  const result = await coinglassService.checkSubscriptionAndEndpoints();
+  res.json(result);
 });
 
 export default router;

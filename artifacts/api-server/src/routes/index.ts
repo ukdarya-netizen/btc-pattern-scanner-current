@@ -9,6 +9,7 @@ import liquidationsRouter from "./liquidations";
 import patternRouter from "./pattern";
 import adminRouter from "./admin";
 import fractalRouter from "./fractal";
+import coinglassRouter from "./coinglass";
 
 const router: IRouter = Router();
 
@@ -22,5 +23,6 @@ router.use(liquidationsRouter);
 router.use(patternRouter);
 router.use(adminRouter);
 router.use(fractalRouter);
+router.use(coinglassRouter);
 
 export default router;

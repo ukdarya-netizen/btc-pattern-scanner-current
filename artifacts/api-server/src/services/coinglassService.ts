@@ -99,6 +99,40 @@ export interface AggObData {
   updatedAt: number;
 }
 
+export interface FundingRatePoint {
+  timestamp: number;
+  open: number;
+  high: number;
+  low: number;
+  close: number;
+}
+
+export interface FundingRateTrend {
+  current: number;
+  avg: number;
+  trend: "rising" | "falling" | "stable";
+  extremeBullish: boolean;
+  extremeBearish: boolean;
+  history: FundingRatePoint[];
+  updatedAt: number;
+}
+
+export interface LongShortHistoryPoint {
+  timestamp: number;
+  longPct: number;
+  shortPct: number;
+  ratio: number;
+}
+
+export interface LongShortTrend {
+  current: { longPct: number; shortPct: number; ratio: number };
+  trend: "longs_rising" | "longs_falling" | "stable";
+  extremeLong: boolean;
+  extremeShort: boolean;
+  history: LongShortHistoryPoint[];
+  updatedAt: number;
+}
+
 export interface LiquidationInfo {
   longVolUsd1h: number;
   shortVolUsd1h: number;
@@ -233,6 +267,16 @@ class CoinglassService {
   private aggObPolling = false;
   private aggObInterval: ReturnType<typeof setInterval> | null = null;
 
+  // V4 — funding rate history (Binance BTCUSDT, 8h intervals)
+  private cachedFundingHistory: FundingRatePoint[] = [];
+  private fundingHistoryPolling = false;
+  private fundingHistoryInterval: ReturnType<typeof setInterval> | null = null;
+
+  // V4 — long/short ratio history (Binance BTCUSDT, 5m intervals)
+  private cachedLsHistory: LongShortHistoryPoint[] = [];
+  private lsHistoryPolling = false;
+  private lsHistoryInterval: ReturnType<typeof setInterval> | null = null;
+
   startPolling() {
     this.fetchHeatmap();
     this.heatmapInterval = setInterval(() => this.fetchHeatmap(), 5 * 60_000);
@@ -256,6 +300,14 @@ class CoinglassService {
 
     void this.fetchAggOb();
     this.aggObInterval = setInterval(() => { void this.fetchAggOb(); }, 5 * 60_000);
+
+    // V4 — funding rate history every 30 min (8h candles, slow-moving)
+    void this.fetchFundingRateHistory();
+    this.fundingHistoryInterval = setInterval(() => { void this.fetchFundingRateHistory(); }, 30 * 60_000);
+
+    // V4 — L/S history every 5 min (5m candles, last 2h)
+    void this.fetchLsHistory();
+    this.lsHistoryInterval = setInterval(() => { void this.fetchLsHistory(); }, 5 * 60_000);
   }
 
   stopPolling() {
@@ -266,8 +318,11 @@ class CoinglassService {
     if (this.priceInterval) clearInterval(this.priceInterval);
     if (this.netflowInterval) clearInterval(this.netflowInterval);
     if (this.aggObInterval) clearInterval(this.aggObInterval);
+    if (this.fundingHistoryInterval) clearInterval(this.fundingHistoryInterval);
+    if (this.lsHistoryInterval) clearInterval(this.lsHistoryInterval);
     this.heatmapInterval = this.oiInterval = this.lsInterval = this.oiHistoryInterval =
-      this.priceInterval = this.netflowInterval = this.aggObInterval = null;
+      this.priceInterval = this.netflowInterval = this.aggObInterval =
+      this.fundingHistoryInterval = this.lsHistoryInterval = null;
   }
 
   private recordPrice() {
@@ -623,6 +678,151 @@ class CoinglassService {
     } finally {
       this.aggObPolling = false;
     }
+  }
+
+  async checkSubscriptionAndEndpoints(): Promise<Record<string, unknown>> {
+    const results: Record<string, unknown> = {};
+
+    // Check subscription level
+    try {
+      const sub = await cgV4Request("/api/user/account/subscription") as Record<string, unknown>;
+      results["subscription"] = sub;
+    } catch (e) {
+      results["subscription"] = { error: String(e) };
+    }
+
+    // Test V4 liquidation heatmap (was blocked on STANDARD)
+    try {
+      const hmap = await cgV4Request("/api/futures/liquidation/aggregated-map?symbol=BTC&range=12") as unknown;
+      const arr = Array.isArray(hmap) ? hmap : (hmap as Record<string,unknown[]>)?.["list"] ?? hmap;
+      results["heatmap_v4"] = { ok: true, rows: Array.isArray(arr) ? (arr as unknown[]).length : "not-array", sample: Array.isArray(arr) ? (arr as unknown[]).slice(0, 2) : arr };
+    } catch (e) {
+      results["heatmap_v4"] = { error: String(e) };
+    }
+
+    // Test V4 taker buy/sell history (CVD history) - was returning empty []
+    try {
+      const cvd = await cgV4Request("/api/futures/taker-buy-sell-vol/history?symbol=BTC&interval=m5&limit=3") as unknown;
+      results["taker_history_v4"] = { ok: true, rows: Array.isArray(cvd) ? (cvd as unknown[]).length : "not-array", sample: Array.isArray(cvd) ? (cvd as unknown[]).slice(0, 1) : cvd };
+    } catch (e) {
+      results["taker_history_v4"] = { error: String(e) };
+    }
+
+    // Test V4 funding rate history
+    try {
+      const fr = await cgV4Request("/api/futures/funding-rate/history?symbol=BTC&exchange=Binance&interval=8h&limit=3") as unknown;
+      results["funding_history_v4"] = { ok: true, rows: Array.isArray(fr) ? (fr as unknown[]).length : "not-array" };
+    } catch (e) {
+      results["funding_history_v4"] = { error: String(e) };
+    }
+
+    // Test V4 long/short ratio history
+    try {
+      const ls = await cgV4Request("/api/futures/global-long-short-account-ratio/history?symbol=BTC&interval=m5&limit=3") as unknown;
+      results["longshort_history_v4"] = { ok: true, rows: Array.isArray(ls) ? (ls as unknown[]).length : "not-array" };
+    } catch (e) {
+      results["longshort_history_v4"] = { error: String(e) };
+    }
+
+    return results;
+  }
+
+  private async fetchFundingRateHistory() {
+    if (!API_KEY || this.fundingHistoryPolling) return;
+    this.fundingHistoryPolling = true;
+    try {
+      const raw = await cgV4Request(
+        "/api/futures/funding-rate/history?exchange=Binance&symbol=BTCUSDT&interval=8h&limit=21",
+      ) as Record<string, unknown>[] | null;
+      if (!Array.isArray(raw) || raw.length === 0) return;
+
+      this.cachedFundingHistory = raw.map(r => ({
+        timestamp: Number(r["time"] ?? 0),
+        open:  Number(r["open"]  ?? 0),
+        high:  Number(r["high"]  ?? 0),
+        low:   Number(r["low"]   ?? 0),
+        close: Number(r["close"] ?? 0),
+      })).sort((a, b) => a.timestamp - b.timestamp);
+
+      const trend = this.getFundingRateTrend();
+      logger.info(
+        { points: this.cachedFundingHistory.length, current: trend?.current.toFixed(5), trend: trend?.trend },
+        "CoinGlass V4 funding rate history updated",
+      );
+    } catch (e) {
+      logger.warn({ err: e }, "CoinGlass V4 funding rate history fetch failed — using cached");
+    } finally {
+      this.fundingHistoryPolling = false;
+    }
+  }
+
+  private async fetchLsHistory() {
+    if (!API_KEY || this.lsHistoryPolling) return;
+    this.lsHistoryPolling = true;
+    try {
+      const raw = await cgV4Request(
+        "/api/futures/global-long-short-account-ratio/history?exchange=Binance&symbol=BTCUSDT&interval=m5&limit=24",
+      ) as Record<string, unknown>[] | null;
+      if (!Array.isArray(raw) || raw.length === 0) return;
+
+      this.cachedLsHistory = raw.map(r => ({
+        timestamp: Number(r["time"] ?? 0),
+        longPct:   Number(r["global_account_long_percent"]  ?? 50),
+        shortPct:  Number(r["global_account_short_percent"] ?? 50),
+        ratio:     Number(r["global_account_long_short_ratio"] ?? 1),
+      })).sort((a, b) => a.timestamp - b.timestamp);
+
+      const trend = this.getLongShortTrend();
+      logger.info(
+        { points: this.cachedLsHistory.length, trend: trend?.trend, extremeLong: trend?.extremeLong },
+        "CoinGlass V4 L/S history updated",
+      );
+    } catch (e) {
+      logger.warn({ err: e }, "CoinGlass V4 L/S history fetch failed — using cached");
+    } finally {
+      this.lsHistoryPolling = false;
+    }
+  }
+
+  getFundingRateTrend(): FundingRateTrend | null {
+    if (this.cachedFundingHistory.length < 2) return null;
+    const h = this.cachedFundingHistory;
+    const current = h[h.length - 1]!.close;
+    const avg = h.reduce((s, p) => s + p.close, 0) / h.length;
+    const recent3 = h.slice(-3).map(p => p.close);
+    const oldest = recent3[0] ?? current;
+    const diff = current - oldest;
+    const threshold = 0.00005; // 0.005% change = trend
+    const trend: FundingRateTrend["trend"] =
+      diff > threshold ? "rising" : diff < -threshold ? "falling" : "stable";
+    return {
+      current,
+      avg,
+      trend,
+      extremeBullish: current >  0.0005, // >0.05% → longs paying a lot
+      extremeBearish: current < -0.0002, // <-0.02% → shorts paying
+      history: h,
+      updatedAt: Date.now(),
+    };
+  }
+
+  getLongShortTrend(): LongShortTrend | null {
+    if (this.cachedLsHistory.length < 3) return null;
+    const h = this.cachedLsHistory;
+    const last  = h[h.length - 1]!;
+    const first = h[0]!;
+    const diffLong = last.longPct - first.longPct;
+    const threshold = 1.5; // 1.5% shift in 2h = meaningful trend
+    const trend: LongShortTrend["trend"] =
+      diffLong > threshold ? "longs_rising" : diffLong < -threshold ? "longs_falling" : "stable";
+    return {
+      current: { longPct: last.longPct, shortPct: last.shortPct, ratio: last.ratio },
+      trend,
+      extremeLong:  last.longPct > 68,
+      extremeShort: last.shortPct > 68,
+      history: h,
+      updatedAt: Date.now(),
+    };
   }
 
   getNetflow(): NetflowData | null {
