@@ -1,7 +1,28 @@
 import { Layout } from "@/components/layout";
 import { useGetCurrentSignal, useGetPatternResult } from "@workspace/api-client-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { LineChart, Line, ResponsiveContainer, Tooltip, ReferenceLine, XAxis } from "recharts";
+import { LineChart, Line, ResponsiveContainer, Tooltip, ReferenceLine, XAxis, Area, AreaChart } from "recharts";
+import { useQuery } from "@tanstack/react-query";
+
+interface CoinglassHistoryData {
+  fundingRate: {
+    current: number;
+    avg: number;
+    trend: "rising" | "falling" | "stable";
+    extremeBullish: boolean;
+    extremeBearish: boolean;
+    history: Array<{ timestamp: number; open: number; high: number; low: number; close: number }>;
+    updatedAt: number;
+  } | null;
+  longShort: {
+    current: { longPct: number; shortPct: number; ratio: number };
+    trend: "longs_rising" | "longs_falling" | "stable";
+    extremeLong: boolean;
+    extremeShort: boolean;
+    history: Array<{ timestamp: number; longPct: number; shortPct: number; ratio: number }>;
+    updatedAt: number;
+  } | null;
+}
 
 function MiniReturnChart({
   current,
@@ -60,6 +81,14 @@ function MiniReturnChart({
 export default function Signal() {
   const { data: signal } = useGetCurrentSignal({ query: { refetchInterval: 2000 } });
   const { data: pattern } = useGetPatternResult({ query: { refetchInterval: 30000 } });
+  const { data: cgHistory } = useQuery<CoinglassHistoryData>({
+    queryKey: ["coinglass-history"],
+    queryFn: () => fetch("/api/coinglass/history").then(r => r.json() as Promise<CoinglassHistoryData>),
+    refetchInterval: 30_000,
+  });
+
+  const fr = cgHistory?.fundingRate;
+  const ls = cgHistory?.longShort;
 
   const price = signal
     ? ((signal.suggestedSl + signal.suggestedTp) / 2)
@@ -191,6 +220,119 @@ export default function Signal() {
               <div className="text-lg font-bold">{signal?.vwap && signal.vwap > 0 ? `$${signal.vwap.toFixed(1)}` : "—"}</div>
               <div className={`text-xs ${vwapDiff !== null ? (vwapDiff >= 0 ? "text-green-400" : "text-red-400") : "text-muted-foreground"}`}>
                 {vwapDiff !== null ? `${vwapDiff >= 0 ? "+" : ""}${vwapDiff.toFixed(3)}%` : "—"}
+              </div>
+            </CardContent>
+          </Card>
+        </div>
+
+        {/* Sentiment Context: Funding Rate + L/S History */}
+        <div className="grid grid-cols-2 gap-2 shrink-0">
+          {/* Funding Rate */}
+          <Card className="rounded-none border-border">
+            <CardContent className="p-3 flex gap-3 items-start">
+              <div className="shrink-0 min-w-[130px]">
+                <div className="text-xs text-muted-foreground uppercase mb-0.5">Funding Rate (8h)</div>
+                <div className={`text-xl font-bold font-mono ${
+                  fr?.extremeBullish ? "text-orange-400" :
+                  fr?.extremeBearish ? "text-blue-400" : "text-foreground"
+                }`}>
+                  {fr ? `${(fr.current * 100).toFixed(4)}%` : "—"}
+                </div>
+                <div className="flex items-center gap-2 mt-0.5">
+                  <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded-sm ${
+                    fr?.trend === "rising"  ? "bg-orange-500/20 text-orange-400" :
+                    fr?.trend === "falling" ? "bg-blue-500/20 text-blue-400" :
+                    "bg-muted text-muted-foreground"
+                  }`}>
+                    {fr?.trend === "rising" ? "↑ рост" : fr?.trend === "falling" ? "↓ падение" : "— стабильно"}
+                  </span>
+                  {fr?.extremeBullish && (
+                    <span className="text-[10px] text-orange-400 font-bold">⚠ EXTREME</span>
+                  )}
+                  {fr?.extremeBearish && (
+                    <span className="text-[10px] text-blue-400 font-bold">⚠ EXTREME</span>
+                  )}
+                </div>
+                <div className="text-[10px] text-muted-foreground/60 mt-1">
+                  avg 7d: {fr ? `${(fr.avg * 100).toFixed(4)}%` : "—"}
+                </div>
+                {fr?.extremeBullish && (
+                  <div className="text-[10px] text-orange-400/80 mt-1 leading-tight">Лонги перегружены → возможен шорт-сквиз</div>
+                )}
+              </div>
+              <div className="flex-1 h-14">
+                <ResponsiveContainer width="100%" height="100%">
+                  <AreaChart data={(fr?.history ?? []).map(p => ({ t: p.timestamp, v: +(p.close * 100).toFixed(5) }))}
+                    margin={{ top: 2, right: 2, left: 0, bottom: 2 }}>
+                    <defs>
+                      <linearGradient id="frGrad" x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="5%" stopColor={fr?.extremeBullish ? "#f97316" : "#94a3b8"} stopOpacity={0.3} />
+                        <stop offset="95%" stopColor={fr?.extremeBullish ? "#f97316" : "#94a3b8"} stopOpacity={0} />
+                      </linearGradient>
+                    </defs>
+                    <ReferenceLine y={0.01} stroke="rgba(249,115,22,0.3)" strokeDasharray="2 2" />
+                    <Area type="monotone" dataKey="v" stroke={fr?.extremeBullish ? "#f97316" : "#94a3b8"}
+                      strokeWidth={1.5} fill="url(#frGrad)" dot={false} isAnimationActive={false} />
+                    <Tooltip
+                      contentStyle={{ backgroundColor: '#1a1a2e', border: '1px solid #333', fontSize: '10px', padding: '2px 6px' }}
+                      formatter={(v: number) => [`${v}%`, "rate"]}
+                      labelFormatter={() => ""}
+                    />
+                  </AreaChart>
+                </ResponsiveContainer>
+              </div>
+            </CardContent>
+          </Card>
+
+          {/* Long/Short Ratio */}
+          <Card className="rounded-none border-border">
+            <CardContent className="p-3 flex gap-3 items-start">
+              <div className="shrink-0 min-w-[130px]">
+                <div className="text-xs text-muted-foreground uppercase mb-0.5">L/S Ratio (2h × 5m)</div>
+                <div className={`text-xl font-bold font-mono ${
+                  ls?.extremeLong  ? "text-orange-400" :
+                  ls?.extremeShort ? "text-blue-400"   : "text-foreground"
+                }`}>
+                  {ls ? `${ls.current.longPct.toFixed(1)}% L` : "—"}
+                </div>
+                <div className="flex items-center gap-2 mt-0.5">
+                  <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded-sm ${
+                    ls?.trend === "longs_rising"  ? "bg-green-500/20 text-green-400" :
+                    ls?.trend === "longs_falling" ? "bg-red-500/20 text-red-400" :
+                    "bg-muted text-muted-foreground"
+                  }`}>
+                    {ls?.trend === "longs_rising"  ? "↑ лонги растут" :
+                     ls?.trend === "longs_falling" ? "↓ шорты растут" : "— стабильно"}
+                  </span>
+                  {(ls?.extremeLong || ls?.extremeShort) && (
+                    <span className="text-[10px] text-orange-400 font-bold">⚠ EXTREME</span>
+                  )}
+                </div>
+                <div className="text-[10px] text-muted-foreground/60 mt-1">
+                  Short: {ls ? `${ls.current.shortPct.toFixed(1)}%` : "—"} &nbsp;·&nbsp; ratio {ls?.current.ratio.toFixed(2) ?? "—"}
+                </div>
+              </div>
+              <div className="flex-1 h-14">
+                <ResponsiveContainer width="100%" height="100%">
+                  <AreaChart data={(ls?.history ?? []).map(p => ({ t: p.timestamp, l: +p.longPct.toFixed(2), s: +p.shortPct.toFixed(2) }))}
+                    margin={{ top: 2, right: 2, left: 0, bottom: 2 }}>
+                    <defs>
+                      <linearGradient id="lsGrad" x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="5%" stopColor="#4ade80" stopOpacity={0.25} />
+                        <stop offset="95%" stopColor="#4ade80" stopOpacity={0} />
+                      </linearGradient>
+                    </defs>
+                    <ReferenceLine y={50} stroke="rgba(255,255,255,0.15)" strokeDasharray="2 2" />
+                    <ReferenceLine y={68} stroke="rgba(249,115,22,0.3)" strokeDasharray="2 2" />
+                    <Area type="monotone" dataKey="l" stroke="#4ade80" strokeWidth={1.5}
+                      fill="url(#lsGrad)" dot={false} isAnimationActive={false} />
+                    <Tooltip
+                      contentStyle={{ backgroundColor: '#1a1a2e', border: '1px solid #333', fontSize: '10px', padding: '2px 6px' }}
+                      formatter={(v: number, name: string) => [`${v}%`, name === "l" ? "Long" : "Short"]}
+                      labelFormatter={() => ""}
+                    />
+                  </AreaChart>
+                </ResponsiveContainer>
               </div>
             </CardContent>
           </Card>
