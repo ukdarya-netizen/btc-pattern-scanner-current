@@ -360,8 +360,12 @@ const PATTERNS: PatternDef[] = [
 const VOLUME_TAKER_ID = "volume_taker";
 
 // open position management: no auto-trading, this is purely for dashboard/stat purposes
-const TAKE_PROFIT_PCT = 1.5;
-const STOP_LOSS_PCT = 10.0;
+// 3 take-profit levels, each closing 1/3 of the position; stop loss starts at -10% and
+// moves to breakeven (entry price) once the +10% level is hit.
+const TP_LEVELS = [5, 10, 15];
+const TP_FRACTION = 1 / TP_LEVELS.length;
+const BREAKEVEN_TRIGGER_PCT = 10;
+const INITIAL_STOP_PCT = -10.0;
 const MAX_HOLD_CYCLES = 48; // ~4h at 5min cycles
 
 interface OpenPosition {
@@ -370,11 +374,22 @@ interface OpenPosition {
   pattern: string;
   entryPrice: number;
   cyclesHeld: number;
+  tpHits: boolean[]; // parallel to TP_LEVELS
+  stopThreshold: number; // negative pct; moves to 0 (breakeven) once +10% is hit
+  realizedPnlPct: number; // weighted pnl from partial TP closes already taken
+  remainingFraction: number; // fraction of position still open (starts at 1)
 }
 
-export interface OpenPositionView extends OpenPosition {
+export interface OpenPositionView {
+  id: number;
+  symbol: string;
+  pattern: string;
+  entryPrice: number;
+  cyclesHeld: number;
   currentPrice: number;
   unrealizedPnlPct: number;
+  tpHits: boolean[];
+  stopThreshold: number;
 }
 
 class AltScanner {
@@ -402,6 +417,10 @@ class AltScanner {
         pattern: row.pattern,
         entryPrice: Number(row.price),
         cyclesHeld: 0,
+        tpHits: TP_LEVELS.map(() => false),
+        stopThreshold: INITIAL_STOP_PCT,
+        realizedPnlPct: 0,
+        remainingFraction: 1,
       });
     }
     logger.info({ count: this.openPositions.size }, "AltScanner: hydrated open positions from DB");
@@ -497,7 +516,17 @@ class AltScanner {
       telegramService.publishPatternSignal(hit);
       void dbService.savePatternSignal(hit).then((id) => {
         if (id !== null) {
-          this.openPositions.set(id, { id, symbol, pattern: pattern.id, entryPrice: m.price, cyclesHeld: 0 });
+          this.openPositions.set(id, {
+            id,
+            symbol,
+            pattern: pattern.id,
+            entryPrice: m.price,
+            cyclesHeld: 0,
+            tpHits: TP_LEVELS.map(() => false),
+            stopThreshold: INITIAL_STOP_PCT,
+            realizedPnlPct: 0,
+            remainingFraction: 1,
+          });
         }
       });
 
@@ -519,14 +548,38 @@ class AltScanner {
       if (pos.symbol !== symbol) continue;
       pos.cyclesHeld += 1;
       const pnlPct = pctChange(pos.entryPrice, currentPrice);
-      const hitTp = pnlPct >= TAKE_PROFIT_PCT;
-      const hitSl = pnlPct <= -STOP_LOSS_PCT;
-      const timedOut = pos.cyclesHeld >= MAX_HOLD_CYCLES;
-      if (hitTp || hitSl || timedOut) {
+
+      // Partial take-profits: each level closes 1/3 of the position, once.
+      for (let i = 0; i < TP_LEVELS.length; i++) {
+        if (!pos.tpHits[i] && pnlPct >= TP_LEVELS[i]!) {
+          pos.tpHits[i] = true;
+          pos.realizedPnlPct += TP_FRACTION * TP_LEVELS[i]!;
+          pos.remainingFraction = Math.max(0, pos.remainingFraction - TP_FRACTION);
+          if (TP_LEVELS[i]! >= BREAKEVEN_TRIGGER_PCT) {
+            pos.stopThreshold = 0; // move stop-loss to breakeven (entry price)
+          }
+          logger.info(
+            { symbol, pattern: pos.pattern, level: TP_LEVELS[i], remainingFraction: pos.remainingFraction },
+            "AltScanner: partial take-profit hit",
+          );
+        }
+      }
+
+      const allTpHit = pos.remainingFraction <= 0;
+      const hitSl = !allTpHit && pnlPct <= pos.stopThreshold;
+      const timedOut = !allTpHit && pos.cyclesHeld >= MAX_HOLD_CYCLES;
+
+      if (allTpHit || hitSl || timedOut) {
+        const finalPnlPct = allTpHit ? pos.realizedPnlPct : pos.realizedPnlPct + pos.remainingFraction * pnlPct;
         this.openPositions.delete(pos.id);
-        void dbService.closeSignal(pos.id, currentPrice, pnlPct);
+        void dbService.closeSignal(pos.id, currentPrice, finalPnlPct);
         logger.info(
-          { symbol, pattern: pos.pattern, pnlPct, reason: hitTp ? "take_profit" : hitSl ? "stop_loss" : "timeout" },
+          {
+            symbol,
+            pattern: pos.pattern,
+            pnlPct: finalPnlPct,
+            reason: allTpHit ? "all_take_profits" : hitSl ? "stop_loss" : "timeout",
+          },
           "AltScanner: position closed",
         );
       }
@@ -536,10 +589,17 @@ class AltScanner {
   getOpenPositions(): OpenPositionView[] {
     return Array.from(this.openPositions.values()).map((p) => {
       const currentPrice = this.latestMetrics.get(p.symbol)?.price ?? p.entryPrice;
+      const livePnlPct = pctChange(p.entryPrice, currentPrice);
       return {
-        ...p,
+        id: p.id,
+        symbol: p.symbol,
+        pattern: p.pattern,
+        entryPrice: p.entryPrice,
+        cyclesHeld: p.cyclesHeld,
         currentPrice,
-        unrealizedPnlPct: pctChange(p.entryPrice, currentPrice),
+        unrealizedPnlPct: p.realizedPnlPct + p.remainingFraction * livePnlPct,
+        tpHits: p.tpHits,
+        stopThreshold: p.stopThreshold,
       };
     });
   }

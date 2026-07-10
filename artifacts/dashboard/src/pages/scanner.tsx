@@ -155,6 +155,8 @@ export default function Scanner() {
                   <th className="pr-3">Текущая цена</th>
                   <th className="pr-3">PnL (нереализ.)</th>
                   <th className="pr-3">Циклов удержания</th>
+                  <th className="pr-3">Тейки (+5/+10/+15%)</th>
+                  <th className="pr-3">Стоп</th>
                 </tr>
               </thead>
               <tbody>
@@ -168,11 +170,23 @@ export default function Scanner() {
                       {pct(p.unrealizedPnlPct)}
                     </td>
                     <td className="pr-3">{p.cyclesHeld}</td>
+                    <td className="pr-3">
+                      {["+5%", "+10%", "+15%"].map((label, i) => (
+                        <span
+                          key={label}
+                          className={`mr-1 inline-block h-2 w-2 rounded-full align-middle ${
+                            p.tpHits[i] ? "bg-green" : "bg-muted-foreground/30"
+                          }`}
+                          title={label}
+                        />
+                      ))}
+                    </td>
+                    <td className="pr-3">{p.stopThreshold === 0 ? "безубыток" : pct(p.stopThreshold)}</td>
                   </tr>
                 ))}
                 {(!openPositions || openPositions.length === 0) && (
                   <tr>
-                    <td colSpan={6} className="py-4 text-center text-muted-foreground">
+                    <td colSpan={8} className="py-4 text-center text-muted-foreground">
                       Нет открытых позиций
                     </td>
                   </tr>

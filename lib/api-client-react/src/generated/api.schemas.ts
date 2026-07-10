@@ -113,6 +113,10 @@ export interface OpenPosition {
   cyclesHeld: number;
   currentPrice: number;
   unrealizedPnlPct: number;
+  /** Which take-profit levels (+5%/+10%/+15%) have already been partially closed */
+  tpHits: boolean[];
+  /** Current stop-loss threshold in %, e.g. -10 initially, 0 (breakeven) after +10% TP hits */
+  stopThreshold: number;
 }
 
 export interface OverallStats {

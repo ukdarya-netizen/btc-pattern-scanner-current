@@ -48,10 +48,10 @@ Each pattern fires once per "episode" (stays suppressed while its base condition
 
 ## Open positions (dashboard-only, no auto-trading)
 On pattern fire, a virtual position is recorded (entry price = signal price). Each cycle, positions are checked against:
-- Take-profit: +1.5%
-- Stop-loss: -1.0%
+- Take-profit: 3 partial levels — +5%, +10%, +15%, each closing 1/3 of the position
+- Stop-loss: -10% initially; moves to breakeven (0%, i.e. entry price) once the +10% level is hit
 - Max hold: 48 cycles (~4h)
-Closed positions are saved to `pattern_signals` with `closePrice`/`pnlPct`; open positions are hydrated from DB on startup and shown live on the dashboard.
+Closed positions are saved to `pattern_signals` with `closePrice`/`pnlPct` (weighted average across partial TP closes); open positions are hydrated from DB on startup (partial-fill state resets to fresh on restart) and shown live on the dashboard with per-level TP indicators and current stop threshold.
 
 ## Dashboard (`/`)
 - **Общая статистика по сигналам**: total/open/closed/wins/losses, win-rate, avg PnL%

@@ -135,6 +135,16 @@ export const GetScannerOpenPositionsResponseItem = zod.object({
   cyclesHeld: zod.number(),
   currentPrice: zod.number(),
   unrealizedPnlPct: zod.number(),
+  tpHits: zod
+    .array(zod.boolean())
+    .describe(
+      "Which take-profit levels (+5%\/+10%\/+15%) have already been partially closed",
+    ),
+  stopThreshold: zod
+    .number()
+    .describe(
+      "Current stop-loss threshold in %, e.g. -10 initially, 0 (breakeven) after +10% TP hits",
+    ),
 });
 export const GetScannerOpenPositionsResponse = zod.array(
   GetScannerOpenPositionsResponseItem,
