@@ -1,6 +1,6 @@
 # ALT Pattern Scanner
 
-Мульти-альт паттерн-сканер — следит за списком из 20 альткоинов, вычисляет метрики по OI/цене/объёму/CVD/funding на каждом 5-минутном цикле и публикует в Telegram сигнал, когда монета подходит под один из 13 именованных паттернов. Бот остаётся сигнальным аналитиком — реальной автоторговли нет, пользователь торгует вручную по сигналам из канала.
+Мульти-альт паттерн-сканер — следит за списком из 20 альткоинов, вычисляет метрики по OI/цене/объёму/CVD/funding на каждом 5-минутном цикле и публикует в Telegram сигнал, когда монета подходит под один из 15 именованных паттернов (13 объёмно-OI-паттернов + 2 паттерна технического анализа пробоев на часовом ТФ). Бот остаётся сигнальным аналитиком — реальной автоторговли нет, пользователь торгует вручную по сигналам из канала.
 
 ## Run & Operate
 - API server: `pnpm --filter @workspace/api-server run dev`
@@ -21,7 +21,8 @@ Note: exchange keys (Bybit/BingX) are kept from the prior BTC engine but are not
 
 ## Where things live
 - `artifacts/dashboard/src/pages/scanner.tsx` — single dashboard page: overall stats, per-pattern stats, open positions, watchlist metrics, recent pattern hits
-- `artifacts/api-server/src/services/altScanner.ts` — core scan loop, metric computation, all 13 pattern definitions, open-position tracking
+- `artifacts/api-server/src/services/altScanner.ts` — core scan loop, metric computation, all 15 pattern definitions, open-position tracking
+- `artifacts/api-server/src/services/technicalLevels.ts` — pure price-action technical analysis: aggregates existing 5m futures bars into hourly candles, finds horizontal S/R levels and descending trendlines via confirmed swing highs/lows, and detects fresh bullish breakouts. No volume, no extra API calls — reuses the same `futOhlcv` bars already fetched each cycle.
 - `artifacts/api-server/src/services/coinalyzeData.ts` — Coinalyze REST client with retry/backoff for rate limits, batch fetchers for OI/OHLCV/funding
 - `artifacts/api-server/src/services/dbService.ts` — persistence: save/close pattern signals, overall + per-pattern stats, open signals
 - `artifacts/api-server/src/services/telegram.ts` — send-only Telegram client, publishes pattern hits to the channel
@@ -43,8 +44,16 @@ Note: exchange keys (Bybit/BingX) are kept from the prior BTC engine but are not
 - Per-symbol previous-cycle state (`oi30m`, `oi4h`, `spotVolMult`, cascade phase-1 flag) is kept in memory for patterns that need cycle-over-cycle comparison (e.g. `flush_reversal`, `liquidation_cascade`).
 - `cycleCount`: per-symbol/per-pattern streak counter of consecutive cycles where the base condition holds; some patterns require a minimum streak before firing (`requiredCycles`).
 
-## 13 patterns (all LONG-only)
-`dip_accumulation`, `4h_momentum`, `quiet_oi_accumulation`, `volume_taker` (OR-branch: streak≥2 or spotVolMult≥4x), `spot_absorption`, `flush_reversal`, `oi1h_breakout`, `spot_momentum_reversal`, `spot_oi4h_build`, `liquidation_cascade` (two-phase: sticky phase-1 flush detection gates phase-2 reversal), `spot_taker_lead`, `spot_divergence`, `accumulation_breakout`. Exact thresholds live in `PATTERNS` in `altScanner.ts` — treat that file as the source of truth over this doc.
+## 15 patterns (all LONG-only)
+`dip_accumulation`, `4h_momentum`, `quiet_oi_accumulation`, `volume_taker` (OR-branch: streak≥2 or spotVolMult≥4x), `spot_absorption`, `flush_reversal`, `oi1h_breakout`, `spot_momentum_reversal`, `spot_oi4h_build`, `liquidation_cascade` (two-phase: sticky phase-1 flush detection gates phase-2 reversal), `spot_taker_lead`, `spot_divergence`, `accumulation_breakout`, `resistance_breakout`, `trendline_breakout`. Exact thresholds live in `PATTERNS` in `altScanner.ts` — treat that file as the source of truth over this doc.
+
+### Technical breakout patterns (`resistance_breakout`, `trendline_breakout`)
+Pure price-action, no volume/OI/funding inputs, no extra API calls — computed from the same 5m futures bars already fetched each cycle (`technicalLevels.ts`):
+- 5m bars are aggregated into hourly candles (12 bars/hour).
+- Swing highs/lows are found via a 2-bar-lookback pivot rule; the last 2 hourly bars are excluded from pivot detection since they aren't confirmed yet.
+- `resistance_breakout`: horizontal resistance zones are built by clustering pivot highs within 0.6% of each other, kept only if touched ≥2 times; fires when the latest completed hourly close crosses back above a zone (previous hourly close was at/below it) by more than a 0.15% buffer.
+- `trendline_breakout`: a descending trendline is fit through two lower pivot highs (≥6 hourly bars apart, line not meaningfully violated in between); fires when the latest hourly close breaks back above the projected line value with the same fresh-cross + buffer logic.
+- Both are `requiredCycles: 1` — the breakout condition itself is already a "this cycle" fresh-cross check, not a streak.
 
 Each pattern fires once per "episode" (stays suppressed while its base condition keeps holding, re-arms once it goes false) — no time-based cooldown, matching the old "active state only" model. Episode-suppression state is in-memory only, so on server restart it's rehydrated from any open (unclosed) `pattern_signals` rows for that symbol+pattern — otherwise a still-holding pattern would re-fire right after a restart. Firing also double-checks against currently open positions for the same symbol+pattern as a second guard.
 

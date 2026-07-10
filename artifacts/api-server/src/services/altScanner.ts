@@ -8,6 +8,7 @@ import {
   fetchSpotOhlcvBatch,
   fetchFundingRateBatch,
 } from "./marketData";
+import { checkResistanceBreakout, checkTrendlineBreakout } from "./technicalLevels";
 
 export const WATCHED_SYMBOLS = [
   "SOLUSDT", "XRPUSDT", "DOGEUSDT", "ADAUSDT", "AVAXUSDT",
@@ -35,6 +36,10 @@ export interface CoinMetrics {
   cvdStrength1h: number;
   cvdDelta4h: number;
   fundingRate: number;
+  resistanceBreakout: boolean;
+  resistanceBreakoutReason: string;
+  trendlineBreakout: boolean;
+  trendlineBreakoutReason: string;
   updatedAt: number;
 }
 
@@ -159,6 +164,9 @@ function computeMetricsFromData(symbol: string, data: SymbolCycleData): CoinMetr
     const takerNetBuyPct = takerNetBuyPctOverWindow(futOhlcv, 1);
     const takerNetBuyPct15m = takerNetBuyPctOverWindow(futOhlcv, 3);
 
+    const resistanceBreakoutResult = checkResistanceBreakout(futOhlcv);
+    const trendlineBreakoutResult = checkTrendlineBreakout(futOhlcv);
+
     return {
       symbol,
       price: priceLast,
@@ -174,6 +182,10 @@ function computeMetricsFromData(symbol: string, data: SymbolCycleData): CoinMetr
       cvdStrength1h,
       cvdDelta4h,
       fundingRate: funding ?? 0,
+      resistanceBreakout: resistanceBreakoutResult.broken,
+      resistanceBreakoutReason: resistanceBreakoutResult.reason,
+      trendlineBreakout: trendlineBreakoutResult.broken,
+      trendlineBreakoutReason: trendlineBreakoutResult.reason,
       updatedAt: Date.now(),
     };
   } catch (e) {
@@ -351,6 +363,22 @@ const PATTERNS: PatternDef[] = [
         (m.oiChange.h1 >= 3 || m.oiChange.h4 >= 5) &&
         m.priceChange.h1 >= -10,
       reason: `price24h=${m.priceChange.h24.toFixed(2)}% OI1h=${m.oiChange.h1.toFixed(2)}% OI4h=${m.oiChange.h4.toFixed(2)}%`,
+    }),
+  },
+  {
+    id: "resistance_breakout",
+    requiredCycles: 1,
+    check: (m) => ({
+      pass: m.resistanceBreakout,
+      reason: m.resistanceBreakoutReason,
+    }),
+  },
+  {
+    id: "trendline_breakout",
+    requiredCycles: 1,
+    check: (m) => ({
+      pass: m.trendlineBreakout,
+      reason: m.trendlineBreakoutReason,
     }),
   },
 ];
