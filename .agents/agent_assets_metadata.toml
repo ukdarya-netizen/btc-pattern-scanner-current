@@ -18,3 +18,9 @@ id = "6NYl2JjVWCgjrC_bg2r0s"
 uri = "file://btc-scalping-bot-audit.zip"
 type = "unspecified"
 title = "BTC Scalping Bot — исходный код (аудит)"
+
+[[outputs]]
+id = "Tdrjrj_d31IV7bHlTjtkq"
+uri = "file://exports/alt-pattern-scanner-code.zip"
+type = "unspecified"
+title = "ALT Pattern Scanner — исходный код"
