@@ -175,13 +175,15 @@ export default function Scanner() {
                         <span
                           key={label}
                           className={`mr-1 inline-block h-2 w-2 rounded-full align-middle ${
-                            p.tpHits[i] ? "bg-green" : "bg-muted-foreground/30"
+                            p.tpHits?.[i] ? "bg-green" : "bg-muted-foreground/30"
                           }`}
                           title={label}
                         />
                       ))}
                     </td>
-                    <td className="pr-3">{p.stopThreshold === 0 ? "безубыток" : pct(p.stopThreshold)}</td>
+                    <td className="pr-3">
+                      {p.stopThreshold == null ? "\u2014" : p.stopThreshold === 0 ? "безубыток" : pct(p.stopThreshold)}
+                    </td>
                   </tr>
                 ))}
                 {(!openPositions || openPositions.length === 0) && (
