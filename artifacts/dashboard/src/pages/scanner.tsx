@@ -6,6 +6,7 @@ import {
   useGetScannerOpenPositions,
   useGetScannerOverallStats,
   useGetScannerPatternStats,
+  useGetScannerApiStatus,
 } from "@workspace/api-client-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 
@@ -22,10 +23,39 @@ export default function Scanner() {
   const { data: openPositions } = useGetScannerOpenPositions({ query: { refetchInterval: 5000 } } as any);
   const { data: overallStats } = useGetScannerOverallStats({ query: { refetchInterval: 15000 } } as any);
   const { data: patternStats } = useGetScannerPatternStats({ query: { refetchInterval: 15000 } } as any);
+  const { data: apiStatus } = useGetScannerApiStatus({ query: { refetchInterval: 10000 } } as any);
 
   return (
     <Layout>
       <div className="grid grid-cols-1 xl:grid-cols-3 gap-2">
+        <Card className="xl:col-span-3">
+          <CardHeader>
+            <CardTitle>Статус API</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3">
+              {(apiStatus ?? []).map((s) => (
+                <div key={s.name} className="flex items-center gap-2 border border-border/50 rounded p-2">
+                  <span
+                    className={`inline-block w-2.5 h-2.5 rounded-full shrink-0 ${
+                      s.ok ? "bg-green" : "bg-red"
+                    }`}
+                  />
+                  <div className="min-w-0">
+                    <div className="font-bold truncate">{s.label}</div>
+                    <div className={`text-xs truncate ${s.ok ? "text-green" : "text-red"}`}>
+                      {s.ok ? "работает" : "не работает"} · {s.message}
+                    </div>
+                  </div>
+                </div>
+              ))}
+              {(!apiStatus || apiStatus.length === 0) && (
+                <div className="text-muted-foreground text-center py-4 col-span-full">Проверка API...</div>
+              )}
+            </div>
+          </CardContent>
+        </Card>
+
         <Card className="xl:col-span-3">
           <CardHeader>
             <CardTitle>Общая статистика по сигналам</CardTitle>

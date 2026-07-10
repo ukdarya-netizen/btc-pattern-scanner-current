@@ -15,6 +15,20 @@ export const HealthCheckResponse = zod.object({
 });
 
 /**
+ * @summary Live health status of external APIs used by the scanner (Coinalyze, Telegram, database)
+ */
+export const GetScannerApiStatusResponseItem = zod.object({
+  name: zod.string(),
+  label: zod.string(),
+  ok: zod.boolean(),
+  message: zod.string(),
+  lastCheckedAt: zod.number(),
+});
+export const GetScannerApiStatusResponse = zod.array(
+  GetScannerApiStatusResponseItem,
+);
+
+/**
  * @summary Latest computed metrics for all watched symbols
  */
 export const GetScannerMetricsResponseItem = zod.object({

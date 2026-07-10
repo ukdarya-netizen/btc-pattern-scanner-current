@@ -7,6 +7,7 @@
  */
 
 export * from "./adminNotifyRequest";
+export * from "./apiStatusEntry";
 export * from "./coinMetrics";
 export * from "./coinMetricsTakerDominance";
 export * from "./healthStatus";

@@ -18,6 +18,7 @@ import type {
 
 import type {
   AdminNotifyRequest,
+  ApiStatusEntry,
   CoinMetrics,
   HealthStatus,
   OkResponse,
@@ -104,6 +105,81 @@ export function useHealthCheck<
   request?: SecondParameter<typeof customFetch>;
 }): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
   const queryOptions = getHealthCheckQueryOptions(options);
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+/**
+ * @summary Live health status of external APIs used by the scanner (Coinalyze, Telegram, database)
+ */
+export const getGetScannerApiStatusUrl = () => {
+  return `/api/scanner/api-status`;
+};
+
+export const getScannerApiStatus = async (
+  options?: RequestInit,
+): Promise<ApiStatusEntry[]> => {
+  return customFetch<ApiStatusEntry[]>(getGetScannerApiStatusUrl(), {
+    ...options,
+    method: "GET",
+  });
+};
+
+export const getGetScannerApiStatusQueryKey = () => {
+  return [`/api/scanner/api-status`] as const;
+};
+
+export const getGetScannerApiStatusQueryOptions = <
+  TData = Awaited<ReturnType<typeof getScannerApiStatus>>,
+  TError = ErrorType<unknown>,
+>(options?: {
+  query?: UseQueryOptions<
+    Awaited<ReturnType<typeof getScannerApiStatus>>,
+    TError,
+    TData
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey = queryOptions?.queryKey ?? getGetScannerApiStatusQueryKey();
+
+  const queryFn: QueryFunction<
+    Awaited<ReturnType<typeof getScannerApiStatus>>
+  > = ({ signal }) => getScannerApiStatus({ signal, ...requestOptions });
+
+  return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<
+    Awaited<ReturnType<typeof getScannerApiStatus>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type GetScannerApiStatusQueryResult = NonNullable<
+  Awaited<ReturnType<typeof getScannerApiStatus>>
+>;
+export type GetScannerApiStatusQueryError = ErrorType<unknown>;
+
+/**
+ * @summary Live health status of external APIs used by the scanner (Coinalyze, Telegram, database)
+ */
+
+export function useGetScannerApiStatus<
+  TData = Awaited<ReturnType<typeof getScannerApiStatus>>,
+  TError = ErrorType<unknown>,
+>(options?: {
+  query?: UseQueryOptions<
+    Awaited<ReturnType<typeof getScannerApiStatus>>,
+    TError,
+    TData
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getGetScannerApiStatusQueryOptions(options);
 
   const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
     queryKey: QueryKey;

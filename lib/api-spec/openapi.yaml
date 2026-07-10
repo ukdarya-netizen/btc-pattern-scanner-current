@@ -28,6 +28,21 @@ paths:
               schema:
                 $ref: "#/components/schemas/HealthStatus"
 
+  /scanner/api-status:
+    get:
+      operationId: getScannerApiStatus
+      tags: [scanner]
+      summary: Live health status of external APIs used by the scanner (Coinalyze, Telegram, database)
+      responses:
+        "200":
+          description: API status list
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/ApiStatusEntry"
+
   /scanner/metrics:
     get:
       operationId: getScannerMetrics
@@ -137,6 +152,21 @@ paths:
 
 components:
   schemas:
+    ApiStatusEntry:
+      type: object
+      required: [name, label, ok, message, lastCheckedAt]
+      properties:
+        name:
+          type: string
+        label:
+          type: string
+        ok:
+          type: boolean
+        message:
+          type: string
+        lastCheckedAt:
+          type: integer
+
     HealthStatus:
       type: object
       required: [status]
