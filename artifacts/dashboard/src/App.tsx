@@ -3,11 +3,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import NotFound from "@/pages/not-found";
-import Terminal from "@/pages/terminal";
-import Risk from "@/pages/risk";
-import Signal from "@/pages/signal";
-import Liquidations from "@/pages/liquidations";
-import Statistics from "@/pages/statistics";
+import Scanner from "@/pages/scanner";
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -20,11 +16,7 @@ const queryClient = new QueryClient({
 function Router() {
   return (
     <Switch>
-      <Route path="/" component={Terminal} />
-      <Route path="/risk" component={Risk} />
-      <Route path="/signal" component={Signal} />
-      <Route path="/liquidations" component={Liquidations} />
-      <Route path="/statistics" component={Statistics} />
+      <Route path="/" component={Scanner} />
       <Route component={NotFound} />
     </Switch>
   );

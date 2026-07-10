@@ -3,21 +3,17 @@ info:
   # Do not change the title, if the title changes, the import paths will be broken
   title: Api
   version: 0.1.0
-  description: BTC Scalping Bot API
+  description: Alt Pattern Scanner API
 servers:
   - url: /api
     description: Base API path
 tags:
   - name: health
     description: Health operations
-  - name: market
-    description: Live market data from Bybit
-  - name: signal
-    description: Signal engine outputs
-  - name: bot
-    description: Bot lifecycle controls
-  - name: risk
-    description: Risk management and stats
+  - name: scanner
+    description: Multi-alt pattern scanner data
+  - name: admin
+    description: Admin/manual controls
 paths:
   /healthz:
     get:
@@ -32,965 +28,211 @@ paths:
               schema:
                 $ref: "#/components/schemas/HealthStatus"
 
-  /market/ticker:
+  /scanner/metrics:
     get:
-      operationId: getTicker
-      tags: [market]
-      summary: Current BTC/USDT ticker
+      operationId: getScannerMetrics
+      tags: [scanner]
+      summary: Latest computed metrics for all watched symbols
       responses:
         "200":
-          description: Ticker data
+          description: Latest metrics
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/Ticker"
+                type: array
+                items:
+                  $ref: "#/components/schemas/CoinMetrics"
 
-  /market/orderbook:
+  /scanner/hits:
     get:
-      operationId: getOrderbook
-      tags: [market]
-      summary: Top 20 order book levels
+      operationId: getScannerHits
+      tags: [scanner]
+      summary: Recent fired pattern hits (in-memory, current session)
       responses:
         "200":
-          description: Order book snapshot
+          description: Recent pattern hits
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/Orderbook"
+                type: array
+                items:
+                  $ref: "#/components/schemas/PatternHit"
 
-  /market/trades:
+  /scanner/signals:
     get:
-      operationId: getRecentTrades
-      tags: [market]
-      summary: Last 50 trades
+      operationId: getScannerSignals
+      tags: [scanner]
+      summary: Recent persisted pattern signals from DB
       responses:
         "200":
-          description: Recent trades list
+          description: Recent pattern signals
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/TradeList"
+                type: array
+                items:
+                  $ref: "#/components/schemas/PatternSignal"
 
-  /market/cvd:
-    get:
-      operationId: getCvd
-      tags: [market]
-      summary: Cumulative Volume Delta time series (last 100 points)
-      responses:
-        "200":
-          description: CVD series
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/CvdSeries"
-
-  /market/funding:
-    get:
-      operationId: getFunding
-      tags: [market]
-      summary: Funding rate and open interest
-      responses:
-        "200":
-          description: Funding data
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/FundingData"
-
-  /market/exchanges:
-    get:
-      operationId: getExchangeStatus
-      tags: [market]
-      summary: Status of all connected exchanges
-      responses:
-        "200":
-          description: Exchange status list
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ExchangeStatusList"
-
-  /signal/current:
-    get:
-      operationId: getCurrentSignal
-      tags: [signal]
-      summary: Current composite signal score
-      responses:
-        "200":
-          description: Signal breakdown
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/SignalResult"
-
-  /pattern/current:
-    get:
-      operationId: getPatternResult
-      tags: [signal]
-      summary: Historical pattern matching result (7-day Pearson correlation)
-      responses:
-        "200":
-          description: Pattern matching data
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/PatternResult"
-
-  /bot/state:
-    get:
-      operationId: getBotState
-      tags: [bot]
-      summary: Get bot current state
-      responses:
-        "200":
-          description: Bot state
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/BotState"
-
-  /bot/start:
+  /admin/notify:
     post:
-      operationId: startBot
-      tags: [bot]
-      summary: Start the trading bot
+      operationId: adminNotify
+      tags: [admin]
+      summary: Send a manual message to the Telegram channel
       requestBody:
         required: true
         content:
           application/json:
             schema:
-              $ref: "#/components/schemas/BotStartRequest"
+              $ref: "#/components/schemas/AdminNotifyRequest"
       responses:
         "200":
-          description: Bot started
+          description: Sent
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/BotState"
-
-  /bot/stop:
-    post:
-      operationId: stopBot
-      tags: [bot]
-      summary: Stop the trading bot
-      responses:
-        "200":
-          description: Bot stopped
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/BotState"
-
-  /risk/stats:
-    get:
-      operationId: getRiskStats
-      tags: [risk]
-      summary: Daily risk and P&L stats
-      responses:
-        "200":
-          description: Risk statistics
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/RiskStats"
-
-  /risk/positions:
-    get:
-      operationId: getPositions
-      tags: [risk]
-      summary: Open paper trading positions
-      responses:
-        "200":
-          description: Positions list
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/PositionList"
-
-  /history/trades:
-    get:
-      operationId: getTradeHistory
-      tags: [risk]
-      summary: Historical closed trades from database
-      parameters:
-        - name: limit
-          in: query
-          schema:
-            type: integer
-            default: 100
-      responses:
-        "200":
-          description: Trade history with daily stats
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/TradeHistoryList"
-
-  /history/pnl:
-    get:
-      operationId: getPnlChart
-      tags: [risk]
-      summary: P&L equity curve for chart
-      parameters:
-        - name: hours
-          in: query
-          schema:
-            type: integer
-            default: 24
-      responses:
-        "200":
-          description: P&L time series
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/PnlChartData"
-
-  /liquidations/heatmap:
-    get:
-      operationId: getLiquidationHeatmap
-      tags: [liquidations]
-      summary: Real-time liquidation heatmap aggregated by price bucket (30min window)
-      responses:
-        "200":
-          description: Heatmap buckets and live summary
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/LiquidationHeatmap"
-
-  /liquidations/events:
-    get:
-      operationId: getLiquidationEvents
-      tags: [liquidations]
-      summary: Recent raw liquidation events from exchange WS
-      parameters:
-        - name: limit
-          in: query
-          schema:
-            type: integer
-            default: 50
-      responses:
-        "200":
-          description: List of recent liquidation events
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/LiquidationEventList"
-
-  /liquidations/info:
-    get:
-      operationId: getLiquidationInfo
-      tags: [liquidations]
-      summary: CoinGlass aggregated liquidation volumes by timeframe
-      responses:
-        "200":
-          description: CoinGlass liquidation summary
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/LiquidationInfo"
-
-  /liquidations/map:
-    get:
-      operationId: getLiquidationMap
-      tags: [liquidations]
-      summary: Estimated liquidation heatmap by price level (Coinalyze OHLCV + OI model)
-      responses:
-        "200":
-          description: Liquidation clusters by price level
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/LiquidationMapResponse"
-
-  /liquidations/coinalyze:
-    get:
-      operationId: getLiquidationCoinalyze
-      tags: [liquidations]
-      summary: Coinalyze aggregated liquidation history across all exchanges
-      parameters:
-        - name: range
-          in: query
-          schema:
-            type: string
-            enum: [24h, 2h]
-            default: 24h
-      responses:
-        "200":
-          description: Liquidation candles from Coinalyze
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/CoinalyzeLiquidationResponse"
-
-  /account/balance:
-    get:
-      operationId: getAccountBalance
-      tags: [risk]
-      summary: Real account balance from exchanges
-      responses:
-        "200":
-          description: Account balance
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/AccountBalance"
+                $ref: "#/components/schemas/OkResponse"
 
 components:
   schemas:
     HealthStatus:
       type: object
+      required: [status]
       properties:
         status:
           type: string
-      required: [status]
+          enum: [ok]
 
-    Ticker:
+    OkResponse:
       type: object
+      required: [ok]
+      properties:
+        ok:
+          type: boolean
+
+    AdminNotifyRequest:
+      type: object
+      required: [message]
+      properties:
+        message:
+          type: string
+
+    PriceChange:
+      type: object
+      required: [current, h1, h3, h4, h24]
+      properties:
+        current:
+          type: number
+        h1:
+          type: number
+        h3:
+          type: number
+        h4:
+          type: number
+        h24:
+          type: number
+
+    OiChange:
+      type: object
+      required: [m30, h1, h4]
+      properties:
+        m30:
+          type: number
+        h1:
+          type: number
+        h4:
+          type: number
+
+    SpotCvd:
+      type: object
+      required: [m5, m15, h1, h4]
+      properties:
+        m5:
+          type: boolean
+        m15:
+          type: boolean
+        h1:
+          type: boolean
+        h4:
+          type: boolean
+
+    CoinMetrics:
+      type: object
+      required:
+        - symbol
+        - price
+        - priceChange
+        - oiChange
+        - volMult
+        - volMult4h
+        - spotVolMult
+        - takerNetBuyPct
+        - takerNetBuyPct15m
+        - takerDominance
+        - spotCvd
+        - fundingRate
       properties:
         symbol:
           type: string
         price:
           type: number
-        priceChange24h:
+        priceChange:
+          $ref: "#/components/schemas/PriceChange"
+        oiChange:
+          $ref: "#/components/schemas/OiChange"
+        volMult:
           type: number
-        priceChangePct24h:
+        volMult4h:
           type: number
-        volume24h:
+        spotVolMult:
           type: number
-        high24h:
+        takerNetBuyPct:
           type: number
-        low24h:
+        takerNetBuyPct15m:
           type: number
-        updatedAt:
-          type: string
-      required: [symbol, price, priceChange24h, priceChangePct24h, volume24h, high24h, low24h, updatedAt]
-
-    OrderLevel:
-      type: object
-      properties:
-        price:
-          type: number
-        size:
-          type: number
-        total:
-          type: number
-      required: [price, size, total]
-
-    Orderbook:
-      type: object
-      properties:
-        symbol:
-          type: string
-        bids:
-          type: array
-          items:
-            $ref: "#/components/schemas/OrderLevel"
-        asks:
-          type: array
-          items:
-            $ref: "#/components/schemas/OrderLevel"
-        spread:
-          type: number
-        spreadPct:
-          type: number
-        imbalance:
-          type: number
-          description: "Bid/Ask volume imbalance: >0 = buy pressure, <0 = sell pressure"
-        updatedAt:
-          type: string
-      required: [symbol, bids, asks, spread, spreadPct, imbalance, updatedAt]
-
-    Trade:
-      type: object
-      properties:
-        id:
-          type: string
-        price:
-          type: number
-        size:
-          type: number
-        side:
+        takerDominance:
           type: string
           enum: [buy, sell]
-        timestamp:
-          type: string
-      required: [id, price, size, side, timestamp]
-
-    TradeList:
-      type: object
-      properties:
-        trades:
-          type: array
-          items:
-            $ref: "#/components/schemas/Trade"
-      required: [trades]
-
-    CvdPoint:
-      type: object
-      properties:
-        timestamp:
-          type: string
-        cvd:
-          type: number
-        delta:
-          type: number
-        price:
-          type: number
-      required: [timestamp, cvd, delta, price]
-
-    CvdSeries:
-      type: object
-      properties:
-        points:
-          type: array
-          items:
-            $ref: "#/components/schemas/CvdPoint"
-        currentCvd:
-          type: number
-        trend:
-          type: string
-          enum: [bullish, bearish, neutral]
-      required: [points, currentCvd, trend]
-
-    FundingData:
-      type: object
-      properties:
+        spotCvd:
+          $ref: "#/components/schemas/SpotCvd"
         fundingRate:
           type: number
-        nextFundingTime:
-          type: string
-        openInterest:
-          type: number
-        openInterestChange1h:
-          type: number
-        longShortRatio:
-          type: number
-      required: [fundingRate, nextFundingTime, openInterest, openInterestChange1h, longShortRatio]
 
-    SignalComponent:
+    PatternHit:
       type: object
+      required: [pattern, symbol, direction, reason, metrics, cycleCount]
       properties:
-        name:
+        pattern:
           type: string
-        score:
-          type: number
-          description: "Component score [-1, +1]"
-        weight:
-          type: number
-        description:
+        symbol:
           type: string
-      required: [name, score, weight, description]
-
-    GateResult:
-      type: object
-      properties:
-        name:
-          type: string
-        passed:
-          type: boolean
-        reason:
-          type: string
-      required: [name, passed, reason]
-
-    SignalResult:
-      type: object
-      properties:
-        score:
-          type: number
-          description: "Composite score [-1, +1]. >0.35 = long, <-0.35 = short"
         direction:
           type: string
-          enum: [long, short, neutral]
-        confidence:
-          type: number
-          description: "0 to 1"
-        components:
-          type: array
-          items:
-            $ref: "#/components/schemas/SignalComponent"
-        gates:
-          type: array
-          description: "Entry gate checks — ALL must pass to open a trade"
-          items:
-            $ref: "#/components/schemas/GateResult"
-        allGatesPassed:
-          type: boolean
-          description: "True only when every gate passes — bot executes trade"
-        suggestedLeverage:
-          type: number
-        suggestedSl:
-          type: number
-        suggestedTp:
-          type: number
-        atrPct:
-          type: number
-          description: "ATR as % of price — drives adaptive leverage"
-        vwap:
-          type: number
-          description: "Current day VWAP price"
-        updatedAt:
+          enum: [LONG]
+        reason:
           type: string
-        tpSource:
-          type: string
-        slSource:
-          type: string
-      required: [score, direction, confidence, components, gates, allGatesPassed, suggestedLeverage, suggestedSl, suggestedTp, atrPct, vwap, updatedAt]
+        metrics:
+          $ref: "#/components/schemas/CoinMetrics"
+        cycleCount:
+          type: integer
 
-    PatternMatch:
+    PatternSignal:
       type: object
-      properties:
-        startDate:
-          type: string
-        endDate:
-          type: string
-        similarity:
-          type: number
-          description: "Pearson correlation coefficient with current 7-day pattern"
-        forwardPct:
-          type: number
-          description: "% price change in 3 days after this historical pattern"
-        outcome:
-          type: string
-          enum: [bullish, bearish, neutral]
-        currentReturns:
-          type: array
-          items:
-            type: number
-        historicalReturns:
-          type: array
-          items:
-            type: number
-        forwardReturns:
-          type: array
-          items:
-            type: number
-      required: [startDate, endDate, similarity, forwardPct, outcome, currentReturns, historicalReturns, forwardReturns]
-
-    PatternResult:
-      type: object
-      properties:
-        signal:
-          type: number
-          description: "Signal score [-1, +1] from pattern matches"
-        confidence:
-          type: number
-        bullishMatches:
-          type: number
-        bearishMatches:
-          type: number
-        topMatches:
-          type: array
-          items:
-            $ref: "#/components/schemas/PatternMatch"
-        currentReturns:
-          type: array
-          items:
-            type: number
-        updatedAt:
-          type: string
-        loading:
-          type: boolean
-      required: [signal, confidence, bullishMatches, bearishMatches, topMatches, currentReturns, updatedAt]
-
-    BotStartRequest:
-      type: object
-      properties:
-        mode:
-          type: string
-          enum: [paper, live]
-        maxLeverage:
-          type: number
-        riskPct:
-          type: number
-          description: "Max risk per trade as % of balance"
-      required: [mode, maxLeverage, riskPct]
-
-    BotState:
-      type: object
-      properties:
-        running:
-          type: boolean
-        mode:
-          type: string
-          enum: [paper, live, stopped]
-        maxLeverage:
-          type: number
-        riskPct:
-          type: number
-        startedAt:
-          type: string
-          nullable: true
-        tradesExecuted:
-          type: number
-        dailyPnl:
-          type: number
-        circuitBreakerTripped:
-          type: boolean
-        accountBalance:
-          type: number
-      required: [running, mode, maxLeverage, riskPct, startedAt, tradesExecuted, dailyPnl, circuitBreakerTripped, accountBalance]
-
-    RiskStats:
-      type: object
-      properties:
-        dailyPnl:
-          type: number
-        dailyPnlPct:
-          type: number
-        maxDrawdown:
-          type: number
-        winRate:
-          type: number
-        totalTrades:
-          type: number
-        winningTrades:
-          type: number
-        losingTrades:
-          type: number
-        avgWin:
-          type: number
-        avgLoss:
-          type: number
-        sharpeIntraday:
-          type: number
-        circuitBreakerTripped:
-          type: boolean
-        cooldownUntil:
-          type: string
-          nullable: true
-      required: [dailyPnl, dailyPnlPct, maxDrawdown, winRate, totalTrades, winningTrades, losingTrades, avgWin, avgLoss, sharpeIntraday, circuitBreakerTripped, cooldownUntil]
-
-    Position:
-      type: object
+      required: [id, symbol, pattern, direction, price, cycleCount, firedAt]
       properties:
         id:
-          type: string
+          type: integer
         symbol:
           type: string
-        side:
+        pattern:
           type: string
-          enum: [long, short]
-        entryPrice:
-          type: number
-        currentPrice:
-          type: number
-        size:
-          type: number
-        leverage:
-          type: number
-        pnl:
-          type: number
-        pnlPct:
-          type: number
-        stopLoss:
-          type: number
-        takeProfit:
-          type: number
-        openedAt:
+        direction:
           type: string
-      required: [id, symbol, side, entryPrice, currentPrice, size, leverage, pnl, pnlPct, stopLoss, takeProfit, openedAt]
-
-    PositionList:
-      type: object
-      properties:
-        positions:
-          type: array
-          items:
-            $ref: "#/components/schemas/Position"
-      required: [positions]
-
-    ExchangeStatus:
-      type: object
-      properties:
-        name:
-          type: string
-        connected:
-          type: boolean
-        hasApiKey:
-          type: boolean
         price:
-          type: number
-          nullable: true
-        latency:
-          type: number
-      required: [name, connected, hasApiKey, price, latency]
-
-    ExchangeStatusList:
-      type: object
-      properties:
-        exchanges:
-          type: array
-          items:
-            $ref: "#/components/schemas/ExchangeStatus"
-      required: [exchanges]
-
-    TradeHistoryRecord:
-      type: object
-      properties:
-        id:
           type: string
-        symbol:
-          type: string
-        side:
-          type: string
-          enum: [long, short]
-        exchange:
-          type: string
-        entryPrice:
-          type: number
-        exitPrice:
-          type: number
-        size:
-          type: number
-        leverage:
-          type: number
-        pnl:
-          type: number
-        pnlPct:
-          type: number
-        openedAt:
+        cycleCount:
+          type: integer
+        firedAt:
           type: string
         closedAt:
           type: string
-        closeReason:
-          type: string
-      required: [id, symbol, side, exchange, entryPrice, exitPrice, size, leverage, pnl, pnlPct, openedAt, closedAt, closeReason]
-
-    DailyStats:
-      type: object
-      properties:
-        totalTrades:
-          type: number
-        wins:
-          type: number
-        totalPnl:
-          type: number
-      required: [totalTrades, wins, totalPnl]
-
-    TradeHistoryList:
-      type: object
-      properties:
-        trades:
-          type: array
-          items:
-            $ref: "#/components/schemas/TradeHistoryRecord"
-        stats:
-          $ref: "#/components/schemas/DailyStats"
-      required: [trades, stats]
-
-    PnlPoint:
-      type: object
-      properties:
-        ts:
-          type: string
-        equity:
-          type: number
-        dailyPnl:
-          type: number
-        openPositions:
-          type: number
-      required: [ts, equity, dailyPnl, openPositions]
-
-    PnlChartData:
-      type: object
-      properties:
-        points:
-          type: array
-          items:
-            $ref: "#/components/schemas/PnlPoint"
-        hours:
-          type: number
-      required: [points, hours]
-
-    AccountBalance:
-      type: object
-      properties:
-        total:
-          type: number
-        available:
-          type: number
-        currency:
-          type: string
-        byExchange:
-          type: object
-          additionalProperties:
-            type: object
-            properties:
-              total:
-                type: number
-              available:
-                type: number
-      required: [total, available, currency]
-
-    LiqBucket:
-      type: object
-      properties:
-        price:
-          type: number
-        longUsd:
-          type: number
-        shortUsd:
-          type: number
-        totalUsd:
-          type: number
-      required: [price, longUsd, shortUsd, totalUsd]
-
-    LiqWindowSummary:
-      type: object
-      properties:
-        longUsd:
-          type: number
-        shortUsd:
-          type: number
-        count:
-          type: number
-      required: [longUsd, shortUsd, count]
-
-    LiqSummary:
-      type: object
-      properties:
-        last5m:
-          $ref: "#/components/schemas/LiqWindowSummary"
-        last15m:
-          $ref: "#/components/schemas/LiqWindowSummary"
-        last30m:
-          $ref: "#/components/schemas/LiqWindowSummary"
-        last1h:
-          $ref: "#/components/schemas/LiqWindowSummary"
-      required: [last5m, last15m, last30m, last1h]
-
-    LiquidationHeatmap:
-      type: object
-      properties:
-        buckets:
-          type: array
-          items:
-            $ref: "#/components/schemas/LiqBucket"
-        summary:
-          $ref: "#/components/schemas/LiqSummary"
-      required: [buckets, summary]
-
-    LiquidationEvent:
-      type: object
-      properties:
-        exchange:
-          type: string
-        side:
-          type: string
-          enum: [long, short]
-        price:
-          type: number
-        size:
-          type: number
-        valueUsd:
-          type: number
-        timestamp:
-          type: number
-      required: [exchange, side, price, size, valueUsd, timestamp]
-
-    LiquidationEventList:
-      type: object
-      properties:
-        events:
-          type: array
-          items:
-            $ref: "#/components/schemas/LiquidationEvent"
-      required: [events]
-
-    LiquidationInfo:
-      type: object
-      properties:
-        longVolUsd1h:
-          type: number
-        shortVolUsd1h:
-          type: number
-        longVolUsd4h:
-          type: number
-        shortVolUsd4h:
-          type: number
-        longVolUsd12h:
-          type: number
-        shortVolUsd12h:
-          type: number
-        longVolUsd24h:
-          type: number
-        shortVolUsd24h:
-          type: number
-        h1TotalVolUsd:
-          type: number
-        h4TotalVolUsd:
-          type: number
-        h12TotalVolUsd:
-          type: number
-        h24TotalVolUsd:
-          type: number
-        h1Amount:
-          type: number
-        h4Amount:
-          type: number
-        h12Amount:
-          type: number
-        h24Amount:
-          type: number
-      required: [longVolUsd1h, shortVolUsd1h, longVolUsd4h, shortVolUsd4h, longVolUsd12h, shortVolUsd12h, longVolUsd24h, shortVolUsd24h, h1TotalVolUsd, h4TotalVolUsd, h12TotalVolUsd, h24TotalVolUsd, h1Amount, h4Amount, h12Amount, h24Amount]
-
-    LiqMapBucket:
-      type: object
-      properties:
-        price:
-          type: number
-        longLiqUsd:
-          type: number
-        shortLiqUsd:
-          type: number
-        totalUsd:
-          type: number
-      required: [price, longLiqUsd, shortLiqUsd, totalUsd]
-
-    LiquidationMapResponse:
-      type: object
-      properties:
-        buckets:
-          type: array
-          items:
-            $ref: "#/components/schemas/LiqMapBucket"
-        currentPrice:
-          type: number
-        priceRange:
-          type: object
-          properties:
-            min:
-              type: number
-            max:
-              type: number
-          required: [min, max]
-        updatedAt:
-          type: number
-      required: [buckets, currentPrice, priceRange, updatedAt]
-
-    CoinalyzeLiqCandle:
-      type: object
-      properties:
-        t:
-          type: number
-        longBtc:
-          type: number
-        shortBtc:
-          type: number
-        longUsd:
-          type: number
-        shortUsd:
-          type: number
-      required: [t, longBtc, shortBtc, longUsd, shortUsd]
-
-    CoinalyzeLiquidationResponse:
-      type: object
-      properties:
-        candles:
-          type: array
-          items:
-            $ref: "#/components/schemas/CoinalyzeLiqCandle"
-        range:
-          type: string
-      required: [candles, range]
+          nullable: true
