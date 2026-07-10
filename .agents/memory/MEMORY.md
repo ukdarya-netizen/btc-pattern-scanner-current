@@ -1,1 +1,2 @@
 - [Coinalyze rate limits](coinalyze-rate-limits.md) — free-tier Coinalyze 429s are expected during multi-symbol batch cycles; handled via retry-after backoff, not a bug to chase.
+- [CoinGlass v4 API quirks](coinglass-api-quirks.md) — per-symbol only endpoints, kebab-case paths, ms timestamps, taker volume needs separate merge.

@@ -3,6 +3,7 @@ import { logger } from "./lib/logger";
 import { telegramService } from "./services/telegram";
 import { altScanner } from "./services/altScanner";
 import { apiStatusService } from "./services/apiStatus";
+import { checkCoinglassHealth } from "./services/coinglassData";
 import { testConnection } from "./db";
 
 const rawPort = process.env["PORT"];
@@ -19,7 +20,13 @@ if (Number.isNaN(port) || port <= 0) {
 telegramService.init();
 altScanner.start();
 
-apiStatusService.register("coinalyze", "Coinalyze", async () => {
+apiStatusService.register("coinglass", "CoinGlass (основной)", async () => {
+  const key = process.env["COINGLASS_API_KEY"];
+  if (!key) return { ok: false, message: "нет API-ключа" };
+  return checkCoinglassHealth();
+});
+
+apiStatusService.register("coinalyze", "Coinalyze (резерв)", async () => {
   const key = process.env["COINALYZE_API_KEY"];
   if (!key) return { ok: false, message: "нет API-ключа" };
   const res = await fetch("https://api.coinalyze.net/v1/exchanges", { headers: { api_key: key } });

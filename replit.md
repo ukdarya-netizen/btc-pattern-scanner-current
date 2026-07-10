@@ -9,13 +9,15 @@
 Required secrets: `BYBIT_API_KEY`, `BYBIT_API_SECRET`, `BINGX_API_KEY`, `BINGX_API_SECRET`, `COINGLASS_API_KEY`, `COINALYZE_API_KEY`, `SESSION_SECRET`, `TELEGRAM_BOT_TOKEN`
 Optional: `TELEGRAM_ADMIN_CHAT_IDS` (comma-separated chat IDs for private bot alerts)
 
-Note: exchange keys (Bybit/BingX) are kept from the prior BTC engine but are not currently used by the scanner — all market data now comes from Coinalyze. CoinGlass key is also retained but unused by the scanner itself.
+Note: exchange keys (Bybit/BingX) are kept from the prior BTC engine but are not currently used by the scanner. CoinGlass is now the primary market data source, with Coinalyze kept as an automatic fallback.
 
 ## Stack
 - **Frontend**: React 19, Vite, Tailwind v4, TanStack Query, Wouter
 - **Backend**: Node.js, Express, TypeScript, esbuild
 - **DB**: PostgreSQL via Drizzle ORM
-- **Data source**: Coinalyze REST API (Bybit exchange code `.6`) — OI history, futures OHLCV, spot OHLCV, funding rate. Binance REST is geo-blocked (HTTP 451) from Replit, so it's not used.
+- **Data source**: CoinGlass v4 REST API (Bybit exchange) is primary — OI history, futures/spot price OHLC, taker buy/sell volume, funding rate. Coinalyze REST API is kept as automatic fallback per data batch (used if CoinGlass errors or returns empty). Binance REST is geo-blocked (HTTP 451) from Replit, so it's not used.
+- `services/marketData.ts` is the single entry point `altScanner.ts` calls for market data — it tries CoinGlass first (`coinglassData.ts`) and falls back to Coinalyze (`coinalyzeData.ts`) per batch (OI/futures OHLCV/spot OHLCV/funding), independently.
+- CoinGlass has no multi-symbol batch endpoint like Coinalyze, so `coinglassData.ts` fetches per-symbol sequentially (price + taker-buy-sell-volume merged by timestamp into one `OhlcvBar[]`, OI history, funding rate) — still well within CoinGlass's per-minute rate limit even across 20 symbols.
 
 ## Where things live
 - `artifacts/dashboard/src/pages/scanner.tsx` — single dashboard page: overall stats, per-pattern stats, open positions, watchlist metrics, recent pattern hits

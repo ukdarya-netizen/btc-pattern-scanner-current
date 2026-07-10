@@ -1,14 +1,13 @@
 import { logger } from "../lib/logger";
 import { telegramService } from "./telegram";
 import { dbService } from "./dbService";
+import type { OiHistBar, OhlcvBar } from "./coinalyzeData";
 import {
   fetchOiHistoryBatch,
   fetchFuturesOhlcvBatch,
   fetchSpotOhlcvBatch,
   fetchFundingRateBatch,
-  type OiHistBar,
-  type OhlcvBar,
-} from "./coinalyzeData";
+} from "./marketData";
 
 export const WATCHED_SYMBOLS = [
   "SOLUSDT", "XRPUSDT", "DOGEUSDT", "ADAUSDT", "AVAXUSDT",
