@@ -93,4 +93,35 @@ export interface PatternSignal {
   cycleCount: number;
   firedAt: string;
   closedAt?: string | null;
+  closePrice?: string | null;
+  pnlPct?: string | null;
+}
+
+export interface OpenPosition {
+  id: number;
+  symbol: string;
+  pattern: string;
+  entryPrice: number;
+  cyclesHeld: number;
+  currentPrice: number;
+  unrealizedPnlPct: number;
+}
+
+export interface OverallStats {
+  total: number;
+  open: number;
+  closed: number;
+  wins: number;
+  losses: number;
+  winRate: number;
+  avgPnlPct: number;
+}
+
+export interface PatternStats {
+  pattern: string;
+  total: number;
+  closed: number;
+  wins: number;
+  winRate: number;
+  avgPnlPct: number;
 }

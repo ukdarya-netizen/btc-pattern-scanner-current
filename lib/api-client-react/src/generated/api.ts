@@ -21,8 +21,11 @@ import type {
   CoinMetrics,
   HealthStatus,
   OkResponse,
+  OpenPosition,
+  OverallStats,
   PatternHit,
   PatternSignal,
+  PatternStats,
 } from "./api.schemas";
 
 import { customFetch } from "../custom-fetch";
@@ -326,6 +329,234 @@ export function useGetScannerSignals<
   request?: SecondParameter<typeof customFetch>;
 }): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
   const queryOptions = getGetScannerSignalsQueryOptions(options);
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+/**
+ * @summary Currently open (unclosed) pattern signals with live unrealized PnL
+ */
+export const getGetScannerOpenPositionsUrl = () => {
+  return `/api/scanner/open-positions`;
+};
+
+export const getScannerOpenPositions = async (
+  options?: RequestInit,
+): Promise<OpenPosition[]> => {
+  return customFetch<OpenPosition[]>(getGetScannerOpenPositionsUrl(), {
+    ...options,
+    method: "GET",
+  });
+};
+
+export const getGetScannerOpenPositionsQueryKey = () => {
+  return [`/api/scanner/open-positions`] as const;
+};
+
+export const getGetScannerOpenPositionsQueryOptions = <
+  TData = Awaited<ReturnType<typeof getScannerOpenPositions>>,
+  TError = ErrorType<unknown>,
+>(options?: {
+  query?: UseQueryOptions<
+    Awaited<ReturnType<typeof getScannerOpenPositions>>,
+    TError,
+    TData
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey =
+    queryOptions?.queryKey ?? getGetScannerOpenPositionsQueryKey();
+
+  const queryFn: QueryFunction<
+    Awaited<ReturnType<typeof getScannerOpenPositions>>
+  > = ({ signal }) => getScannerOpenPositions({ signal, ...requestOptions });
+
+  return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<
+    Awaited<ReturnType<typeof getScannerOpenPositions>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type GetScannerOpenPositionsQueryResult = NonNullable<
+  Awaited<ReturnType<typeof getScannerOpenPositions>>
+>;
+export type GetScannerOpenPositionsQueryError = ErrorType<unknown>;
+
+/**
+ * @summary Currently open (unclosed) pattern signals with live unrealized PnL
+ */
+
+export function useGetScannerOpenPositions<
+  TData = Awaited<ReturnType<typeof getScannerOpenPositions>>,
+  TError = ErrorType<unknown>,
+>(options?: {
+  query?: UseQueryOptions<
+    Awaited<ReturnType<typeof getScannerOpenPositions>>,
+    TError,
+    TData
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getGetScannerOpenPositionsQueryOptions(options);
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+/**
+ * @summary Overall signal statistics
+ */
+export const getGetScannerOverallStatsUrl = () => {
+  return `/api/scanner/stats/overall`;
+};
+
+export const getScannerOverallStats = async (
+  options?: RequestInit,
+): Promise<OverallStats> => {
+  return customFetch<OverallStats>(getGetScannerOverallStatsUrl(), {
+    ...options,
+    method: "GET",
+  });
+};
+
+export const getGetScannerOverallStatsQueryKey = () => {
+  return [`/api/scanner/stats/overall`] as const;
+};
+
+export const getGetScannerOverallStatsQueryOptions = <
+  TData = Awaited<ReturnType<typeof getScannerOverallStats>>,
+  TError = ErrorType<unknown>,
+>(options?: {
+  query?: UseQueryOptions<
+    Awaited<ReturnType<typeof getScannerOverallStats>>,
+    TError,
+    TData
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey =
+    queryOptions?.queryKey ?? getGetScannerOverallStatsQueryKey();
+
+  const queryFn: QueryFunction<
+    Awaited<ReturnType<typeof getScannerOverallStats>>
+  > = ({ signal }) => getScannerOverallStats({ signal, ...requestOptions });
+
+  return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<
+    Awaited<ReturnType<typeof getScannerOverallStats>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type GetScannerOverallStatsQueryResult = NonNullable<
+  Awaited<ReturnType<typeof getScannerOverallStats>>
+>;
+export type GetScannerOverallStatsQueryError = ErrorType<unknown>;
+
+/**
+ * @summary Overall signal statistics
+ */
+
+export function useGetScannerOverallStats<
+  TData = Awaited<ReturnType<typeof getScannerOverallStats>>,
+  TError = ErrorType<unknown>,
+>(options?: {
+  query?: UseQueryOptions<
+    Awaited<ReturnType<typeof getScannerOverallStats>>,
+    TError,
+    TData
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getGetScannerOverallStatsQueryOptions(options);
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+/**
+ * @summary Per-pattern signal statistics
+ */
+export const getGetScannerPatternStatsUrl = () => {
+  return `/api/scanner/stats/patterns`;
+};
+
+export const getScannerPatternStats = async (
+  options?: RequestInit,
+): Promise<PatternStats[]> => {
+  return customFetch<PatternStats[]>(getGetScannerPatternStatsUrl(), {
+    ...options,
+    method: "GET",
+  });
+};
+
+export const getGetScannerPatternStatsQueryKey = () => {
+  return [`/api/scanner/stats/patterns`] as const;
+};
+
+export const getGetScannerPatternStatsQueryOptions = <
+  TData = Awaited<ReturnType<typeof getScannerPatternStats>>,
+  TError = ErrorType<unknown>,
+>(options?: {
+  query?: UseQueryOptions<
+    Awaited<ReturnType<typeof getScannerPatternStats>>,
+    TError,
+    TData
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey =
+    queryOptions?.queryKey ?? getGetScannerPatternStatsQueryKey();
+
+  const queryFn: QueryFunction<
+    Awaited<ReturnType<typeof getScannerPatternStats>>
+  > = ({ signal }) => getScannerPatternStats({ signal, ...requestOptions });
+
+  return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<
+    Awaited<ReturnType<typeof getScannerPatternStats>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type GetScannerPatternStatsQueryResult = NonNullable<
+  Awaited<ReturnType<typeof getScannerPatternStats>>
+>;
+export type GetScannerPatternStatsQueryError = ErrorType<unknown>;
+
+/**
+ * @summary Per-pattern signal statistics
+ */
+
+export function useGetScannerPatternStats<
+  TData = Awaited<ReturnType<typeof getScannerPatternStats>>,
+  TError = ErrorType<unknown>,
+>(options?: {
+  query?: UseQueryOptions<
+    Awaited<ReturnType<typeof getScannerPatternStats>>,
+    TError,
+    TData
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getGetScannerPatternStatsQueryOptions(options);
 
   const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
     queryKey: QueryKey;

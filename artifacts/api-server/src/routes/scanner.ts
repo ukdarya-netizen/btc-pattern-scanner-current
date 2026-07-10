@@ -17,4 +17,18 @@ router.get("/scanner/signals", async (_req, res) => {
   res.json(signals);
 });
 
+router.get("/scanner/open-positions", (_req, res) => {
+  res.json(altScanner.getOpenPositions());
+});
+
+router.get("/scanner/stats/overall", async (_req, res) => {
+  const stats = await dbService.getOverallStats();
+  res.json(stats);
+});
+
+router.get("/scanner/stats/patterns", async (_req, res) => {
+  const stats = await dbService.getPatternStats();
+  res.json(stats);
+});
+
 export default router;

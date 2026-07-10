@@ -1,1 +1,1 @@
-- [CoinGlass V4 integration](coinglass-v4-integration.md) — V4 base URL (open-api-v4.coinglass.com), CG-API-KEY header, netflow replaces CVD in signal engine
+- [Coinalyze rate limits](coinalyze-rate-limits.md) — free-tier Coinalyze 429s are expected during multi-symbol batch cycles; handled via retry-after backoff, not a bug to chase.

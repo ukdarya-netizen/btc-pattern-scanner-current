@@ -2,19 +2,19 @@ import { logger } from "../lib/logger";
 import { telegramService } from "./telegram";
 import { dbService } from "./dbService";
 import {
-  fetchOiHist,
-  fetchFuturesKlines,
-  fetchSpotKlines,
-  fetchTakerLongShortRatio,
-  fetchFundingRate,
-  type RawKline,
-} from "./binanceData";
+  fetchOiHistoryBatch,
+  fetchFuturesOhlcvBatch,
+  fetchSpotOhlcvBatch,
+  fetchFundingRateBatch,
+  type OiHistBar,
+  type OhlcvBar,
+} from "./coinalyzeData";
 
 export const WATCHED_SYMBOLS = [
   "SOLUSDT", "XRPUSDT", "DOGEUSDT", "ADAUSDT", "AVAXUSDT",
   "LINKUSDT", "DOTUSDT", "LTCUSDT", "TRXUSDT", "NEARUSDT",
   "ARBUSDT", "OPUSDT", "APTUSDT", "SUIUSDT", "INJUSDT",
-  "TIAUSDT", "RUNEUSDT", "ATOMUSDT", "FTMUSDT", "WIFUSDT",
+  "TIAUSDT", "RUNEUSDT", "ATOMUSDT", "SEIUSDT", "WIFUSDT",
 ];
 
 const CYCLE_MS = 5 * 60_000;
@@ -64,34 +64,29 @@ function sum(arr: number[]): number {
   return arr.reduce((a, b) => a + b, 0);
 }
 
-function klineClose(k: RawKline): number { return Number(k[4]); }
-function klineVolume(k: RawKline): number { return Number(k[5]); }
-function klineTakerBuyQuote(k: RawKline): number { return Number(k[10]); }
-function klineQuoteVolume(k: RawKline): number { return Number(k[7]); }
+function ohlcvClose(bar: OhlcvBar): number { return bar.c; }
+function ohlcvVolume(bar: OhlcvBar): number { return bar.v; }
+function ohlcvBuyVolume(bar: OhlcvBar): number { return bar.bv; }
 
-async function computeMetrics(symbol: string): Promise<CoinMetrics | null> {
+interface SymbolCycleData {
+  oiHist: OiHistBar[];
+  futOhlcv: OhlcvBar[];
+  spotOhlcv: OhlcvBar[];
+  funding: number | null;
+}
+
+function computeMetricsFromData(symbol: string, data: SymbolCycleData): CoinMetrics | null {
   try {
-    const [oiHist, futKlines5m, futKlines4h, spotKlines5m, spotKlines1h, spotKlines4h, taker5m, taker15m, funding] =
-      await Promise.all([
-        fetchOiHist(symbol, "5m", 289),
-        fetchFuturesKlines(symbol, "5m", 289),
-        fetchFuturesKlines(symbol, "4h", 9),
-        fetchSpotKlines(symbol, "5m", 60),
-        fetchSpotKlines(symbol, "1h", 5),
-        fetchSpotKlines(symbol, "4h", 5),
-        fetchTakerLongShortRatio(symbol, "5m", 3),
-        fetchTakerLongShortRatio(symbol, "15m", 3),
-        fetchFundingRate(symbol),
-      ]);
+    const { oiHist, futOhlcv, spotOhlcv, funding } = data;
 
-    if (oiHist.length < 2 || futKlines5m.length < 2 || spotKlines5m.length < 2) {
+    if (oiHist.length < 2 || futOhlcv.length < 2 || spotOhlcv.length < 2) {
       logger.warn({ symbol }, "altScanner: insufficient data, skipping cycle");
       return null;
     }
 
     const oiAt = (barsAgo: number): number => {
       const idx = oiHist.length - 1 - barsAgo;
-      return idx >= 0 ? Number(oiHist[idx]!.sumOpenInterest) : Number(oiHist[0]!.sumOpenInterest);
+      return idx >= 0 ? oiHist[idx]!.c : oiHist[0]!.c;
     };
     const oiLast = oiAt(0);
     const oiChange = {
@@ -104,8 +99,8 @@ async function computeMetrics(symbol: string): Promise<CoinMetrics | null> {
     };
 
     const priceAt = (barsAgo: number): number => {
-      const idx = futKlines5m.length - 1 - barsAgo;
-      return idx >= 0 ? klineClose(futKlines5m[idx]!) : klineClose(futKlines5m[0]!);
+      const idx = futOhlcv.length - 1 - barsAgo;
+      return idx >= 0 ? ohlcvClose(futOhlcv[idx]!) : ohlcvClose(futOhlcv[0]!);
     };
     const priceLast = priceAt(0);
     const priceChange = {
@@ -116,48 +111,54 @@ async function computeMetrics(symbol: string): Promise<CoinMetrics | null> {
       h24: pctChange(priceAt(288), priceLast),
     };
 
-    const recentFutVols = futKlines5m.slice(-20).map(klineVolume);
+    const recentFutVols = futOhlcv.slice(-20).map(ohlcvVolume);
     const lastFutVol = recentFutVols[recentFutVols.length - 1] ?? 0;
     const avgFutVol = sum(recentFutVols.slice(0, -1)) / Math.max(1, recentFutVols.length - 1);
     const volMult = avgFutVol > 0 ? lastFutVol / avgFutVol : 0;
 
-    const fut4hVols = futKlines4h.map(klineVolume);
-    const lastFut4hVol = fut4hVols[fut4hVols.length - 1] ?? 0;
-    const avgFut4hVol = sum(fut4hVols.slice(0, -1)) / Math.max(1, fut4hVols.length - 1);
+    // 4h volume multiplier: last 48 bars (4h) vs average of the preceding 4h blocks in the 24h window.
+    const fut4hBlocks: number[] = [];
+    for (let i = futOhlcv.length; i > 0; i -= 48) {
+      const start = Math.max(0, i - 48);
+      fut4hBlocks.push(sum(futOhlcv.slice(start, i).map(ohlcvVolume)));
+    }
+    const lastFut4hVol = fut4hBlocks[0] ?? 0;
+    const priorFut4hBlocks = fut4hBlocks.slice(1);
+    const avgFut4hVol = sum(priorFut4hBlocks) / Math.max(1, priorFut4hBlocks.length);
     const volMult4h = avgFut4hVol > 0 ? lastFut4hVol / avgFut4hVol : 0;
 
-    const recentSpotVols = spotKlines5m.slice(-20).map(klineVolume);
+    const recentSpotVols = spotOhlcv.slice(-20).map(ohlcvVolume);
     const lastSpotVol = recentSpotVols[recentSpotVols.length - 1] ?? 0;
     const avgSpotVol = sum(recentSpotVols.slice(0, -1)) / Math.max(1, recentSpotVols.length - 1);
     const spotVolMult = avgSpotVol > 0 ? lastSpotVol / avgSpotVol : 0;
 
-    const cvdOverWindow = (klines: RawKline[], bars: number): number => {
-      const slice = klines.slice(-bars);
-      return sum(slice.map((k) => klineTakerBuyQuote(k) - (klineQuoteVolume(k) - klineTakerBuyQuote(k))));
+    // CVD delta over a window: sum(buyVol - sellVol) = sum(2*buyVol - totalVol) across the last `bars` candles.
+    const cvdOverWindow = (bars: OhlcvBar[], count: number): number => {
+      const slice = bars.slice(-count);
+      return sum(slice.map((b) => 2 * ohlcvBuyVolume(b) - ohlcvVolume(b)));
     };
 
     const spotCvd: CvdFlags = {
-      m5: cvdOverWindow(spotKlines5m, 1) > 0,
-      m15: cvdOverWindow(spotKlines5m, 3) > 0,
-      h1: cvdOverWindow(spotKlines1h, 1) > 0,
-      h4: cvdOverWindow(spotKlines4h, 1) > 0,
+      m5: cvdOverWindow(spotOhlcv, 1) > 0,
+      m15: cvdOverWindow(spotOhlcv, 3) > 0,
+      h1: cvdOverWindow(spotOhlcv, 12) > 0,
+      h4: cvdOverWindow(spotOhlcv, 48) > 0,
     };
 
-    const delta1h = cvdOverWindow(spotKlines1h, 1);
-    const vol1h = sum(spotKlines1h.slice(-1).map(klineQuoteVolume));
+    const delta1h = cvdOverWindow(spotOhlcv, 12);
+    const vol1h = sum(spotOhlcv.slice(-12).map(ohlcvVolume));
     const cvdStrength1h = vol1h > 0 ? Math.abs(delta1h) / vol1h : 0;
-    const cvdDelta4h = cvdOverWindow(spotKlines4h, 1);
+    const cvdDelta4h = cvdOverWindow(spotOhlcv, 48);
 
-    const takerLatest = (points: { buyVol: string; sellVol: string }[]): number => {
-      const p = points[points.length - 1];
-      if (!p) return 0;
-      const buy = Number(p.buyVol);
-      const sell = Number(p.sellVol);
-      const total = buy + sell;
+    const takerNetBuyPctOverWindow = (bars: OhlcvBar[], count: number): number => {
+      const slice = bars.slice(-count);
+      const buy = sum(slice.map(ohlcvBuyVolume));
+      const total = sum(slice.map(ohlcvVolume));
+      const sell = total - buy;
       return total > 0 ? ((buy - sell) / total) * 100 : 0;
     };
-    const takerNetBuyPct = takerLatest(taker5m);
-    const takerNetBuyPct15m = takerLatest(taker15m);
+    const takerNetBuyPct = takerNetBuyPctOverWindow(futOhlcv, 1);
+    const takerNetBuyPct15m = takerNetBuyPctOverWindow(futOhlcv, 3);
 
     return {
       symbol,
@@ -358,6 +359,24 @@ const PATTERNS: PatternDef[] = [
 // volume_taker has an OR-branch: (cycleCount>=2 OR spotVolMult>=4x). Handled specially below.
 const VOLUME_TAKER_ID = "volume_taker";
 
+// open position management: no auto-trading, this is purely for dashboard/stat purposes
+const TAKE_PROFIT_PCT = 1.5;
+const STOP_LOSS_PCT = 1.0;
+const MAX_HOLD_CYCLES = 48; // ~4h at 5min cycles
+
+interface OpenPosition {
+  id: number;
+  symbol: string;
+  pattern: string;
+  entryPrice: number;
+  cyclesHeld: number;
+}
+
+export interface OpenPositionView extends OpenPosition {
+  currentPrice: number;
+  unrealizedPnlPct: number;
+}
+
 class AltScanner {
   private timer: ReturnType<typeof setInterval> | null = null;
   private prevCycle = new Map<string, PrevCycle>();
@@ -365,12 +384,27 @@ class AltScanner {
   private firedEpisode = new Map<string, boolean>(); // key: `${symbol}:${patternId}` - avoid re-firing every cycle
   private latestMetrics = new Map<string, CoinMetrics>();
   private recentHits: PatternHit[] = [];
+  private openPositions = new Map<number, OpenPosition>();
 
   start() {
     if (this.timer) return;
-    void this.runCycle();
+    void this.hydrateOpenPositions().then(() => this.runCycle());
     this.timer = setInterval(() => void this.runCycle(), CYCLE_MS);
     logger.info({ symbols: WATCHED_SYMBOLS.length, cycleMs: CYCLE_MS }, "AltScanner started");
+  }
+
+  private async hydrateOpenPositions() {
+    const rows = await dbService.getOpenSignals();
+    for (const row of rows) {
+      this.openPositions.set(row.id, {
+        id: row.id,
+        symbol: row.symbol,
+        pattern: row.pattern,
+        entryPrice: Number(row.price),
+        cyclesHeld: 0,
+      });
+    }
+    logger.info({ count: this.openPositions.size }, "AltScanner: hydrated open positions from DB");
   }
 
   stop() {
@@ -396,9 +430,20 @@ class AltScanner {
 
   private async runCycle() {
     logger.info("AltScanner: cycle start");
+    const oiHistBySymbol = await fetchOiHistoryBatch(WATCHED_SYMBOLS);
+    const futOhlcvBySymbol = await fetchFuturesOhlcvBatch(WATCHED_SYMBOLS);
+    const spotOhlcvBySymbol = await fetchSpotOhlcvBatch(WATCHED_SYMBOLS);
+    const fundingBySymbol = await fetchFundingRateBatch(WATCHED_SYMBOLS);
+
     for (const symbol of WATCHED_SYMBOLS) {
       try {
-        await this.processSymbol(symbol);
+        const data: SymbolCycleData = {
+          oiHist: oiHistBySymbol.get(symbol) ?? [],
+          futOhlcv: futOhlcvBySymbol.get(symbol) ?? [],
+          spotOhlcv: spotOhlcvBySymbol.get(symbol) ?? [],
+          funding: fundingBySymbol.get(symbol) ?? null,
+        };
+        this.processSymbol(symbol, data);
       } catch (e) {
         logger.warn({ symbol, err: (e as Error).message }, "AltScanner: symbol processing failed");
       }
@@ -406,8 +451,8 @@ class AltScanner {
     logger.info("AltScanner: cycle done");
   }
 
-  private async processSymbol(symbol: string) {
-    const m = await computeMetrics(symbol);
+  private processSymbol(symbol: string, data: SymbolCycleData) {
+    const m = computeMetricsFromData(symbol, data);
     if (!m) return;
     this.latestMetrics.set(symbol, m);
 
@@ -450,7 +495,11 @@ class AltScanner {
 
       logger.info({ symbol, pattern: pattern.id, reason }, "AltScanner: pattern fired");
       telegramService.publishPatternSignal(hit);
-      void dbService.savePatternSignal(hit);
+      void dbService.savePatternSignal(hit).then((id) => {
+        if (id !== null) {
+          this.openPositions.set(id, { id, symbol, pattern: pattern.id, entryPrice: m.price, cyclesHeld: 0 });
+        }
+      });
 
       if (pattern.id === "liquidation_cascade") cascadePhase1Active = false;
     }
@@ -460,6 +509,38 @@ class AltScanner {
       oi4h: m.oiChange.h4,
       spotVolMult: m.spotVolMult,
       cascadePhase1Active,
+    });
+
+    this.checkOpenPositions(symbol, m.price);
+  }
+
+  private checkOpenPositions(symbol: string, currentPrice: number) {
+    for (const pos of this.openPositions.values()) {
+      if (pos.symbol !== symbol) continue;
+      pos.cyclesHeld += 1;
+      const pnlPct = pctChange(pos.entryPrice, currentPrice);
+      const hitTp = pnlPct >= TAKE_PROFIT_PCT;
+      const hitSl = pnlPct <= -STOP_LOSS_PCT;
+      const timedOut = pos.cyclesHeld >= MAX_HOLD_CYCLES;
+      if (hitTp || hitSl || timedOut) {
+        this.openPositions.delete(pos.id);
+        void dbService.closeSignal(pos.id, currentPrice, pnlPct);
+        logger.info(
+          { symbol, pattern: pos.pattern, pnlPct, reason: hitTp ? "take_profit" : hitSl ? "stop_loss" : "timeout" },
+          "AltScanner: position closed",
+        );
+      }
+    }
+  }
+
+  getOpenPositions(): OpenPositionView[] {
+    return Array.from(this.openPositions.values()).map((p) => {
+      const currentPrice = this.latestMetrics.get(p.symbol)?.price ?? p.entryPrice;
+      return {
+        ...p,
+        currentPrice,
+        unrealizedPnlPct: pctChange(p.entryPrice, currentPrice),
+      };
     });
   }
 }

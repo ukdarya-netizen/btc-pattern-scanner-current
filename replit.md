@@ -1,61 +1,79 @@
-# BTC Scalping Bot
+# ALT Pattern Scanner
 
-A Bitcoin futures scalping signal bot — acts as a signal analyst, user trades manually based on signals published to a Telegram channel.
+Мульти-альт паттерн-сканер — следит за списком из 20 альткоинов, вычисляет метрики по OI/цене/объёму/CVD/funding на каждом 5-минутном цикле и публикует в Telegram сигнал, когда монета подходит под один из 13 именованных паттернов. Бот остаётся сигнальным аналитиком — реальной автоторговли нет, пользователь торгует вручную по сигналам из канала.
 
 ## Run & Operate
 - API server: `pnpm --filter @workspace/api-server run dev`
 - Dashboard: `pnpm --filter @workspace/dashboard run dev`
-- Force daily report: `POST /api/admin/report/daily`
-- Force weekly report: `POST /api/admin/report/weekly`
 
 Required secrets: `BYBIT_API_KEY`, `BYBIT_API_SECRET`, `BINGX_API_KEY`, `BINGX_API_SECRET`, `COINGLASS_API_KEY`, `COINALYZE_API_KEY`, `SESSION_SECRET`, `TELEGRAM_BOT_TOKEN`
 Optional: `TELEGRAM_ADMIN_CHAT_IDS` (comma-separated chat IDs for private bot alerts)
 
+Note: exchange keys (Bybit/BingX) are kept from the prior BTC engine but are not currently used by the scanner — all market data now comes from Coinalyze. CoinGlass key is also retained but unused by the scanner itself.
+
 ## Stack
-- **Frontend**: React 19, Vite, Tailwind v4, Recharts, TanStack Query, Wouter
+- **Frontend**: React 19, Vite, Tailwind v4, TanStack Query, Wouter
 - **Backend**: Node.js, Express, TypeScript, esbuild
 - **DB**: PostgreSQL via Drizzle ORM
-- **Exchanges**: Bybit (WebSocket), BingX (REST polling fallback — WS blocked in Replit)
+- **Data source**: Coinalyze REST API (Bybit exchange code `.6`) — OI history, futures OHLCV, spot OHLCV, funding rate. Binance REST is geo-blocked (HTTP 451) from Replit, so it's not used.
 
 ## Where things live
-- `artifacts/dashboard/src/pages/` — Terminal, Risk, Signal, Liquidations pages
-- `artifacts/api-server/src/services/` — all core services
-- `artifacts/api-server/src/routes/` — API routes incl. `/admin` for manual reports
-- DB schema: `artifacts/api-server/src/db/`
+- `artifacts/dashboard/src/pages/scanner.tsx` — single dashboard page: overall stats, per-pattern stats, open positions, watchlist metrics, recent pattern hits
+- `artifacts/api-server/src/services/altScanner.ts` — core scan loop, metric computation, all 13 pattern definitions, open-position tracking
+- `artifacts/api-server/src/services/coinalyzeData.ts` — Coinalyze REST client with retry/backoff for rate limits, batch fetchers for OI/OHLCV/funding
+- `artifacts/api-server/src/services/dbService.ts` — persistence: save/close pattern signals, overall + per-pattern stats, open signals
+- `artifacts/api-server/src/services/telegram.ts` — send-only Telegram client, publishes pattern hits to the channel
+- `artifacts/api-server/src/routes/scanner.ts` — API routes: `/scanner/metrics`, `/scanner/hits`, `/scanner/signals`, `/scanner/open-positions`, `/scanner/stats/overall`, `/scanner/stats/patterns`
+- DB schema: `artifacts/api-server/src/db/schema.ts` (`pattern_signals` table)
 
-## Fractal Pattern Engine
-- `fractalService.ts` — DTW-based pattern matching on 1D (2001 candles, ~2019→now) + 4H (1000 candles via BingX REST)
-- Algorithm: DTW price distance (0.7) + Pearson volume correlation (0.3) = similarity_score per match
-- Collects top-20 matches per timeframe, derives probability (win-rate), avg SL/TP, expected move
-- Combined signal: 1D + 4H agree → average score; single TF → 20% penalty
-- Gate threshold: overall_signal_score ≥ 0.45 + win-rate ≥ 55% + R:R ≥ 1.5
-- **Fractal is the primary gate in signalTracker** — without a valid fractal signal, no trades open
-- Refreshes: 1D every 6h, 4H every 4h
-- API endpoint: `GET /api/fractal/signal` — returns combined + per-TF signals with full historical performance
-- 4H data: BingX public REST (Bybit blocked with 403 in Replit), fallback to CryptoCompare 4H aggregate
+## Watchlist
+20 alts (all Coinalyze futures symbol `${SYMBOL}.6`, spot `s${SYMBOL}.6`): SOL, XRP, DOGE, ADA, AVAX, LINK, DOT, LTC, TRX, NEAR, ARB, OP, APT, SUI, INJ, TIA, RUNE, ATOM, SEI, WIF (all vs USDT).
+
+## Cycle & metrics
+- Runs every 5 minutes. Fetches data for all 20 symbols per-batch (sequentially, not concurrently, to avoid Coinalyze 429s), then computes per-symbol metrics:
+  - `oiChange`: % change over 5m/15m/30m/1h/4h/24h windows
+  - `priceChange`: % change current/1h/3h/4h/24h
+  - `volMult` / `volMult4h`: futures volume vs recent average
+  - `spotVolMult`: spot volume vs recent average
+  - `takerNetBuyPct` (+15m variant) and `takerDominance` (buy/sell) from futures OHLCV buy-volume field
+  - `spotCvd`: boolean "CVD positive" flags on 5m/15m/1h/4h from spot OHLCV
+  - `fundingRate`
+- Per-symbol previous-cycle state (`oi30m`, `oi4h`, `spotVolMult`, cascade phase-1 flag) is kept in memory for patterns that need cycle-over-cycle comparison (e.g. `flush_reversal`, `liquidation_cascade`).
+- `cycleCount`: per-symbol/per-pattern streak counter of consecutive cycles where the base condition holds; some patterns require a minimum streak before firing (`requiredCycles`).
+
+## 13 patterns (all LONG-only)
+`dip_accumulation`, `4h_momentum`, `quiet_oi_accumulation`, `volume_taker` (OR-branch: streak≥2 or spotVolMult≥4x), `spot_absorption`, `flush_reversal`, `oi1h_breakout`, `spot_momentum_reversal`, `spot_oi4h_build`, `liquidation_cascade` (two-phase: sticky phase-1 flush detection gates phase-2 reversal), `spot_taker_lead`, `spot_divergence`, `accumulation_breakout`. Exact thresholds live in `PATTERNS` in `altScanner.ts` — treat that file as the source of truth over this doc.
+
+Each pattern fires once per "episode" (stays suppressed while its base condition keeps holding, re-arms once it goes false) — no time-based cooldown, matching the old "active state only" model.
+
+## Open positions (dashboard-only, no auto-trading)
+On pattern fire, a virtual position is recorded (entry price = signal price). Each cycle, positions are checked against:
+- Take-profit: +1.5%
+- Stop-loss: -1.0%
+- Max hold: 48 cycles (~4h)
+Closed positions are saved to `pattern_signals` with `closePrice`/`pnlPct`; open positions are hydrated from DB on startup and shown live on the dashboard.
+
+## Dashboard (`/`)
+- **Общая статистика по сигналам**: total/open/closed/wins/losses, win-rate, avg PnL%
+- **Статистика по паттернам**: per-pattern total/closed/wins/win-rate/avg PnL%
+- **Открытые позиции**: symbol, pattern, entry price, current price, unrealized PnL%, cycles held
+- **Watchlist Metrics**: live per-symbol metric table
+- **Recent Pattern Hits**: session-local log of fired patterns
 
 ## Architecture decisions
-- **SignalTracker is the single source of truth**: opens signal when `|score| ≥ 0.35` + valid SL/TP clusters, publishes to channel via `notifyChannel()`, saves to DB on close. No time-based cooldown — only "is there an active signal".
-- **Signal close triggers**: SL/TP hit OR direction reversal (score crosses ±0.35 to opposite side)
-- **Telegram**: manual `getUpdates` polling (replaces `bot.launch()` which broke on AbortSignal in node-fetch@2.x). All signals/reports go directly to channel `@bitcoinmarginmaster` via `notifyChannel()`.
-- **Daily report**: rolling 24h window (no dead zones). If 0 trades → sends "no signals" message instead of zeros. Manual trigger: `POST /api/admin/report/daily`.
-- **CoinGlass heatmap**: unavailable on current plan → auto-fallback to coinalyze synthetic map.
-
-## Product
-- Signal engine v2: 7 weighted components (MTF CVD 0.30, OB 0.20, CVD 0.15, Momentum 0.13, VWAP 0.10, EMA 0.07, Liq 0.05) + 6 display-only
-- 4 gates for `allGatesPassed`: MTF CVD alignment, OB confirms direction, SL on cluster ($3M+, 0.4–2.5%), TP on cluster ($2M+, R:R ≥ 1.5) — gates shown in Signal page but NOT required for signalTracker
-- Telegram channel `@bitcoinmarginmaster`: signal open/close + daily/weekly/monthly reports
-- Dashboard: Terminal `/`, Risk `/risk`, Signal `/signal`, Liquidations `/liquidations`
+- Coinalyze is rate-limited on the current plan — `getJson` in `coinalyzeData.ts` retries with retry-after-header-aware backoff (5 attempts). Occasional "rate limited, backing off" log lines during a cycle are expected, not an error.
+- Data fetches within a cycle run sequentially (OI → futures OHLCV → spot OHLCV → funding), not concurrently, specifically to reduce 429s.
+- Telegram: manual `getUpdates` polling in production; dev instance runs send-only (polling disabled) to avoid 409 conflicts with the production bot. All signals go directly to channel `@bitcoinmarginmaster` via `telegramService.publishPatternSignal()` — no private-chat delivery.
+- Old BTC-only engine (SignalEngine, fractalService DTW gate, bufferService, botEngine, Binance data layer, old Terminal/Risk/Signal/Liquidations pages) has been fully removed. Only `altScanner.ts`, `coinalyzeData.ts`, `dbService.ts`, `telegram.ts` remain in `services/`.
+- Old BTC-engine DB tables (`bot_sessions`, `open_positions`, `pnl_snapshots`, `trades`) were dropped; replaced by a single `pattern_signals` table.
 
 ## User preferences
-- No trailing stop, no news guard — do NOT add
-- patternService is display-only (weight: 0) — do NOT make it weighted
-- ATR is display-only for leverage calc — NEVER use for SL/TP (clusters only)
-- All signals and stats go directly to the channel, not via bot private chat
+- No trailing stop, no news guard, no cooldowns — do NOT add
+- No real trade execution — signals only, user trades manually
+- All signals go directly to the Telegram channel, not via bot private chat
+- Dashboard/Telegram copy stays in Russian, consistent with existing UI style
 
 ## Gotchas
-- MTF CVD needs ~5-10 min after restart to accumulate bucket data
-- BingX WebSocket never connects in Replit sandbox — REST polling is normal
-- `dbService.ts` has pre-existing TS errors (Date vs string Drizzle types) — server runs fine, do not fix
-- SignalTracker saves to DB only on CLOSE (SL/TP/reversal) — open signals don't appear in reports yet
-- Reports query `trades` table with `closed_at` not null — only closed signalTracker trades count
+- Coinalyze free-tier rate limits mean the first cycle(s) after a restart may show partial/stale data until retries clear — this is expected, not a bug.
+- `dbService.ts` may carry pre-existing TS quirks around Drizzle numeric/date types from the earlier engine — server runs fine.
+- Positions/signals only fully appear in stats once closed (TP/SL/timeout) — open positions show live in the "Открытые позиции" section but count toward `open` in stats until closed.

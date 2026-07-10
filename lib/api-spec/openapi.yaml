@@ -73,6 +73,49 @@ paths:
                 items:
                   $ref: "#/components/schemas/PatternSignal"
 
+  /scanner/open-positions:
+    get:
+      operationId: getScannerOpenPositions
+      tags: [scanner]
+      summary: Currently open (unclosed) pattern signals with live unrealized PnL
+      responses:
+        "200":
+          description: Open positions
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/OpenPosition"
+
+  /scanner/stats/overall:
+    get:
+      operationId: getScannerOverallStats
+      tags: [scanner]
+      summary: Overall signal statistics
+      responses:
+        "200":
+          description: Overall stats
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OverallStats"
+
+  /scanner/stats/patterns:
+    get:
+      operationId: getScannerPatternStats
+      tags: [scanner]
+      summary: Per-pattern signal statistics
+      responses:
+        "200":
+          description: Per-pattern stats
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/PatternStats"
+
   /admin/notify:
     post:
       operationId: adminNotify
@@ -236,3 +279,64 @@ components:
         closedAt:
           type: string
           nullable: true
+        closePrice:
+          type: string
+          nullable: true
+        pnlPct:
+          type: string
+          nullable: true
+
+    OpenPosition:
+      type: object
+      required: [id, symbol, pattern, entryPrice, cyclesHeld, currentPrice, unrealizedPnlPct]
+      properties:
+        id:
+          type: integer
+        symbol:
+          type: string
+        pattern:
+          type: string
+        entryPrice:
+          type: number
+        cyclesHeld:
+          type: integer
+        currentPrice:
+          type: number
+        unrealizedPnlPct:
+          type: number
+
+    OverallStats:
+      type: object
+      required: [total, open, closed, wins, losses, winRate, avgPnlPct]
+      properties:
+        total:
+          type: integer
+        open:
+          type: integer
+        closed:
+          type: integer
+        wins:
+          type: integer
+        losses:
+          type: integer
+        winRate:
+          type: number
+        avgPnlPct:
+          type: number
+
+    PatternStats:
+      type: object
+      required: [pattern, total, closed, wins, winRate, avgPnlPct]
+      properties:
+        pattern:
+          type: string
+        total:
+          type: integer
+        closed:
+          type: integer
+        wins:
+          type: integer
+        winRate:
+          type: number
+        avgPnlPct:
+          type: number

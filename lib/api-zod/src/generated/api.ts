@@ -103,9 +103,55 @@ export const GetScannerSignalsResponseItem = zod.object({
   cycleCount: zod.number(),
   firedAt: zod.string(),
   closedAt: zod.string().nullish(),
+  closePrice: zod.string().nullish(),
+  pnlPct: zod.string().nullish(),
 });
 export const GetScannerSignalsResponse = zod.array(
   GetScannerSignalsResponseItem,
+);
+
+/**
+ * @summary Currently open (unclosed) pattern signals with live unrealized PnL
+ */
+export const GetScannerOpenPositionsResponseItem = zod.object({
+  id: zod.number(),
+  symbol: zod.string(),
+  pattern: zod.string(),
+  entryPrice: zod.number(),
+  cyclesHeld: zod.number(),
+  currentPrice: zod.number(),
+  unrealizedPnlPct: zod.number(),
+});
+export const GetScannerOpenPositionsResponse = zod.array(
+  GetScannerOpenPositionsResponseItem,
+);
+
+/**
+ * @summary Overall signal statistics
+ */
+export const GetScannerOverallStatsResponse = zod.object({
+  total: zod.number(),
+  open: zod.number(),
+  closed: zod.number(),
+  wins: zod.number(),
+  losses: zod.number(),
+  winRate: zod.number(),
+  avgPnlPct: zod.number(),
+});
+
+/**
+ * @summary Per-pattern signal statistics
+ */
+export const GetScannerPatternStatsResponseItem = zod.object({
+  pattern: zod.string(),
+  total: zod.number(),
+  closed: zod.number(),
+  wins: zod.number(),
+  winRate: zod.number(),
+  avgPnlPct: zod.number(),
+});
+export const GetScannerPatternStatsResponse = zod.array(
+  GetScannerPatternStatsResponseItem,
 );
 
 /**

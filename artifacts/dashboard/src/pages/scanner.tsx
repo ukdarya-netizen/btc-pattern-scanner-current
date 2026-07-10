@@ -1,5 +1,12 @@
 import { Layout } from "@/components/layout";
-import { useGetScannerMetrics, useGetScannerHits, useGetScannerSignals } from "@workspace/api-client-react";
+import {
+  useGetScannerMetrics,
+  useGetScannerHits,
+  useGetScannerSignals,
+  useGetScannerOpenPositions,
+  useGetScannerOverallStats,
+  useGetScannerPatternStats,
+} from "@workspace/api-client-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 
 function pct(n: number | undefined) {
@@ -12,10 +19,139 @@ export default function Scanner() {
   const { data: metrics } = useGetScannerMetrics({ query: { refetchInterval: 5000 } } as any);
   const { data: hits } = useGetScannerHits({ query: { refetchInterval: 5000 } } as any);
   const { data: signals } = useGetScannerSignals({ query: { refetchInterval: 15000 } } as any);
+  const { data: openPositions } = useGetScannerOpenPositions({ query: { refetchInterval: 5000 } } as any);
+  const { data: overallStats } = useGetScannerOverallStats({ query: { refetchInterval: 15000 } } as any);
+  const { data: patternStats } = useGetScannerPatternStats({ query: { refetchInterval: 15000 } } as any);
 
   return (
     <Layout>
       <div className="grid grid-cols-1 xl:grid-cols-3 gap-2">
+        <Card className="xl:col-span-3">
+          <CardHeader>
+            <CardTitle>Общая статистика по сигналам</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-7 gap-3 text-center">
+              <div>
+                <div className="text-2xl font-bold">{overallStats?.total ?? "-"}</div>
+                <div className="text-muted-foreground text-xs">Всего сигналов</div>
+              </div>
+              <div>
+                <div className="text-2xl font-bold">{overallStats?.open ?? "-"}</div>
+                <div className="text-muted-foreground text-xs">Открытых</div>
+              </div>
+              <div>
+                <div className="text-2xl font-bold">{overallStats?.closed ?? "-"}</div>
+                <div className="text-muted-foreground text-xs">Закрытых</div>
+              </div>
+              <div>
+                <div className="text-2xl font-bold text-green">{overallStats?.wins ?? "-"}</div>
+                <div className="text-muted-foreground text-xs">Прибыльных</div>
+              </div>
+              <div>
+                <div className="text-2xl font-bold text-red">{overallStats?.losses ?? "-"}</div>
+                <div className="text-muted-foreground text-xs">Убыточных</div>
+              </div>
+              <div>
+                <div className="text-2xl font-bold">
+                  {overallStats?.winRate !== undefined ? `${overallStats.winRate.toFixed(1)}%` : "-"}
+                </div>
+                <div className="text-muted-foreground text-xs">Win-rate</div>
+              </div>
+              <div>
+                <div
+                  className={`text-2xl font-bold ${
+                    (overallStats?.avgPnlPct ?? 0) >= 0 ? "text-green" : "text-red"
+                  }`}
+                >
+                  {overallStats?.avgPnlPct !== undefined ? pct(overallStats.avgPnlPct) : "-"}
+                </div>
+                <div className="text-muted-foreground text-xs">Средний PnL</div>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card className="xl:col-span-3">
+          <CardHeader>
+            <CardTitle>Статистика по паттернам</CardTitle>
+          </CardHeader>
+          <CardContent className="overflow-x-auto">
+            <table className="w-full text-left">
+              <thead className="text-muted-foreground">
+                <tr>
+                  <th className="pr-3 py-1">Паттерн</th>
+                  <th className="pr-3">Всего</th>
+                  <th className="pr-3">Закрыто</th>
+                  <th className="pr-3">Прибыльных</th>
+                  <th className="pr-3">Win-rate</th>
+                  <th className="pr-3">Средний PnL</th>
+                </tr>
+              </thead>
+              <tbody>
+                {(patternStats ?? []).map((p) => (
+                  <tr key={p.pattern} className="border-t border-border/50">
+                    <td className="pr-3 py-1 font-bold">{p.pattern}</td>
+                    <td className="pr-3">{p.total}</td>
+                    <td className="pr-3">{p.closed}</td>
+                    <td className="pr-3">{p.wins}</td>
+                    <td className="pr-3">{p.winRate.toFixed(1)}%</td>
+                    <td className={`pr-3 ${p.avgPnlPct >= 0 ? "text-green" : "text-red"}`}>{pct(p.avgPnlPct)}</td>
+                  </tr>
+                ))}
+                {(!patternStats || patternStats.length === 0) && (
+                  <tr>
+                    <td colSpan={6} className="py-4 text-center text-muted-foreground">
+                      Пока нет статистики по паттернам
+                    </td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          </CardContent>
+        </Card>
+
+        <Card className="xl:col-span-3">
+          <CardHeader>
+            <CardTitle>Открытые позиции</CardTitle>
+          </CardHeader>
+          <CardContent className="overflow-x-auto">
+            <table className="w-full text-left">
+              <thead className="text-muted-foreground">
+                <tr>
+                  <th className="pr-3 py-1">Символ</th>
+                  <th className="pr-3">Паттерн</th>
+                  <th className="pr-3">Цена входа</th>
+                  <th className="pr-3">Текущая цена</th>
+                  <th className="pr-3">PnL (нереализ.)</th>
+                  <th className="pr-3">Циклов удержания</th>
+                </tr>
+              </thead>
+              <tbody>
+                {(openPositions ?? []).map((p) => (
+                  <tr key={p.id} className="border-t border-border/50">
+                    <td className="pr-3 py-1 font-bold">{p.symbol}</td>
+                    <td className="pr-3">{p.pattern}</td>
+                    <td className="pr-3">{p.entryPrice}</td>
+                    <td className="pr-3">{p.currentPrice}</td>
+                    <td className={`pr-3 ${p.unrealizedPnlPct >= 0 ? "text-green" : "text-red"}`}>
+                      {pct(p.unrealizedPnlPct)}
+                    </td>
+                    <td className="pr-3">{p.cyclesHeld}</td>
+                  </tr>
+                ))}
+                {(!openPositions || openPositions.length === 0) && (
+                  <tr>
+                    <td colSpan={6} className="py-4 text-center text-muted-foreground">
+                      Нет открытых позиций
+                    </td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          </CardContent>
+        </Card>
+
         <Card className="xl:col-span-2">
           <CardHeader>
             <CardTitle>Watchlist Metrics</CardTitle>

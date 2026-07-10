@@ -11,6 +11,8 @@ export const patternSignals = pgTable("pattern_signals", {
   metrics: jsonb("metrics").notNull(),
   firedAt: timestamptz("fired_at").notNull().defaultNow(),
   closedAt: timestamptz("closed_at"),
+  closePrice: numeric("close_price", { precision: 20, scale: 8 }),
+  pnlPct: numeric("pnl_pct", { precision: 10, scale: 4 }),
 }, (table) => [
   index("idx_pattern_signals_fired_at").on(table.firedAt),
   index("idx_pattern_signals_symbol_pattern").on(table.symbol, table.pattern),

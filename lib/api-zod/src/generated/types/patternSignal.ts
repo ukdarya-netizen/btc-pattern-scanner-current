@@ -15,4 +15,6 @@ export interface PatternSignal {
   cycleCount: number;
   firedAt: string;
   closedAt?: string | null;
+  closePrice?: string | null;
+  pnlPct?: string | null;
 }
