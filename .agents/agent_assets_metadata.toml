@@ -2,24 +2,6 @@ uploads = []
 generated = []
 
 [[outputs]]
-id = "sMCMcI86c3Y6WK_FfFlGN"
-uri = "file://btc_scalping_bot_audit.txt"
-type = "text"
-title = "BTC Scalping Bot — полный исходный код (аудит)"
-
-[[outputs]]
-id = "940ez16Y8vD-qK9IqrCwF"
-uri = "file://btc_bot_code.zip"
-type = "unspecified"
-title = "btc_bot_code.zip — все ключевые файлы"
-
-[[outputs]]
-id = "6NYl2JjVWCgjrC_bg2r0s"
-uri = "file://btc-scalping-bot-audit.zip"
-type = "unspecified"
-title = "BTC Scalping Bot — исходный код (аудит)"
-
-[[outputs]]
 id = "Tdrjrj_d31IV7bHlTjtkq"
 uri = "file://exports/alt-pattern-scanner-code.zip"
 type = "unspecified"
