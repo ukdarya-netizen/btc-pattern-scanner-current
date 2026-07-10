@@ -421,6 +421,9 @@ class AltScanner {
         realizedPnlPct: 0,
         remainingFraction: 1,
       });
+      // Mark the episode as already-fired so a still-holding pattern doesn't
+      // re-fire immediately after a restart just because in-memory state reset.
+      this.firedEpisode.set(this.streakKey(row.symbol, row.pattern), true);
     }
     logger.info({ count: this.openPositions.size }, "AltScanner: hydrated open positions from DB");
   }
@@ -497,7 +500,13 @@ class AltScanner {
       if (!cycleCountOk) continue;
 
       const alreadyFired = this.firedEpisode.get(key) === true;
-      if (alreadyFired) continue;
+      const alreadyOpen = Array.from(this.openPositions.values()).some(
+        (p) => p.symbol === symbol && p.pattern === pattern.id,
+      );
+      if (alreadyFired || alreadyOpen) {
+        this.firedEpisode.set(key, true);
+        continue;
+      }
 
       this.firedEpisode.set(key, true);
       const hit: PatternHit = {

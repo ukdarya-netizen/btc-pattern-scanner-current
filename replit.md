@@ -46,7 +46,7 @@ Note: exchange keys (Bybit/BingX) are kept from the prior BTC engine but are not
 ## 13 patterns (all LONG-only)
 `dip_accumulation`, `4h_momentum`, `quiet_oi_accumulation`, `volume_taker` (OR-branch: streak≥2 or spotVolMult≥4x), `spot_absorption`, `flush_reversal`, `oi1h_breakout`, `spot_momentum_reversal`, `spot_oi4h_build`, `liquidation_cascade` (two-phase: sticky phase-1 flush detection gates phase-2 reversal), `spot_taker_lead`, `spot_divergence`, `accumulation_breakout`. Exact thresholds live in `PATTERNS` in `altScanner.ts` — treat that file as the source of truth over this doc.
 
-Each pattern fires once per "episode" (stays suppressed while its base condition keeps holding, re-arms once it goes false) — no time-based cooldown, matching the old "active state only" model.
+Each pattern fires once per "episode" (stays suppressed while its base condition keeps holding, re-arms once it goes false) — no time-based cooldown, matching the old "active state only" model. Episode-suppression state is in-memory only, so on server restart it's rehydrated from any open (unclosed) `pattern_signals` rows for that symbol+pattern — otherwise a still-holding pattern would re-fire right after a restart. Firing also double-checks against currently open positions for the same symbol+pattern as a second guard.
 
 ## Open positions (dashboard-only, no auto-trading)
 On pattern fire, a virtual position is recorded (entry price = signal price). Each cycle, positions are checked against:
