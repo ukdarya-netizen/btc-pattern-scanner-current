@@ -361,7 +361,7 @@ const VOLUME_TAKER_ID = "volume_taker";
 
 // open position management: no auto-trading, this is purely for dashboard/stat purposes
 const TAKE_PROFIT_PCT = 1.5;
-const STOP_LOSS_PCT = 1.0;
+const STOP_LOSS_PCT = 10.0;
 const MAX_HOLD_CYCLES = 48; // ~4h at 5min cycles
 
 interface OpenPosition {
