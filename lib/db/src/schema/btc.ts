@@ -115,3 +115,12 @@ export const btcReportsTable = pgTable("btc_reports", {
   sentAt: timestamp("sent_at", { withTimezone: true }),
   attempts: integer("attempts").notNull().default(0),
 });
+
+/** Market metrics of every 5m cycle (history for the dashboard and analysis). */
+export const btcMarketSnapshotsTable = pgTable("btc_market_snapshots", {
+  candleCloseAt: timestamp("candle_close_at", { withTimezone: true }).primaryKey(),
+  price: doublePrecision("price").notNull(),
+  metrics: jsonb("metrics").notNull(),
+  missing: jsonb("missing").notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+});

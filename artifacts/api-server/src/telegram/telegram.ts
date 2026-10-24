@@ -1,6 +1,7 @@
 import { db, btcSignalEventsTable, btcSignalsTable, btcTelegramDeliveriesTable, btcTelegramSubscribersTable } from "@workspace/db";
 import { and, asc, eq, isNull, lt, lte } from "drizzle-orm";
 import { PROFILES, type ProfileKey } from "../config/profiles";
+import type { Metrics } from "../engine/snapshot";
 import { logger } from "../lib/logger";
 import { sendMessage, SIGNAL_CHANNEL, TelegramError } from "./transport";
 
@@ -26,6 +27,29 @@ const CLOSE_TEXT: Record<string, string> = {
 type SignalRow = typeof btcSignalsTable.$inferSelect;
 type EventRow = typeof btcSignalEventsTable.$inferSelect;
 
+const usd = (v: number | null | undefined) => {
+  if (v == null) return "—";
+  const a = Math.abs(v);
+  const text = a >= 1e9 ? `${(a / 1e9).toFixed(2)}B` : a >= 1e6 ? `${(a / 1e6).toFixed(1)}M` : `${(a / 1e3).toFixed(0)}K`;
+  return `${v < 0 ? "−" : ""}$${text}`;
+};
+const p2 = (v: number | null | undefined) => (v == null ? "—" : pct(v));
+const x = (v: number | null | undefined) => (v == null ? "—" : `${v.toFixed(2)}x`);
+
+/** Decision-time market context (the same metrics the pattern saw). */
+export function metricLines(m: Partial<Metrics> | null): string[] {
+  if (!m || !m.oiChangePct) return [];
+  return [
+    "",
+    `OI: 15m ${p2(m.oiChangePct["15m"])} · 1h ${p2(m.oiChangePct["1h"])} · 4h ${p2(m.oiChangePct["4h"])} · 24h ${p2(m.oiChangePct["24h"])}`,
+    `CVD 1h: фьюч ${usd(m.futCvdUsd?.["1h"])} · спот ${usd(m.spotCvdUsd?.["1h"])}`,
+    `Тейкер 1h: фьюч ${p2(m.futTakerNetPct?.["1h"])} · спот ${p2(m.spotTakerNetPct?.["1h"])}`,
+    `Объём 1h: фьюч ${x(m.futVolumeMult?.["1h"])} · спот ${x(m.spotVolumeMult?.["1h"])}`,
+    `Ликвидации 1h: лонги ${usd(m.liqLongUsd?.["1h"])} · шорты ${usd(m.liqShortUsd?.["1h"])}`,
+    `Фандинг ${m.fundingRatePct == null ? "—" : `${m.fundingRatePct.toFixed(4)}%`} · L/S ${m.longShortRatio == null ? "—" : m.longShortRatio.toFixed(2)}`,
+  ];
+}
+
 /** Plain text only (no HTML/Markdown), as the channel posts are copied as-is. */
 export function formatEvent(signal: SignalRow, event: EventRow, patternLabel: string): string {
   const profile = PROFILES[signal.profile as ProfileKey];
@@ -42,6 +66,7 @@ export function formatEvent(signal: SignalRow, event: EventRow, patternLabel: st
       `Стоп: ${fmt(signal.stopPrice)} (${pct(stopMove)})`,
       ...targets,
       `Ликвидация ≈ ${fmt(signal.liquidationPrice)}`,
+      ...metricLines(signal.metrics as Partial<Metrics> | null),
     ].join("\n");
   }
   if (event.kind === "target_hit") {

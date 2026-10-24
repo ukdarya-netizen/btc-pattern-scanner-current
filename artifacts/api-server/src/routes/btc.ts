@@ -1,6 +1,6 @@
 import { Router } from "express";
-import { db, btcDecisionsTable, btcSignalsTable } from "@workspace/db";
-import { and, desc, eq } from "drizzle-orm";
+import { db, btcDecisionsTable, btcMarketSnapshotsTable, btcSignalsTable } from "@workspace/db";
+import { and, desc, eq, gte } from "drizzle-orm";
 import { PROFILES } from "../config/profiles";
 import { PATTERNS } from "../engine/patterns";
 import { scannerStatus } from "../engine/scanner";
@@ -50,6 +50,36 @@ router.get("/btc/decisions", async (req, res) => {
     ))
     .orderBy(desc(btcDecisionsTable.id))
     .limit(clampLimit(req.query.limit, 2000));
+  res.json({ rows });
+});
+
+/** Latest market metrics (same set the patterns see). */
+router.get("/btc/metrics", async (_req, res) => {
+  if (scannerStatus.lastMetrics) {
+    res.json({
+      candleCloseAt: scannerStatus.lastCandleCloseAt,
+      missing: scannerStatus.missingFlow,
+      metrics: scannerStatus.lastMetrics,
+    });
+    return;
+  }
+  // Right after a restart: the last stored cycle until the first new one.
+  const [row] = await db.select().from(btcMarketSnapshotsTable)
+    .orderBy(desc(btcMarketSnapshotsTable.candleCloseAt)).limit(1);
+  res.json({
+    candleCloseAt: row?.candleCloseAt.toISOString() ?? null,
+    missing: row?.missing ?? [],
+    metrics: row?.metrics ?? null,
+  });
+});
+
+/** Metric history, one row per 5m cycle (default 24h, max 7 days). */
+router.get("/btc/metrics/history", async (req, res) => {
+  const hours = Math.min(Math.max(Number(req.query.hours) || 24, 1), 168);
+  const rows = await db.select().from(btcMarketSnapshotsTable)
+    .where(gte(btcMarketSnapshotsTable.candleCloseAt, new Date(Date.now() - hours * 3_600_000)))
+    .orderBy(desc(btcMarketSnapshotsTable.candleCloseAt))
+    .limit(2016);
   res.json({ rows });
 });
 

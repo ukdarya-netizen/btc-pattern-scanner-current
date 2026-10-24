@@ -21,7 +21,74 @@ type Signal = {
   targets: Array<{ price: number; fraction: number; hitAt: string | null }>;
   detectedAt: string; closedAt: string | null; closeReason: string | null;
   pnlPricePct: number | null; pnlMarginPct: number | null; mfePct: number; maePct: number;
+  metrics: Metrics | null;
 };
+
+type ByTf = Record<string, number | null>;
+type Metrics = {
+  price: number;
+  priceChangePct: ByTf; atrPct: ByTf; bingxVolumeMult: ByTf; futVolumeMult: ByTf; spotVolumeMult: ByTf;
+  futVolumeUsd: ByTf; spotVolumeUsd: ByTf; oiUsd: number | null; oiChangePct: ByTf;
+  futTakerNetPct: ByTf; spotTakerNetPct: ByTf; futCvdUsd: ByTf; spotCvdUsd: ByTf;
+  spotCvdBullish: Record<string, boolean | null>; liqLongUsd: ByTf; liqShortUsd: ByTf;
+  liqLongSpike1h: number | null; liqShortSpike1h: number | null; fundingRatePct: number | null;
+  longShortRatio: number | null; longShortChangePct: ByTf; orderbookBidAskRatio: number | null;
+  orderbookImbalancePct: number | null; whaleIndex: number | null; whaleIndexChange4h: number | null;
+};
+
+const TFS = ["5m", "15m", "30m", "1h", "3h", "4h", "24h"];
+const usd = (v: number | null | undefined) => {
+  if (v == null) return "—";
+  const a = Math.abs(v);
+  const t = a >= 1e9 ? `${(a / 1e9).toFixed(2)}B` : a >= 1e6 ? `${(a / 1e6).toFixed(1)}M` : `${(a / 1e3).toFixed(0)}K`;
+  return `${v < 0 ? "−" : ""}$${t}`;
+};
+const mult = (v: number | null | undefined) => (v == null ? "—" : `${v.toFixed(2)}×`);
+
+function MetricsGrid({ m }: { m: Metrics }) {
+  const rows: Array<[string, ByTf | undefined, (v: number | null) => React.ReactNode]> = [
+    ["Цена Δ", m.priceChangePct, (v) => <span className={tone(v)}>{signed(v)}</span>],
+    ["OI Δ", m.oiChangePct, (v) => <span className={tone(v)}>{signed(v)}</span>],
+    ["Тейкер фьюч (net)", m.futTakerNetPct, (v) => <span className={tone(v)}>{signed(v, 1)}</span>],
+    ["Тейкер спот (net)", m.spotTakerNetPct, (v) => <span className={tone(v)}>{signed(v, 1)}</span>],
+    ["CVD фьюч", m.futCvdUsd, (v) => <span className={tone(v)}>{usd(v)}</span>],
+    ["CVD спот", m.spotCvdUsd, (v) => <span className={tone(v)}>{usd(v)}</span>],
+    ["Объём фьюч ×", m.futVolumeMult, mult],
+    ["Объём спот ×", m.spotVolumeMult, mult],
+    ["Объём BingX ×", m.bingxVolumeMult, mult],
+    ["Ликвидации лонгов", m.liqLongUsd, usd],
+    ["Ликвидации шортов", m.liqShortUsd, usd],
+    ["ATR", m.atrPct, (v) => (v == null ? "—" : `${v.toFixed(2)}%`)],
+  ];
+  const single: Array<[string, React.ReactNode]> = [
+    ["Цена", price(m.price)],
+    ["OI (все биржи)", usd(m.oiUsd)],
+    ["Фандинг (OI-взвеш.)", m.fundingRatePct == null ? "—" : `${m.fundingRatePct.toFixed(4)}%`],
+    ["Long/Short (Binance)", m.longShortRatio == null ? "—" : `${m.longShortRatio.toFixed(2)} · 1h ${signed(m.longShortChangePct?.["1h"])} · 4h ${signed(m.longShortChangePct?.["4h"])}`],
+    ["Стакан ±1% bid/ask", m.orderbookBidAskRatio == null ? "—" : `${m.orderbookBidAskRatio.toFixed(2)} (${signed(m.orderbookImbalancePct, 1)})`],
+    ["Whale Index", m.whaleIndex == null ? "—" : `${m.whaleIndex.toFixed(2)} · 4h ${m.whaleIndexChange4h == null ? "—" : (m.whaleIndexChange4h >= 0 ? "+" : "") + m.whaleIndexChange4h.toFixed(2)}`],
+    ["Всплеск ликвидаций 1h", `лонги ${mult(m.liqLongSpike1h)} · шорты ${mult(m.liqShortSpike1h)}`],
+    ["Объём 24h", `фьюч ${usd(m.futVolumeUsd?.["24h"])} · спот ${usd(m.spotVolumeUsd?.["24h"])}`],
+    ["Спот CVD бычий", ["15m", "30m", "1h", "4h"].map((tf) => `${tf} ${m.spotCvdBullish?.[tf] == null ? "—" : m.spotCvdBullish[tf] ? "да" : "нет"}`).join(" · ")],
+  ];
+  return (
+    <div className="space-y-3">
+      <div className="grid grid-cols-1 gap-x-6 gap-y-1 text-sm sm:grid-cols-2 lg:grid-cols-3">
+        {single.map(([k, v]) => (
+          <div key={k} className="flex justify-between gap-3 border-b border-border py-1">
+            <span className="text-muted-foreground">{k}</span><span className="tabular-nums">{v}</span>
+          </div>
+        ))}
+      </div>
+      <Table
+        head={["Метрика", ...TFS]}
+        rows={rows.map(([label, values, render]) => [
+          label, ...TFS.map((tf) => (values && tf in values ? render(values[tf] ?? null) : "")),
+        ])}
+      />
+    </div>
+  );
+}
 
 const PROFILE: Record<string, string> = { scalp: "Скальп x100", intraday: "Интрадей x50", swing: "Среднесрок x25" };
 const REASON: Record<string, string> = { take_profit: "Цели", stop: "Стоп", breakeven: "Безубыток", timeout: "Время" };
@@ -78,19 +145,22 @@ export default function App() {
   const [open, setOpen] = useState<Signal[]>([]);
   const [closed, setClosed] = useState<Signal[]>([]);
   const [error, setError] = useState<string | null>(null);
+  const [market, setMarket] = useState<{ candleCloseAt: string | null; metrics: Metrics | null } | null>(null);
+  const [expanded, setExpanded] = useState<number | null>(null);
 
   useEffect(() => {
     let alive = true;
     const load = async () => {
       try {
-        const [s, st, o, c] = await Promise.all([
+        const [s, st, o, c, mk] = await Promise.all([
           getJson<Status>("/api/btc/status"),
           getJson<{ rows: StatsRow[] }>(`/api/btc/stats${days ? `?days=${days}` : ""}`),
           getJson<{ rows: Signal[] }>("/api/btc/signals?status=open&limit=100"),
           getJson<{ rows: Signal[] }>("/api/btc/signals?status=closed&limit=50"),
+          getJson<{ candleCloseAt: string | null; metrics: Metrics | null }>("/api/btc/metrics"),
         ]);
         if (!alive) return;
-        setStatus(s); setStats(st.rows); setOpen(o.rows); setClosed(c.rows); setError(null);
+        setStatus(s); setStats(st.rows); setOpen(o.rows); setClosed(c.rows); setMarket(mk); setError(null);
       } catch (err) {
         if (alive) setError(err instanceof Error ? err.message : String(err));
       }
@@ -133,6 +203,10 @@ export default function App() {
         {status?.scanner.lastError && <p className="mt-2 text-sm text-amber-400">Цикл: {status.scanner.lastError}</p>}
       </Card>
 
+      <Card title={`Рынок BTC · свеча ${time(market?.candleCloseAt ?? null)}`}>
+        {market?.metrics ? <MetricsGrid m={market.metrics} /> : <p className="text-sm text-muted-foreground">Метрики появятся после первого цикла сканирования.</p>}
+      </Card>
+
       <Card title="Статистика по паттернам">
         <Table
           head={["Паттерн", "Тип", "Напр.", "Режим", "Закрыто", "Открыто", "В плюс", "Винрейт", "Ср. к марже", "Сумма к марже", "Ср. цена", "Цели/Стоп/БУ/Время", "MFE", "MAE"]}
@@ -151,7 +225,7 @@ export default function App() {
 
       <Card title={`Открытые позиции (${open.length})`}>
         <Table
-          head={["#", "Паттерн", "Тип", "Напр.", "Режим", "Вход", "Сейчас", "Цена %", "К марже", "Стоп", "Ликвид.", "Цели", "Открыта"]}
+          head={["#", "Паттерн", "Тип", "Напр.", "Режим", "Вход", "Сейчас", "Цена %", "К марже", "Стоп", "Ликвид.", "Цели", "Открыта", ""]}
           rows={open.map((s) => {
             const sign = s.direction === "long" ? 1 : -1;
             const move = last ? (sign * (last - s.entryPrice) / s.entryPrice) * 100 : null;
@@ -164,20 +238,31 @@ export default function App() {
               price(s.stopPrice), price(s.liquidationPrice),
               `${s.targets.filter((t) => t.hitAt).length}/${s.targets.length}`,
               time(s.detectedAt),
+              <button className="text-primary underline" onClick={() => setExpanded(expanded === s.id ? null : s.id)}>метрики</button>,
             ];
           })}
         />
       </Card>
 
+      {expanded !== null && (() => {
+        const signal = [...open, ...closed].find((x) => x.id === expanded);
+        return signal?.metrics ? (
+          <Card title={`Метрики на входе · сигнал #${signal.id} · ${time(signal.detectedAt)}`}>
+            <MetricsGrid m={signal.metrics} />
+          </Card>
+        ) : null;
+      })()}
+
       <Card title="Последние закрытые">
         <Table
-          head={["#", "Паттерн", "Тип", "Напр.", "Режим", "Вход", "Итог", "Цена %", "К марже", "MFE", "MAE", "Закрыта"]}
+          head={["#", "Паттерн", "Тип", "Напр.", "Режим", "Вход", "Итог", "Цена %", "К марже", "MFE", "MAE", "Закрыта", ""]}
           rows={closed.map((s) => [
             s.id, label(s.patternKey), PROFILE[s.profile] ?? s.profile, dir(s.direction), s.live ? "канал" : "тень",
             price(s.entryPrice), REASON[s.closeReason ?? ""] ?? s.closeReason ?? "—",
             <span className={tone(s.pnlPricePct)}>{signed(s.pnlPricePct, 3)}</span>,
             <span className={tone(s.pnlMarginPct)}>{signed(s.pnlMarginPct)}</span>,
             signed(s.mfePct, 3), signed(s.maePct, 3), time(s.closedAt),
+            <button className="text-primary underline" onClick={() => setExpanded(expanded === s.id ? null : s.id)}>метрики</button>,
           ])}
         />
       </Card>

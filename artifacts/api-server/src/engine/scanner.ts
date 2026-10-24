@@ -1,4 +1,4 @@
-import { db, btcDecisionsTable, btcSignalEventsTable, btcSignalsTable } from "@workspace/db";
+import { db, btcDecisionsTable, btcMarketSnapshotsTable, btcSignalEventsTable, btcSignalsTable } from "@workspace/db";
 import { and, eq } from "drizzle-orm";
 import { PROFILES, type ProfileKey, type TargetSpec } from "../config/profiles";
 import { logger } from "../lib/logger";
@@ -12,7 +12,7 @@ import { getClosedCandles, INTERVAL_MS, type Interval } from "../market/bingx";
 import { getBtcFlow } from "../market/coinglass";
 import { trackSignal } from "../tracker/tracker";
 import { PATTERNS, type Pattern } from "./patterns";
-import { computeMetrics, type Snapshot } from "./snapshot";
+import { computeMetrics, type Metrics, type Snapshot } from "./snapshot";
 
 export type ScannerStatus = {
   lastCycleAt: string | null;
@@ -20,10 +20,13 @@ export type ScannerStatus = {
   lastError: string | null;
   lastDurationMs: number | null;
   missingFlow: string[];
+  /** Metrics of the last completed cycle (shown on the dashboard). */
+  lastMetrics: Metrics | null;
 };
 
 export const scannerStatus: ScannerStatus = {
   lastCycleAt: null, lastCandleCloseAt: null, lastError: null, lastDurationMs: null, missingFlow: [],
+  lastMetrics: null,
 };
 
 let lastClose5m = 0;
@@ -106,6 +109,13 @@ export async function runCycle(currentPrice: () => Promise<number>, now = Date.n
       throw new Error("latest closed 5m candle not available yet");
     }
     lastClose5m = candleCloseAt;
+    scannerStatus.lastMetrics = snapshot.metrics;
+    await db.insert(btcMarketSnapshotsTable).values({
+      candleCloseAt: new Date(candleCloseAt),
+      price: snapshot.metrics.price,
+      metrics: snapshot.metrics,
+      missing: scannerStatus.missingFlow,
+    }).onConflictDoNothing();
     for (const pattern of PATTERNS) {
       if (!due(pattern, candleCloseAt)) continue;
       let decision: "fired" | "rejected" | "suppressed" = "rejected";

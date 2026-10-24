@@ -15,7 +15,7 @@
 - `engine/runtime.ts` — запуск: восстановление открытых сделок, поток цены, цикл сканирования каждые 15 с, Telegram-очередь каждые 3 с.
 - `market/bingx.ts` — свечи BingX (только закрытые), цена, WebSocket `BTC-USDT@lastPrice` с переподключением и сторожем тишины.
 - `market/coinglass.ts` — агрегированные данные CoinGlass (OI, ликвидации, тейкер фьючерсов/спота, спотовый CVD, funding OI-weighted, long/short, стакан ±1%), 15m, только закрытые бары. Нет данных — метрика `null`, никаких запасных источников.
-- `engine/snapshot.ts` — расчёт метрик на момент решения.
+- `engine/snapshot.ts` — метрики на момент решения, набор как в AltBullet, для BTC: Δцены 5m/15m/30m/1h/3h/4h/24h; OI (все биржи) и ΔOI 15m/30m/1h/4h/24h; тейкер фьючерсов и спота (net %) 15m/30m/1h/4h; CVD фьючерсов и спота ($) 15m–24h и «CVD бычий»; объём × фьючерсов/спота (к тем же окнам за 24ч) и BingX; ликвидации лонгов/шортов 15m–24h и всплеск 1h; фандинг OI-взвешенный; Long/Short Binance и его Δ1h/4h; стакан ±1% bid/ask; Whale Index и Δ4h; ATR. Каждый 5m цикл сохраняется в `btc_market_snapshots`; метрики входа — в каждом сигнале и в сообщении Telegram.
 - `engine/patterns.ts` — реестр паттернов. Пуст до утверждения паттернов по данным. `live: false` = теневой паттерн: сделки ведутся и попадают в статистику, в канал не публикуются.
 - `engine/scanner.ts` — на каждой закрытой 5m свече оценивает паттерны своего ТФ, пишет каждое решение в `btc_decisions`, открывает сделку (вход = живая цена в момент сигнала). Один открытый сигнал на паттерн.
 - `tracker/positionEngine.ts` — чистая логика сделки: стоп раньше целей, частичные фиксации, безубыток, тайм-аут, MFE/MAE. `tracker/tracker.ts` — применяет каждый живой тик; при разрыве потока (рестарт, переподключение, тишина >20 с) сначала проигрывает пропущенное время по закрытым 1m свечам (касание стопа и цели в одной свече = стоп).
@@ -27,10 +27,10 @@
 - Дашборд `artifacts/dashboard` — состояние движка, статистика по паттернам/типам/направлениям (всё время, 30 и 7 дней), открытые позиции с текущим результатом, последние 50 закрытых. Обновляется каждые 15 с.
 
 ## БД (`lib/db/src/schema/btc.ts`)
-`btc_signals` (сделки), `btc_signal_events` (события + отметка доставки в Telegram), `btc_decisions` (все оценки паттернов с метриками), `btc_reports` (отправленные отчёты). `btc_telegram_subscribers`, `btc_telegram_state`, `btc_telegram_deliveries` — подписки, курсор и отдельные доставки.
+`btc_signals` (сделки), `btc_signal_events` (события + отметка доставки в Telegram), `btc_decisions` (все оценки паттернов с метриками), `btc_reports` (отправленные отчёты), `btc_market_snapshots` (метрики каждого 5m цикла). `btc_telegram_subscribers`, `btc_telegram_state`, `btc_telegram_deliveries` — подписки, курсор и отдельные доставки.
 
 ## API
-`GET /api/btc/status`, `/api/btc/stats?days=N`, `/api/btc/signals?status=open|closed`, `/api/btc/decisions?pattern=&decision=`.
+`GET /api/btc/status`, `/api/btc/metrics`, `/api/btc/metrics/history?hours=N`, `/api/btc/stats?days=N`, `/api/btc/signals?status=open|closed`, `/api/btc/decisions?pattern=&decision=`.
 
 ## Секреты
 `COINGLASS_API_KEY`, `TELEGRAM_BOT_TOKEN`, `DATABASE_URL`. Канал зафиксирован по указанию владельца: `@bitcoinmarginmaster`; ранее добавленный `TELEGRAM_CHANNEL_ID` сохранён, но больше не выбирает адрес назначения. Необязательно: `COINGLASS_MIN_GAP_MS` (пауза между запросами CoinGlass, по умолчанию 1500), `BTC_ENGINE_ENABLED=false` (выключить движок).

@@ -77,6 +77,7 @@ export type FlowSeries = {
   funding: FlowBar[] | null; // close = OI-weighted funding rate
   longShort: FlowBar[] | null; // ratio (Binance global accounts)
   orderbook: FlowBar[] | null; // bids, asks USD within ±1%
+  whaleIndex: FlowBar[] | null; // value (Binance BTCUSDT, 1h)
 };
 
 const M15 = 15 * 60_000;
@@ -96,7 +97,11 @@ export async function getBtcFlow(limit = 120, now = Date.now()): Promise<FlowSer
   const ob = await cg("/api/futures/orderbook/aggregated-ask-bids-history", {
     ...common, exchange_list: FUTURES_EXCHANGES, range: "1",
   });
+  const whale = await cg("/api/futures/whale-index/history", {
+    exchange: "Binance", symbol: "BTCUSDT", interval: "1h", limit: 30,
+  });
   return {
+    whaleIndex: closedOnly(bars(whale, { value: "whale_index_value" }), 60 * 60_000, now),
     oi: closedOnly(bars(oi, { close: "close" }), M15, now),
     liquidations: closedOnly(bars(liq, {
       long: "aggregated_long_liquidation_usd", short: "aggregated_short_liquidation_usd",
