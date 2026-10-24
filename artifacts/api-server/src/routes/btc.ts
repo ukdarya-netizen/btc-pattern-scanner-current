@@ -4,11 +4,12 @@ import { and, desc, eq, gte } from "drizzle-orm";
 import { PROFILES } from "../config/profiles";
 import { PATTERNS } from "../engine/patterns";
 import { scannerStatus } from "../engine/scanner";
-import { getStats } from "../stats/stats";
+import { getDailyStats, getStats } from "../stats/stats";
 import { openSignalCount } from "../tracker/tracker";
 import { engineHealth } from "../engine/runtime";
 import { logger } from "../lib/logger";
 import { healthSnapshot } from "../lib/apiHealth";
+import { candleCoverage, decisionOutcomes } from "../analysis/candleStore";
 import { coinglassGovernorStats } from "../market/coinglass";
 
 const router = Router();
@@ -35,6 +36,15 @@ router.get("/btc/stats", async (req, res) => {
   }
 });
 
+router.get("/btc/stats/daily", async (req, res) => {
+  try {
+    res.json({ rows: await getDailyStats(Math.min(Math.max(Number(req.query.days) || 30, 1), 365)) });
+  } catch (err) {
+    logger.error({ err }, "daily stats failed");
+    res.status(500).json({ error: "daily_stats_failed" });
+  }
+});
+
 router.get("/btc/signals", async (req, res) => {
   const status = typeof req.query.status === "string" ? req.query.status : null;
   const rows = await db.select().from(btcSignalsTable)
@@ -55,6 +65,18 @@ router.get("/btc/decisions", async (req, res) => {
     .orderBy(desc(btcDecisionsTable.id))
     .limit(clampLimit(req.query.limit, 2000));
   res.json({ rows });
+});
+
+/** First-touch outcome (first target vs stop) of every decision, grouped. */
+router.get("/btc/decisions/outcomes", async (req, res) => {
+  try {
+    const days = Math.min(Math.max(Number(req.query.days) || 7, 1), 60);
+    const pattern = typeof req.query.pattern === "string" ? req.query.pattern : undefined;
+    res.json({ days, groups: await decisionOutcomes(days, pattern), candles: await candleCoverage() });
+  } catch (err) {
+    logger.error({ err }, "decision outcomes failed");
+    res.status(500).json({ error: "outcomes_failed" });
+  }
 });
 
 /** Latest market metrics (same set the patterns see). */

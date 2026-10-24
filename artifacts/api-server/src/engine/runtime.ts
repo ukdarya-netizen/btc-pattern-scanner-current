@@ -1,6 +1,7 @@
 import { logger } from "../lib/logger";
 import { getLastPrice, startLastPriceStream } from "../market/bingx";
 import { runReports } from "../stats/reports";
+import { syncCandles } from "../analysis/candleStore";
 import { deliverNext } from "../telegram/telegram";
 import { setAdminCommandHandler, startTelegramSubscriptions } from "../telegram/subscribers";
 import { notifyRestart, startOpsMonitor, statusText } from "../ops/admin";
@@ -75,6 +76,10 @@ export async function startEngine(): Promise<void> {
 
   startMfeFlush();
   setInterval(() => void runCycle(currentPrice).catch((err) => logger.error({ err }, "cycle crashed")), 15_000);
+  // Candle history for outcome labels (backfills on first start).
+  const candleSync = () => void syncCandles().catch((err) => logger.warn({ err }, "candle sync failed"));
+  candleSync();
+  setInterval(candleSync, 60_000);
   // Daily / weekly / monthly results of live signals (Dubai time), once each.
   setInterval(() => void runReports().catch((err) => logger.warn({ err }, "reports pass failed")), 5 * 60_000);
   setInterval(() => void deliverNext(labelOf).catch((err) => logger.warn({ err }, "telegram pass failed")), 3_000);

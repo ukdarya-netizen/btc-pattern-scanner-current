@@ -57,3 +57,21 @@ export async function getStats(sinceDays?: number): Promise<StatsRow[]> {
   `);
   return result.rows as unknown as StatsRow[];
 }
+
+export type DailyRow = { day: string; profile: string; live: boolean; closed: number; wins: number; sumPnlMarginPct: number };
+
+/** Closed trades per Dubai calendar day (UTC+4), per trade type and mode. */
+export async function getDailyStats(days = 30): Promise<DailyRow[]> {
+  const result = await db.execute(sql`
+    SELECT to_char((closed_at AT TIME ZONE 'UTC') + interval '4 hours', 'YYYY-MM-DD') AS day,
+           profile, live,
+           count(*)::int AS closed,
+           count(*) FILTER (WHERE pnl_margin_pct > 0)::int AS wins,
+           round(coalesce(sum(pnl_margin_pct), 0)::numeric, 2)::float AS "sumPnlMarginPct"
+      FROM btc_signals
+     WHERE status = 'closed' AND closed_at > now() - (${days} * interval '1 day')
+     GROUP BY 1, 2, 3
+     ORDER BY 1, 2
+  `);
+  return result.rows as unknown as DailyRow[];
+}

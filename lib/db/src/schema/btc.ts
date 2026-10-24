@@ -124,3 +124,16 @@ export const btcMarketSnapshotsTable = pgTable("btc_market_snapshots", {
   missing: jsonb("missing").notNull(),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
+
+/** BingX BTC-USDT closed candles (1m and 15m), the base for outcome labels. */
+export const btcCandlesTable = pgTable("btc_candles", {
+  interval: text("interval").notNull(), // 1m | 15m
+  openTime: timestamp("open_time", { withTimezone: true }).notNull(),
+  open: doublePrecision("open").notNull(),
+  high: doublePrecision("high").notNull(),
+  low: doublePrecision("low").notNull(),
+  close: doublePrecision("close").notNull(),
+  volume: doublePrecision("volume").notNull(),
+}, (t) => ({
+  pk: uniqueIndex("btc_candles_pk").on(t.interval, t.openTime),
+}));

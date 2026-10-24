@@ -26,14 +26,21 @@
 - `stats/reports.ts` — итоги дня, недели (пн–вс) и месяца по времени Дубая в канал, только по live-сигналам, каждый период один раз (`btc_reports`); период без закрытых сделок не публикуется.
 - Дашборд `artifacts/dashboard` — состояние движка, статистика по паттернам/типам/направлениям (всё время, 30 и 7 дней), открытые позиции с текущим результатом, последние 50 закрытых. Обновляется каждые 15 с.
 
+- `market/coinglass.ts` — как в AltBullet: регулятор запросов CoinGlass (минимальный интервал по тарифу `COINGLASS_MIN_GAP_MS`, по умолчанию 250 мс ≈ 240/мин, до 4 параллельно, при 429 — пауза до 60 с, ротация ключей), учёт сбоев API.
+- `market/context.ts` — медленные источники со своим кешем: тепловая карта ликвидаций (CoinGlass model2, 3d; полосы 0–1/1–2/2–5/5–10% выше и ниже, топ-кластеры), киты Hyperliquid по BTC (позиции и открытия за 1ч), BTC на биржах (баланс и изменение 1д/7д), доминация BTC (CoinGlass, запасной CoinGecko как в AltBullet), Whale Index 4h.
+- `ops/admin.ts` — уведомления админу (`TELEGRAM_ADMIN_CHAT_IDS`): «бот перезапущен»; сбой API дольше 30 мин — один раз в 6 ч, и «снова работает» только после такого алерта; сторож сканера (нет цикла 20 мин — алерт не чаще раза в час); команды `/status` и `/open` в личке бота от админа.
+- `ops/lease.ts` — один движок на базу (advisory lock Postgres): второй процесс ждёт, а не дублирует сделки и сообщения.
+- `analysis/candleStore.ts` — свечи BTC 1m (60 дней) и 15m (2 года) в `btc_candles`; исход каждого решения паттерна (принятого и отклонённого): что раньше — цель 1 или стоп (стоп, если оба в одной свече).
+- Дашборд: вход по PIN (`DASHBOARD_PIN`, без него открыт; 10 неверных — блок 15 мин), результат по дням, исходы решений, журнал решений, контекст рынка.
+
 ## БД (`lib/db/src/schema/btc.ts`)
-`btc_signals` (сделки), `btc_signal_events` (события + отметка доставки в Telegram), `btc_decisions` (все оценки паттернов с метриками), `btc_reports` (отправленные отчёты), `btc_market_snapshots` (метрики каждого 5m цикла). `btc_telegram_subscribers`, `btc_telegram_state`, `btc_telegram_deliveries` — подписки, курсор и отдельные доставки.
+`btc_signals` (сделки), `btc_signal_events` (события + отметка доставки в Telegram), `btc_decisions` (все оценки паттернов с метриками), `btc_reports` (отправленные отчёты), `btc_market_snapshots` (метрики каждого 5m цикла), `btc_candles` (свечи BTC). `btc_telegram_subscribers`, `btc_telegram_state`, `btc_telegram_deliveries` — подписки, курсор и отдельные доставки.
 
 ## API
-`GET /api/btc/status`, `/api/btc/metrics`, `/api/btc/metrics/history?hours=N`, `/api/btc/stats?days=N`, `/api/btc/signals?status=open|closed`, `/api/btc/decisions?pattern=&decision=`.
+`GET /api/btc/status`, `/api/btc/metrics`, `/api/btc/stats/daily`, `/api/btc/decisions/outcomes?days=N`, `/api/btc/metrics/history?hours=N`, `/api/btc/stats?days=N`, `/api/btc/signals?status=open|closed`, `/api/btc/decisions?pattern=&decision=`.
 
 ## Секреты
-`COINGLASS_API_KEY`, `TELEGRAM_BOT_TOKEN`, `DATABASE_URL`. Канал зафиксирован по указанию владельца: `@bitcoinmarginmaster`; ранее добавленный `TELEGRAM_CHANNEL_ID` сохранён, но больше не выбирает адрес назначения. Необязательно: `COINGLASS_MIN_GAP_MS` (пауза между запросами CoinGlass, по умолчанию 1500), `BTC_ENGINE_ENABLED=false` (выключить движок).
+`COINGLASS_API_KEY`, `TELEGRAM_BOT_TOKEN`, `DATABASE_URL`. Канал зафиксирован по указанию владельца: `@bitcoinmarginmaster`; ранее добавленный `TELEGRAM_CHANNEL_ID` сохранён, но больше не выбирает адрес назначения. Необязательно: `TELEGRAM_ADMIN_CHAT_IDS` (ID личных чатов админа через запятую), `DASHBOARD_PIN`, `COINGLASS_MIN_GAP_MS` (минимальный интервал запросов CoinGlass, по умолчанию 250 мс — тариф STANDARD), `BTC_ENGINE_ENABLED=false` (выключить движок).
 
 ## Run & Operate
 - API server: `pnpm --filter @workspace/api-server run dev`

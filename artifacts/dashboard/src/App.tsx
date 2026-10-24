@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { Bar, BarChart, CartesianGrid, Cell, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 
 type Status = {
   scanner: { lastCycleAt: string | null; lastCandleCloseAt: string | null; lastError: string | null; lastDurationMs: number | null; missingFlow: string[] };
@@ -34,6 +35,13 @@ type Metrics = {
   liqLongSpike1h: number | null; liqShortSpike1h: number | null; fundingRatePct: number | null;
   longShortRatio: number | null; longShortChangePct: ByTf; orderbookBidAskRatio: number | null;
   orderbookImbalancePct: number | null; whaleIndex: number | null; whaleIndexChange4h: number | null;
+  whaleIndex4h?: number | null;
+  context?: {
+    heatmap: { below: Record<string, number>; above: Record<string, number>; topBelow: Array<{ price: number; distancePct: number; valueUsd: number }>; topAbove: Array<{ price: number; distancePct: number; valueUsd: number }>; aboveBelowRatio5pct: number | null } | null;
+    hyperliquidWhales: { longCount: number; shortCount: number; longUsd: number; shortUsd: number; netUsd: number; avgLeverage: number | null; opened1hLongUsd: number; opened1hShortUsd: number } | null;
+    exchangeBalance: { totalBtc: number; change1dBtc: number | null; change1dPct: number | null; change7dBtc: number | null; change7dPct: number | null } | null;
+    dominance: { dominancePct: number; change24hPct: number | null; source: string } | null;
+  } | null;
 };
 
 const TFS = ["5m", "15m", "30m", "1h", "3h", "4h", "24h"];
@@ -69,6 +77,14 @@ function MetricsGrid({ m }: { m: Metrics }) {
     ["Whale Index", m.whaleIndex == null ? "—" : `${m.whaleIndex.toFixed(2)} · 4h ${m.whaleIndexChange4h == null ? "—" : (m.whaleIndexChange4h >= 0 ? "+" : "") + m.whaleIndexChange4h.toFixed(2)}`],
     ["Всплеск ликвидаций 1h", `лонги ${mult(m.liqLongSpike1h)} · шорты ${mult(m.liqShortSpike1h)}`],
     ["Объём 24h", `фьюч ${usd(m.futVolumeUsd?.["24h"])} · спот ${usd(m.spotVolumeUsd?.["24h"])}`],
+    ["Whale Index 4h", m.whaleIndex4h == null ? "—" : m.whaleIndex4h.toFixed(2)],
+    ["Доминация BTC", m.context?.dominance ? `${m.context.dominance.dominancePct.toFixed(2)}% · 24h ${m.context.dominance.change24hPct == null ? "—" : (m.context.dominance.change24hPct >= 0 ? "+" : "") + m.context.dominance.change24hPct.toFixed(2)}` : "—"],
+    ["BTC на биржах", m.context?.exchangeBalance ? `${m.context.exchangeBalance.totalBtc.toLocaleString("ru-RU")} BTC · 1д ${m.context.exchangeBalance.change1dBtc == null ? "—" : m.context.exchangeBalance.change1dBtc.toLocaleString("ru-RU")} · 7д ${m.context.exchangeBalance.change7dBtc == null ? "—" : m.context.exchangeBalance.change7dBtc.toLocaleString("ru-RU")}` : "—"],
+    ["Киты Hyperliquid", m.context?.hyperliquidWhales ? `лонг ${usd(m.context.hyperliquidWhales.longUsd)} (${m.context.hyperliquidWhales.longCount}) · шорт ${usd(m.context.hyperliquidWhales.shortUsd)} (${m.context.hyperliquidWhales.shortCount})` : "—"],
+    ["Открыто китами за 1ч", m.context?.hyperliquidWhales ? `лонг ${usd(m.context.hyperliquidWhales.opened1hLongUsd)} · шорт ${usd(m.context.hyperliquidWhales.opened1hShortUsd)}` : "—"],
+    ["Ликвидности выше/ниже (±5%)", m.context?.heatmap?.aboveBelowRatio5pct == null ? "—" : `${m.context.heatmap.aboveBelowRatio5pct.toFixed(2)}×`],
+    ["Кластеры выше", m.context?.heatmap ? m.context.heatmap.topAbove.map((c) => `${price(c.price)} (+${c.distancePct.toFixed(2)}%)`).join(", ") || "—" : "—"],
+    ["Кластеры ниже", m.context?.heatmap ? m.context.heatmap.topBelow.map((c) => `${price(c.price)} (${c.distancePct.toFixed(2)}%)`).join(", ") || "—" : "—"],
     ["Спот CVD бычий", ["15m", "30m", "1h", "4h"].map((tf) => `${tf} ${m.spotCvdBullish?.[tf] == null ? "—" : m.spotCvdBullish[tf] ? "да" : "нет"}`).join(" · ")],
   ];
   return (
@@ -94,10 +110,48 @@ const PROFILE: Record<string, string> = { scalp: "Скальп x100", intraday: 
 const REASON: Record<string, string> = { take_profit: "Цели", stop: "Стоп", breakeven: "Безубыток", timeout: "Время" };
 const TAKER_FEE = 0.0005;
 
+const PIN_KEY = "btc-bullet-pin";
+function storedPin(): string {
+  try { return localStorage.getItem(PIN_KEY) ?? ""; } catch { return ""; }
+}
+function savePin(pin: string): void {
+  try { localStorage.setItem(PIN_KEY, pin); } catch { /* private mode: PIN kept in memory only */ }
+}
+let memoryPin = storedPin();
+
+class PinRequired extends Error {}
+
 async function getJson<T>(path: string): Promise<T> {
-  const res = await fetch(path);
+  const res = await fetch(path, { headers: memoryPin ? { "x-dashboard-pin": memoryPin } : {} });
+  if (res.status === 401) throw new PinRequired("pin");
+  if (res.status === 429) throw new Error("Слишком много неверных PIN — подождите 15 минут");
   if (!res.ok) throw new Error(`${path}: HTTP ${res.status}`);
   return (await res.json()) as T;
+}
+
+type DailyRow = { day: string; profile: string; live: boolean; closed: number; wins: number; sumPnlMarginPct: number };
+type OutcomeGroup = {
+  patternKey: string; profile: string; direction: string; decision: string; reason: string;
+  total: number; targetFirst: number; stopFirst: number; timeout: number; pending: number;
+  targetFirstPct: number | null; avgMfePct: number | null; avgMaePct: number | null;
+};
+type Decision = { id: number; candleCloseAt: string; patternKey: string; direction: string; profile: string; decision: string; reasons: string[]; price: number | null };
+
+function PinForm({ onSubmit, error }: { onSubmit: (pin: string) => void; error: string | null }) {
+  const [pin, setPin] = useState("");
+  return (
+    <main className="flex min-h-screen items-center justify-center bg-background p-4 font-sans text-foreground">
+      <form className="w-full max-w-xs space-y-3 rounded-lg border border-border bg-card p-5"
+        onSubmit={(e) => { e.preventDefault(); onSubmit(pin); }}>
+        <h1 className="text-lg font-semibold">BTC Bullet</h1>
+        <label className="block text-sm text-muted-foreground" htmlFor="pin">PIN дашборда</label>
+        <input id="pin" type="password" inputMode="numeric" autoFocus value={pin} onChange={(e) => setPin(e.target.value)}
+          className="w-full rounded-md border border-border bg-background px-3 py-2" />
+        {error && <p className="text-sm text-red-400">{error}</p>}
+        <button className="w-full rounded-md bg-primary px-3 py-2 text-primary-foreground">Войти</button>
+      </form>
+    </main>
+  );
 }
 
 const num = (v: number | null | undefined, d = 2) => (v == null ? "—" : v.toFixed(d));
@@ -147,6 +201,12 @@ export default function App() {
   const [error, setError] = useState<string | null>(null);
   const [market, setMarket] = useState<{ candleCloseAt: string | null; metrics: Metrics | null } | null>(null);
   const [expanded, setExpanded] = useState<number | null>(null);
+  const [needPin, setNeedPin] = useState(false);
+  const [pinError, setPinError] = useState<string | null>(null);
+  const [reloadKey, setReloadKey] = useState(0);
+  const [daily, setDaily] = useState<DailyRow[]>([]);
+  const [outcomes, setOutcomes] = useState<OutcomeGroup[]>([]);
+  const [decisions, setDecisions] = useState<Decision[]>([]);
 
   useEffect(() => {
     let alive = true;
@@ -159,18 +219,37 @@ export default function App() {
           getJson<{ rows: Signal[] }>("/api/btc/signals?status=closed&limit=50"),
           getJson<{ candleCloseAt: string | null; metrics: Metrics | null }>("/api/btc/metrics"),
         ]);
+        const [dl, oc, dc] = await Promise.all([
+          getJson<{ rows: DailyRow[] }>("/api/btc/stats/daily?days=30"),
+          getJson<{ groups: OutcomeGroup[] }>("/api/btc/decisions/outcomes?days=7"),
+          getJson<{ rows: Decision[] }>("/api/btc/decisions?limit=100"),
+        ]);
         if (!alive) return;
         setStatus(s); setStats(st.rows); setOpen(o.rows); setClosed(c.rows); setMarket(mk); setError(null);
+        setDaily(dl.rows); setOutcomes(oc.groups); setDecisions(dc.rows); setNeedPin(false);
       } catch (err) {
-        if (alive) setError(err instanceof Error ? err.message : String(err));
+        if (!alive) return;
+        if (err instanceof PinRequired) { setNeedPin(true); return; }
+        setError(err instanceof Error ? err.message : String(err));
       }
     };
     void load();
     const timer = setInterval(load, 15_000);
     return () => { alive = false; clearInterval(timer); };
-  }, [days]);
+  }, [days, reloadKey]);
 
   const label = (key: string) => status?.patterns.find((p) => p.key === key)?.label ?? key;
+  if (needPin) {
+    return <PinForm error={pinError} onSubmit={(pin) => {
+      memoryPin = pin; savePin(pin); setPinError(memoryPin ? "Проверяю…" : null); setReloadKey((k) => k + 1);
+      setTimeout(() => setPinError("Неверный PIN"), 1500);
+    }} />;
+  }
+  const dayMap = new Map<string, number>();
+  for (const r of daily.filter((r) => r.live || !status?.patterns.some((p) => p.live))) {
+    dayMap.set(r.day, (dayMap.get(r.day) ?? 0) + r.sumPnlMarginPct);
+  }
+  const dailySeries = [...dayMap].map(([day, pnl]) => ({ day: day.slice(5), pnl: Number(pnl.toFixed(2)) }));
   const last = status?.stream.lastPrice ?? null;
 
   return (
@@ -205,6 +284,25 @@ export default function App() {
 
       <Card title={`Рынок BTC · свеча ${time(market?.candleCloseAt ?? null)}`}>
         {market?.metrics ? <MetricsGrid m={market.metrics} /> : <p className="text-sm text-muted-foreground">Метрики появятся после первого цикла сканирования.</p>}
+      </Card>
+
+      <Card title="Результат по дням, % к марже (30 дней)">
+        {dailySeries.length === 0 ? <p className="text-sm text-muted-foreground">Закрытых сделок пока нет.</p> : (
+          <div className="h-56">
+            <ResponsiveContainer width="100%" height="100%">
+              <BarChart data={dailySeries}>
+                <CartesianGrid stroke="hsl(var(--border))" vertical={false} />
+                <XAxis dataKey="day" stroke="hsl(var(--muted-foreground))" fontSize={12} />
+                <YAxis stroke="hsl(var(--muted-foreground))" fontSize={12} />
+                <Tooltip contentStyle={{ background: "hsl(var(--card))", border: "1px solid hsl(var(--border))" }} formatter={(v: number) => `${v >= 0 ? "+" : ""}${v}%`} />
+                <Bar dataKey="pnl" name="Сумма к марже">
+                  {dailySeries.map((d) => <Cell key={d.day} fill={d.pnl >= 0 ? "#34d399" : "#f87171"} />)}
+                </Bar>
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
+        )}
+        <p className="mt-2 text-xs text-muted-foreground">Пока в канал не публикуется ни один паттерн, график показывает теневые сделки.</p>
       </Card>
 
       <Card title="Статистика по паттернам">
@@ -263,6 +361,27 @@ export default function App() {
             <span className={tone(s.pnlMarginPct)}>{signed(s.pnlMarginPct)}</span>,
             signed(s.mfePct, 3), signed(s.maePct, 3), time(s.closedAt),
             <button className="text-primary underline" onClick={() => setExpanded(expanded === s.id ? null : s.id)}>метрики</button>,
+          ])}
+        />
+      </Card>
+      <Card title="Исход решений паттернов за 7 дней (что раньше: цель 1 или стоп)">
+        <Table
+          head={["Паттерн", "Тип", "Напр.", "Решение", "Причина", "Всего", "Цель раньше", "Стоп раньше", "% целей", "Время вышло", "Ждём", "MFE", "MAE"]}
+          rows={outcomes.map((g) => [
+            label(g.patternKey), PROFILE[g.profile] ?? g.profile, dir(g.direction), g.decision, g.reason || "—",
+            g.total, g.targetFirst, g.stopFirst, g.targetFirstPct == null ? "—" : `${num(g.targetFirstPct, 1)}%`,
+            g.timeout, g.pending, signed(g.avgMfePct, 3), signed(g.avgMaePct, 3),
+          ])}
+        />
+        <p className="mt-2 text-xs text-muted-foreground">По минутным свечам после решения, стоп и цель — значения типа сделки по умолчанию. Если в одной свече задеты оба — считается стоп.</p>
+      </Card>
+
+      <Card title="Журнал решений (последние 100)">
+        <Table
+          head={["Свеча", "Паттерн", "Тип", "Напр.", "Решение", "Причины", "Цена"]}
+          rows={decisions.map((d) => [
+            time(d.candleCloseAt), label(d.patternKey), PROFILE[d.profile] ?? d.profile, dir(d.direction),
+            d.decision, (d.reasons ?? []).join(", "), d.price ? price(d.price) : "—",
           ])}
         />
       </Card>

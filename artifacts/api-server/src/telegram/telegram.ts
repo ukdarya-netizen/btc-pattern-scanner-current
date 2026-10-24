@@ -47,6 +47,8 @@ export function metricLines(m: Partial<Metrics> | null): string[] {
     `Объём 1h: фьюч ${x(m.futVolumeMult?.["1h"])} · спот ${x(m.spotVolumeMult?.["1h"])}`,
     `Ликвидации 1h: лонги ${usd(m.liqLongUsd?.["1h"])} · шорты ${usd(m.liqShortUsd?.["1h"])}`,
     `Фандинг ${m.fundingRatePct == null ? "—" : `${m.fundingRatePct.toFixed(4)}%`} · L/S ${m.longShortRatio == null ? "—" : m.longShortRatio.toFixed(2)}`,
+    ...(m.context?.heatmap ? [`Кластеры ликвидаций: выше ${m.context.heatmap.topAbove[0] ? `${fmt(m.context.heatmap.topAbove[0].price)} (${pct(m.context.heatmap.topAbove[0].distancePct)})` : "—"} · ниже ${m.context.heatmap.topBelow[0] ? `${fmt(m.context.heatmap.topBelow[0].price)} (${pct(m.context.heatmap.topBelow[0].distancePct)})` : "—"}`] : []),
+    ...(m.context?.hyperliquidWhales ? [`Киты Hyperliquid: лонг ${usd(m.context.hyperliquidWhales.longUsd)} · шорт ${usd(m.context.hyperliquidWhales.shortUsd)}`] : []),
   ];
 }
 
