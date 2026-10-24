@@ -1,2 +1,4 @@
 - [Coinalyze rate limits](coinalyze-rate-limits.md) — free-tier Coinalyze 429s are expected during multi-symbol batch cycles; handled via retry-after backoff, not a bug to chase.
 - [CoinGlass v4 API quirks](coinglass-api-quirks.md) — per-symbol only endpoints, kebab-case paths, ms timestamps, taker volume needs separate merge.
+- [Intentional code reset](intentional-code-reset.md) — old scanner was explicitly deleted; do not restore it from archives or history without a new request.
+- [GitHub proxy](github-proxy.md) — GitHub CLI can use github.replit.internal remotes; this is Replit's secure proxy, not an unexpected repository.
