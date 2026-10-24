@@ -19,3 +19,5 @@ Authentication uses the existing GitHub CLI login through Git's credential helpe
 no token is saved in this repository.
 
 One pass: `node scripts/github-sync.mjs --once`.
+
+Replit may route Git operations through its secure `github.replit.internal` proxy.
