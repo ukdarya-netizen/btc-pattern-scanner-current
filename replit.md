@@ -23,8 +23,11 @@
 - `telegram/telegram.ts` — очередь событий (открытие, цель, закрытие), простой текст без HTML. Отдельная сохранённая доставка в канал `@bitcoinmarginmaster` и каждому подписчику; успешные доставки не повторяются при ошибках остальных получателей. До 20 доставок за проход с паузой 100 мс; не больше 8 попыток на получателя.
 - `telegram/subscribers.ts` — `/start` подписывает личный чат, `/stop` отписывает; подписки и курсор `getUpdates` сохраняются в БД. Нужен единственный polling-процесс для токена; при Telegram 409 опрос останавливается с ошибкой в логе, чужие webhook не удаляются.
 
+- `stats/reports.ts` — итоги дня, недели (пн–вс) и месяца по времени Дубая в канал, только по live-сигналам, каждый период один раз (`btc_reports`); период без закрытых сделок не публикуется.
+- Дашборд `artifacts/dashboard` — состояние движка, статистика по паттернам/типам/направлениям (всё время, 30 и 7 дней), открытые позиции с текущим результатом, последние 50 закрытых. Обновляется каждые 15 с.
+
 ## БД (`lib/db/src/schema/btc.ts`)
-`btc_signals` (сделки), `btc_signal_events` (события + отметка доставки в Telegram), `btc_decisions` (все оценки паттернов с метриками). `btc_telegram_subscribers`, `btc_telegram_state`, `btc_telegram_deliveries` — подписки, курсор и отдельные доставки.
+`btc_signals` (сделки), `btc_signal_events` (события + отметка доставки в Telegram), `btc_decisions` (все оценки паттернов с метриками), `btc_reports` (отправленные отчёты). `btc_telegram_subscribers`, `btc_telegram_state`, `btc_telegram_deliveries` — подписки, курсор и отдельные доставки.
 
 ## API
 `GET /api/btc/status`, `/api/btc/stats?days=N`, `/api/btc/signals?status=open|closed`, `/api/btc/decisions?pattern=&decision=`.

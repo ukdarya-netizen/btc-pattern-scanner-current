@@ -106,3 +106,12 @@ export const btcDecisionsTable = pgTable(
 export type BtcSignal = typeof btcSignalsTable.$inferSelect;
 export type BtcSignalInsert = typeof btcSignalsTable.$inferInsert;
 export type BtcSignalEvent = typeof btcSignalEventsTable.$inferSelect;
+
+/** One row per published period report; guarantees each is sent once. */
+export const btcReportsTable = pgTable("btc_reports", {
+  periodKey: text("period_key").primaryKey(), // day:2026-10-24 | week:2026-10-19 | month:2026-10
+  text: text("text").notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  sentAt: timestamp("sent_at", { withTimezone: true }),
+  attempts: integer("attempts").notNull().default(0),
+});

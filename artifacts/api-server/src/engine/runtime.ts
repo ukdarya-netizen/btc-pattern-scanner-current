@@ -1,5 +1,6 @@
 import { logger } from "../lib/logger";
 import { getLastPrice, startLastPriceStream } from "../market/bingx";
+import { runReports } from "../stats/reports";
 import { deliverNext } from "../telegram/telegram";
 import { startTelegramSubscriptions } from "../telegram/subscribers";
 import {
@@ -60,5 +61,7 @@ export async function startEngine(): Promise<void> {
 
   startMfeFlush();
   setInterval(() => void runCycle(currentPrice).catch((err) => logger.error({ err }, "cycle crashed")), 15_000);
+  // Daily / weekly / monthly results of live signals (Dubai time), once each.
+  setInterval(() => void runReports().catch((err) => logger.warn({ err }, "reports pass failed")), 5 * 60_000);
   setInterval(() => void deliverNext(labelOf).catch((err) => logger.warn({ err }, "telegram pass failed")), 3_000);
 }
