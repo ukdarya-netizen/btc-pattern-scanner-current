@@ -1,4 +1,5 @@
 import { gunzipSync } from "node:zlib";
+import { recordFailure, recordSuccess } from "../lib/apiHealth";
 
 const REST = "https://open-api.bingx.com";
 const WS_URL = "wss://open-api-swap.bingx.com/swap-market";
@@ -26,12 +27,18 @@ async function get(path: string, params: Record<string, string | number>): Promi
   const url = new URL(path, REST);
   for (const [k, v] of Object.entries(params)) url.searchParams.set(k, String(v));
   url.searchParams.set("timestamp", String(Date.now()));
-  const res = await fetch(url, { signal: AbortSignal.timeout(10_000) });
-  const body = (await res.json()) as { code?: number; msg?: string; data?: unknown };
-  if (!res.ok || body.code !== 0) {
-    throw new Error(`BingX ${path} failed: HTTP ${res.status} code ${String(body.code)} ${body.msg ?? ""}`);
+  try {
+    const res = await fetch(url, { signal: AbortSignal.timeout(10_000) });
+    const body = (await res.json()) as { code?: number; msg?: string; data?: unknown };
+    if (!res.ok || body.code !== 0) {
+      throw new Error(`BingX ${path} failed: HTTP ${res.status} code ${String(body.code)} ${body.msg ?? ""}`);
+    }
+    recordSuccess("bingx");
+    return body.data;
+  } catch (err) {
+    recordFailure("bingx", err instanceof Error ? err.message : String(err));
+    throw err;
   }
-  return body.data;
 }
 
 /** Closed candles only, oldest first. A still-forming candle is dropped. */
@@ -144,6 +151,7 @@ export function startLastPriceStream(options: {
       const tick = parseLastPrice(raw, receivedAt);
       if (tick) {
         lastTickAt = tick.at;
+        recordSuccess("bingx_stream", tick.at);
         options.onTick(tick);
       }
     });
@@ -161,6 +169,7 @@ export function startLastPriceStream(options: {
     if (socket && socket.readyState === WebSocket.OPEN && Date.now() - lastFrameAt > silenceMs) {
       socket.close();
     }
+    if (Date.now() - lastTickAt > silenceMs) recordFailure("bingx_stream", "нет тиков цены");
   }, 5_000);
   connect();
 

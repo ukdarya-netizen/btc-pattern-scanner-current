@@ -2,7 +2,9 @@ import { logger } from "../lib/logger";
 import { getLastPrice, startLastPriceStream } from "../market/bingx";
 import { runReports } from "../stats/reports";
 import { deliverNext } from "../telegram/telegram";
-import { startTelegramSubscriptions } from "../telegram/subscribers";
+import { setAdminCommandHandler, startTelegramSubscriptions } from "../telegram/subscribers";
+import { notifyRestart, startOpsMonitor, statusText } from "../ops/admin";
+import { waitForEngineLease } from "../ops/lease";
 import {
   catchUpFromCandles,
   catchUpPending,
@@ -12,7 +14,7 @@ import {
   startMfeFlush,
 } from "../tracker/tracker";
 import { PATTERNS } from "./patterns";
-import { runCycle } from "./scanner";
+import { runCycle, scannerStatus } from "./scanner";
 
 let stream: ReturnType<typeof startLastPriceStream> | null = null;
 let lastTick: { price: number; at: number } | null = null;
@@ -35,9 +37,21 @@ async function currentPrice(): Promise<number> {
 const labelOf = (key: string) => PATTERNS.find((p) => p.key === key)?.label ?? key;
 
 export async function startEngine(): Promise<void> {
+  // One engine per database: a second process waits instead of double-posting.
+  await waitForEngineLease();
   const restored = await loadOpenSignals();
   logger.info({ restored }, "BTC engine: open signals restored");
+  setAdminCommandHandler(() => statusText({
+    lastPrice: lastTick?.price ?? null,
+    streamConnected: connected,
+    lastCandleCloseAt: scannerStatus.lastCandleCloseAt,
+    missingFlow: scannerStatus.missingFlow,
+    patternCount: PATTERNS.length,
+    livePatternCount: PATTERNS.filter((p) => p.live).length,
+  }));
   startTelegramSubscriptions();
+  startOpsMonitor(() => scannerStatus);
+  void notifyRestart(restored).catch((err) => logger.warn({ err }, "restart notification failed"));
 
   stream = startLastPriceStream({
     onTick: (tick) => {

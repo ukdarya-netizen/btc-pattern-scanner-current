@@ -1,5 +1,6 @@
 import type { Candle, Interval } from "../market/bingx";
 import type { FlowBar, FlowSeries } from "../market/coinglass";
+import type { MarketContext } from "../market/context";
 
 export type Candles = Record<Interval, Candle[]>;
 
@@ -44,6 +45,10 @@ export type Metrics = {
   orderbookImbalancePct: number | null;
   whaleIndex: number | null;
   whaleIndexChange4h: number | null;
+  /** Whale Index on 4h bars (AltBullet market context). */
+  whaleIndex4h: number | null;
+  /** Liquidation heatmap, Hyperliquid whales, exchange balances, dominance. */
+  context: MarketContext | null;
 };
 
 export type Snapshot = {
@@ -145,7 +150,7 @@ const byTf = <K extends Tf>(keys: readonly K[], fn: (bars: number) => number | n
 const TFS = ["15m", "30m", "1h", "4h", "24h"] as const;
 const TFS_NO_DAY = ["15m", "30m", "1h", "4h"] as const;
 
-export function computeMetrics(candles: Candles, flow: FlowSeries): Metrics {
+export function computeMetrics(candles: Candles, flow: FlowSeries, context: MarketContext | null = null): Metrics {
   const c5 = candles["5m"];
   const price = c5[c5.length - 1]?.close ?? Number.NaN;
   const lastOb = flow.orderbook?.[flow.orderbook.length - 1];
@@ -203,5 +208,7 @@ export function computeMetrics(candles: Candles, flow: FlowSeries): Metrics {
     whaleIndexChange4h: whale && whale.length >= 5
       ? round(whale[whale.length - 1]!.value! - whale[whale.length - 5]!.value!)
       : null,
+    whaleIndex4h: round(flow.whaleIndex4h?.[flow.whaleIndex4h.length - 1]?.value ?? null),
+    context,
   };
 }

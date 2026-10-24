@@ -10,6 +10,7 @@ import {
 } from "../lib/tradeMath";
 import { getClosedCandles, INTERVAL_MS, type Interval } from "../market/bingx";
 import { getBtcFlow } from "../market/coinglass";
+import { getMarketContext } from "../market/context";
 import { trackSignal } from "../tracker/tracker";
 import { PATTERNS, type Pattern } from "./patterns";
 import { computeMetrics, type Metrics, type Snapshot } from "./snapshot";
@@ -47,7 +48,7 @@ async function buildSnapshot(now: number): Promise<Snapshot> {
   const flow = await getBtcFlow(120, now);
   const candles = { "1m": [], "5m": c5, "15m": c15, "1h": c1h, "4h": c4h };
   scannerStatus.missingFlow = Object.entries(flow).filter(([, v]) => v === null).map(([k]) => k);
-  return { at: now, candles, flow, metrics: computeMetrics(candles, flow) };
+  return { at: now, candles, flow, metrics: computeMetrics(candles, flow, getMarketContext()) };
 }
 
 /** Patterns of a profile are evaluated only when that profile's candle closed. */

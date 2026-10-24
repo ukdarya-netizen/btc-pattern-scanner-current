@@ -12,7 +12,7 @@ const candles = (n: number, step: number, start = 100): Candle[] =>
 
 const emptyFlow: FlowSeries = {
   oi: null, liquidations: null, futuresTaker: null, spotTaker: null,
-  spotCvd: null, funding: null, longShort: null, orderbook: null, whaleIndex: null,
+  spotCvd: null, funding: null, longShort: null, orderbook: null, whaleIndex: null, whaleIndex4h: null,
 };
 const allCandles = () => ({
   "1m": [], "5m": candles(50, 300_000), "15m": candles(50, 900_000),

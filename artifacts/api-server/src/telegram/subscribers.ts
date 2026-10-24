@@ -4,6 +4,20 @@ import { logger } from "../lib/logger";
 import { sendMessage, subscriptionCommand, telegramCall, TelegramError, type TelegramUpdate } from "./transport";
 
 let running = false;
+let adminHandler: ((command: string) => Promise<string>) | null = null;
+
+/** Admin-only commands (/status, /open) from TELEGRAM_ADMIN_CHAT_IDS chats. */
+export function setAdminCommandHandler(handler: (command: string) => Promise<string>): void {
+  adminHandler = handler;
+}
+
+function adminCommand(update: TelegramUpdate): string | null {
+  if (update.message?.chat.type !== "private") return null;
+  const admins = (process.env.TELEGRAM_ADMIN_CHAT_IDS ?? "").split(",").map((id) => id.trim()).filter(Boolean);
+  if (!admins.includes(String(update.message.chat.id))) return null;
+  const command = update.message.text?.trim().split(/\s+/)[0]?.split("@")[0]?.toLowerCase();
+  return command === "/status" || command === "/open" ? command : null;
+}
 const pause = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
 async function poll(): Promise<void> {
@@ -32,6 +46,15 @@ async function poll(): Promise<void> {
             .onConflictDoUpdate({ target: btcTelegramStateTable.key, set: { nextUpdateId: update.update_id + 1 } });
         });
         offset = update.update_id + 1;
+        const admin = adminCommand(update);
+        if (admin && adminHandler && update.message) {
+          try {
+            await sendMessage(String(update.message.chat.id), await adminHandler(admin));
+          } catch (err) {
+            logger.warn({ err }, "admin command reply failed");
+          }
+          continue;
+        }
         if (command && update.message) {
           try {
             await sendMessage(String(update.message.chat.id), command === "start"

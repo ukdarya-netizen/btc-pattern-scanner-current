@@ -8,6 +8,8 @@ import { getStats } from "../stats/stats";
 import { openSignalCount } from "../tracker/tracker";
 import { engineHealth } from "../engine/runtime";
 import { logger } from "../lib/logger";
+import { healthSnapshot } from "../lib/apiHealth";
+import { coinglassGovernorStats } from "../market/coinglass";
 
 const router = Router();
 const clampLimit = (raw: unknown, max = 500) => Math.min(Math.max(Number(raw) || 100, 1), max);
@@ -16,6 +18,8 @@ router.get("/btc/status", (_req, res) => {
   res.json({
     scanner: scannerStatus,
     stream: engineHealth(),
+    apis: healthSnapshot(),
+    coinglass: coinglassGovernorStats(),
     openSignals: openSignalCount(),
     patterns: PATTERNS.map((p) => ({ key: p.key, label: p.label, direction: p.direction, profile: p.profile, live: p.live })),
     profiles: PROFILES,
