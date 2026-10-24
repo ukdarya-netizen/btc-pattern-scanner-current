@@ -1,7 +1,8 @@
-import { db, btcSignalEventsTable, btcSignalsTable } from "@workspace/db";
-import { and, asc, eq, isNull, lt } from "drizzle-orm";
+import { db, btcSignalEventsTable, btcSignalsTable, btcTelegramDeliveriesTable, btcTelegramSubscribersTable } from "@workspace/db";
+import { and, asc, eq, isNull, lt, lte } from "drizzle-orm";
 import { PROFILES, type ProfileKey } from "../config/profiles";
 import { logger } from "../lib/logger";
+import { sendMessage, SIGNAL_CHANNEL, TelegramError } from "./transport";
 
 const MAX_ATTEMPTS = 8;
 
@@ -60,25 +61,9 @@ export function formatEvent(signal: SignalRow, event: EventRow, patternLabel: st
   ].join("\n");
 }
 
-async function send(text: string): Promise<void> {
-  const token = process.env.TELEGRAM_BOT_TOKEN;
-  const chatId = process.env.TELEGRAM_CHANNEL_ID;
-  if (!token || !chatId) throw new Error("TELEGRAM_BOT_TOKEN / TELEGRAM_CHANNEL_ID not set");
-  const res = await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ chat_id: chatId, text, disable_web_page_preview: true }),
-    signal: AbortSignal.timeout(10_000),
-  });
-  if (!res.ok) throw new Error(`Telegram HTTP ${res.status}`);
-}
+let delivering = false;
 
-/**
- * Outbox: one message per pass, oldest first, only for live signals. Shadow
- * signal events are acknowledged silently. Failures are retried a bounded
- * number of times so a broken message can never block later ones forever.
- */
-export async function deliverNext(patternLabel: (key: string) => string): Promise<void> {
+async function deliverBatch(patternLabel: (key: string) => string): Promise<void> {
   const rows = await db
     .select({ event: btcSignalEventsTable, signal: btcSignalsTable })
     .from(btcSignalEventsTable)
@@ -92,16 +77,72 @@ export async function deliverNext(patternLabel: (key: string) => string): Promis
         .where(eq(btcSignalEventsTable.id, event.id));
       continue;
     }
-    try {
-      await send(formatEvent(signal, event, patternLabel(signal.patternKey)));
-      await db.update(btcSignalEventsTable).set({ telegramSentAt: new Date() })
-        .where(eq(btcSignalEventsTable.id, event.id));
-    } catch (err) {
-      await db.update(btcSignalEventsTable)
-        .set({ telegramAttempts: event.telegramAttempts + 1 })
-        .where(eq(btcSignalEventsTable.id, event.id));
-      logger.warn({ err, eventId: event.id }, "telegram: delivery failed, will retry");
-    }
-    return; // pace: at most one live message per pass
+    const subscribers = await db.select().from(btcTelegramSubscribersTable).where(and(
+      eq(btcTelegramSubscribersTable.active, true),
+      lte(btcTelegramSubscribersTable.subscribedAt, event.createdAt),
+    ));
+    const text = formatEvent(signal, event, patternLabel(signal.patternKey));
+    await db.insert(btcTelegramDeliveriesTable).values([
+      { eventId: event.id, chatId: SIGNAL_CHANNEL, channel: true, text },
+      ...subscribers.map((s) => ({ eventId: event.id, chatId: s.chatId, channel: false, text })),
+    ]).onConflictDoNothing();
   }
+
+  const pending = await db.select().from(btcTelegramDeliveriesTable).where(and(
+    eq(btcTelegramDeliveriesTable.status, "pending"),
+    lte(btcTelegramDeliveriesTable.nextAttemptAt, new Date()),
+  )).orderBy(asc(btcTelegramDeliveriesTable.id)).limit(20);
+  for (const delivery of pending) {
+    if (!delivery.channel) {
+      const [subscriber] = await db.select().from(btcTelegramSubscribersTable)
+        .where(eq(btcTelegramSubscribersTable.chatId, delivery.chatId));
+      if (!subscriber?.active) {
+        await db.update(btcTelegramDeliveriesTable).set({ status: "skipped" })
+          .where(eq(btcTelegramDeliveriesTable.id, delivery.id));
+        continue;
+      }
+    }
+    try {
+      await sendMessage(delivery.chatId, delivery.text);
+      await db.update(btcTelegramDeliveriesTable).set({ status: "sent", sentAt: new Date() })
+        .where(eq(btcTelegramDeliveriesTable.id, delivery.id));
+    } catch (err) {
+      const attempts = delivery.attempts + 1;
+      const blocked = !delivery.channel && err instanceof TelegramError && err.code === 403;
+      if (blocked) {
+        await db.update(btcTelegramSubscribersTable).set({ active: false, updatedAt: new Date() })
+          .where(eq(btcTelegramSubscribersTable.chatId, delivery.chatId));
+      }
+      await db.update(btcTelegramDeliveriesTable).set({
+        attempts, status: blocked ? "skipped" : attempts >= MAX_ATTEMPTS ? "failed" : "pending",
+        nextAttemptAt: new Date(Date.now() + Math.max(
+          3000 * 2 ** Math.min(attempts, 8),
+          err instanceof TelegramError ? err.retryAfter * 1000 : 0,
+        )),
+      }).where(eq(btcTelegramDeliveriesTable.id, delivery.id));
+      logger.warn({ err, deliveryId: delivery.id, attempts }, "Telegram recipient delivery failed");
+    }
+    // Stay comfortably below the bot-wide Telegram send limit.
+    await new Promise((resolve) => setTimeout(resolve, 100));
+  }
+
+  for (const { event, signal } of rows) {
+    if (!signal.live) continue;
+    const deliveries = await db.select().from(btcTelegramDeliveriesTable)
+      .where(eq(btcTelegramDeliveriesTable.eventId, event.id));
+    if (!deliveries.length || deliveries.some((d) => d.status === "pending")) continue;
+    await db.update(btcSignalEventsTable).set(
+      deliveries.some((d) => d.status === "failed")
+        ? { telegramAttempts: MAX_ATTEMPTS }
+        : { telegramSentAt: new Date() },
+    ).where(eq(btcSignalEventsTable.id, event.id));
+  }
+}
+
+/** One worker per process; successes persist separately for every recipient. */
+export async function deliverNext(patternLabel: (key: string) => string): Promise<void> {
+  if (delivering) return;
+  delivering = true;
+  try { await deliverBatch(patternLabel); }
+  finally { delivering = false; }
 }

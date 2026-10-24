@@ -1,6 +1,7 @@
 import { logger } from "../lib/logger";
 import { getLastPrice, startLastPriceStream } from "../market/bingx";
 import { deliverNext } from "../telegram/telegram";
+import { startTelegramSubscriptions } from "../telegram/subscribers";
 import {
   catchUpFromCandles,
   catchUpPending,
@@ -35,6 +36,7 @@ const labelOf = (key: string) => PATTERNS.find((p) => p.key === key)?.label ?? k
 export async function startEngine(): Promise<void> {
   const restored = await loadOpenSignals();
   logger.info({ restored }, "BTC engine: open signals restored");
+  startTelegramSubscriptions();
 
   stream = startLastPriceStream({
     onTick: (tick) => {
