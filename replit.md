@@ -1,90 +1,44 @@
-# ALT Pattern Scanner
+# BTC Bullet — BTC signal bot
 
-Мульти-альт паттерн-сканер — следит за списком из 20 альткоинов, вычисляет метрики по OI/цене/объёму/CVD/funding на каждом 5-минутном цикле и публикует в Telegram сигнал, когда монета подходит под один из 15 именованных паттернов (13 объёмно-OI-паттернов + 2 паттерна технического анализа пробоев на часовом ТФ). Бот остаётся сигнальным аналитиком — реальной автоторговли нет, пользователь торгует вручную по сигналам из канала.
+Сигнальный бот только по BTC-USDT (BingX perpetual), лонги и шорты, по образцу AltBullet: цикл сканирования на закрытых свечах, журнал всех решений паттернов с метриками, виртуальное сопровождение каждой сделки, статистика и Telegram-канал. Автоторговли нет — сигналы для ручной торговли.
+
+## Типы сделок (`artifacts/api-server/src/config/profiles.ts`)
+| Тип | Плечо | ТФ паттернов | Стоп по умолчанию | Цели | Макс. удержание |
+|---|---|---|---|---|---|
+| scalp (скальп) | x100 | 5m | 0.35% | 0.35% (50%), 0.7% (50%) | 2 ч |
+| intraday (интрадей) | x50 | 15m | 1.0% | 1% (50%), 2% (50%) | 24 ч |
+| swing (среднесрок) | x25 | 1h | 2.5% | 2.5% (50%), 5% (50%) | 7 дней |
+
+Стопы и цели — временные значения до калибровки на истории BTC. После первой цели стоп переносится в безубыток. Стоп сигнала обязан быть не дальше 80% расстояния до ликвидации (изолированная маржа, MMR 0.4%); сигнал с более дальним стопом не открывается.
+
+## Как работает
+- `engine/runtime.ts` — запуск: восстановление открытых сделок, поток цены, цикл сканирования каждые 15 с, Telegram-очередь каждые 3 с.
+- `market/bingx.ts` — свечи BingX (только закрытые), цена, WebSocket `BTC-USDT@lastPrice` с переподключением и сторожем тишины.
+- `market/coinglass.ts` — агрегированные данные CoinGlass (OI, ликвидации, тейкер фьючерсов/спота, спотовый CVD, funding OI-weighted, long/short, стакан ±1%), 15m, только закрытые бары. Нет данных — метрика `null`, никаких запасных источников.
+- `engine/snapshot.ts` — расчёт метрик на момент решения.
+- `engine/patterns.ts` — реестр паттернов. Пуст до утверждения паттернов по данным. `live: false` = теневой паттерн: сделки ведутся и попадают в статистику, в канал не публикуются.
+- `engine/scanner.ts` — на каждой закрытой 5m свече оценивает паттерны своего ТФ, пишет каждое решение в `btc_decisions`, открывает сделку (вход = живая цена в момент сигнала). Один открытый сигнал на паттерн.
+- `tracker/positionEngine.ts` — чистая логика сделки: стоп раньше целей, частичные фиксации, безубыток, тайм-аут, MFE/MAE. `tracker/tracker.ts` — применяет каждый живой тик; при разрыве потока (рестарт, переподключение, тишина >20 с) сначала проигрывает пропущенное время по закрытым 1m свечам (касание стопа и цели в одной свече = стоп).
+- PnL: % цены (gross) и % к марже с плечом за вычетом тейкер-комиссий 0.05% на вход и каждый выход.
+- `telegram/telegram.ts` — очередь событий (открытие, цель, закрытие), только простой текст без HTML, не больше одного сообщения за проход, ограниченные повторы.
+
+## БД (`lib/db/src/schema/btc.ts`)
+`btc_signals` (сделки), `btc_signal_events` (события + отметка доставки в Telegram), `btc_decisions` (все оценки паттернов с метриками).
+
+## API
+`GET /api/btc/status`, `/api/btc/stats?days=N`, `/api/btc/signals?status=open|closed`, `/api/btc/decisions?pattern=&decision=`.
+
+## Секреты
+`COINGLASS_API_KEY`, `TELEGRAM_BOT_TOKEN`, `TELEGRAM_CHANNEL_ID` (ID или @username канала BTC-сигналов), `DATABASE_URL`. Необязательно: `COINGLASS_MIN_GAP_MS` (пауза между запросами CoinGlass, по умолчанию 1500), `BTC_ENGINE_ENABLED=false` (выключить движок).
 
 ## Run & Operate
 - API server: `pnpm --filter @workspace/api-server run dev`
-- Dashboard: `pnpm --filter @workspace/dashboard run dev`
+- Тесты: `pnpm --filter @workspace/api-server run test`
+- Синхронизация с GitHub: workflow «GitHub Auto Sync» (`scripts/github-sync.mjs`), ветка `main`.
 
-Required secrets: `BYBIT_API_KEY`, `BYBIT_API_SECRET`, `BINGX_API_KEY`, `BINGX_API_SECRET`, `COINGLASS_API_KEY`, `COINALYZE_API_KEY`, `SESSION_SECRET`, `TELEGRAM_BOT_TOKEN`
-Optional: `TELEGRAM_ADMIN_CHAT_IDS` (comma-separated chat IDs for private bot alerts)
-
-Note: exchange keys (Bybit/BingX) are kept from the prior BTC engine but are not currently used by the scanner. CoinGlass is now the primary market data source, with Coinalyze kept as an automatic fallback.
-
-## Stack
-- **Frontend**: React 19, Vite, Tailwind v4, TanStack Query, Wouter
-- **Backend**: Node.js, Express, TypeScript, esbuild
-- **DB**: PostgreSQL via Drizzle ORM
-- **Data source**: CoinGlass v4 REST API (Bybit exchange) is primary — OI history, futures/spot price OHLC, taker buy/sell volume, funding rate. Coinalyze REST API is kept as automatic fallback per data batch (used if CoinGlass errors or returns empty). Binance REST is geo-blocked (HTTP 451) from Replit, so it's not used.
-- `services/marketData.ts` is the single entry point `altScanner.ts` calls for market data — it tries CoinGlass first (`coinglassData.ts`) and falls back to Coinalyze (`coinalyzeData.ts`) per batch (OI/futures OHLCV/spot OHLCV/funding), independently.
-- CoinGlass has no multi-symbol batch endpoint like Coinalyze, so `coinglassData.ts` fetches per-symbol sequentially (price + taker-buy-sell-volume merged by timestamp into one `OhlcvBar[]`, OI history, funding rate) — still well within CoinGlass's per-minute rate limit even across 20 symbols.
-
-## Where things live
-- `artifacts/dashboard/src/pages/scanner.tsx` — single dashboard page: overall stats, per-pattern stats, open positions, watchlist metrics, recent pattern hits
-- `artifacts/api-server/src/services/altScanner.ts` — core scan loop, metric computation, all 15 pattern definitions, open-position tracking
-- `artifacts/api-server/src/services/technicalLevels.ts` — pure price-action technical analysis: aggregates existing 5m futures bars into hourly candles, finds horizontal S/R levels and descending trendlines via confirmed swing highs/lows, and detects fresh bullish breakouts. No volume, no extra API calls — reuses the same `futOhlcv` bars already fetched each cycle.
-- `artifacts/api-server/src/services/coinalyzeData.ts` — Coinalyze REST client with retry/backoff for rate limits, batch fetchers for OI/OHLCV/funding
-- `artifacts/api-server/src/services/dbService.ts` — persistence: save/close pattern signals, overall + per-pattern stats, open signals
-- `artifacts/api-server/src/services/telegram.ts` — send-only Telegram client, publishes pattern hits to the channel
-- `artifacts/api-server/src/routes/scanner.ts` — API routes: `/scanner/metrics`, `/scanner/hits`, `/scanner/signals`, `/scanner/open-positions`, `/scanner/stats/overall`, `/scanner/stats/patterns`
-- DB schema: `artifacts/api-server/src/db/schema.ts` (`pattern_signals` table)
-
-## Watchlist
-20 alts (all Coinalyze futures symbol `${SYMBOL}.6`, spot `s${SYMBOL}.6`): SOL, XRP, DOGE, ADA, AVAX, LINK, DOT, LTC, TRX, NEAR, ARB, OP, APT, SUI, INJ, TIA, RUNE, ATOM, SEI, WIF (all vs USDT).
-
-## Cycle & metrics
-- Runs every 5 minutes. Fetches data for all 20 symbols per-batch (sequentially, not concurrently, to avoid Coinalyze 429s), then computes per-symbol metrics:
-  - `oiChange`: % change over 5m/15m/30m/1h/4h/24h windows
-  - `priceChange`: % change current/1h/3h/4h/24h
-  - `volMult` / `volMult4h`: futures volume vs recent average
-  - `spotVolMult`: spot volume vs recent average
-  - `takerNetBuyPct` (+15m variant) and `takerDominance` (buy/sell) from futures OHLCV buy-volume field
-  - `spotCvd`: boolean "CVD positive" flags on 5m/15m/1h/4h from spot OHLCV
-  - `fundingRate`
-- Per-symbol previous-cycle state (`oi30m`, `oi4h`, `spotVolMult`, cascade phase-1 flag) is kept in memory for patterns that need cycle-over-cycle comparison (e.g. `flush_reversal`, `liquidation_cascade`).
-- `cycleCount`: per-symbol/per-pattern streak counter of consecutive cycles where the base condition holds; some patterns require a minimum streak before firing (`requiredCycles`).
-
-## 15 patterns (all LONG-only)
-`dip_accumulation`, `4h_momentum`, `quiet_oi_accumulation`, `volume_taker` (OR-branch: streak≥2 or spotVolMult≥4x), `spot_absorption`, `flush_reversal`, `oi1h_breakout`, `spot_momentum_reversal`, `spot_oi4h_build`, `liquidation_cascade` (two-phase: sticky phase-1 flush detection gates phase-2 reversal), `spot_taker_lead`, `spot_divergence`, `accumulation_breakout`, `resistance_breakout`, `trendline_breakout`. Exact thresholds live in `PATTERNS` in `altScanner.ts` — treat that file as the source of truth over this doc.
-
-### Technical breakout patterns (`resistance_breakout`, `trendline_breakout`)
-Pure price-action, no volume/OI/funding inputs, no extra API calls — computed from the same 5m futures bars already fetched each cycle (`technicalLevels.ts`):
-- 5m bars are aggregated into hourly candles (12 bars/hour).
-- Swing highs/lows are found via a 2-bar-lookback pivot rule; the last 2 hourly bars are excluded from pivot detection since they aren't confirmed yet.
-- `resistance_breakout`: horizontal resistance zones are built by clustering pivot highs within 0.6% of each other, kept only if touched ≥2 times; fires when the latest completed hourly close crosses back above a zone (previous hourly close was at/below it) by more than a 0.15% buffer.
-- `trendline_breakout`: a descending trendline is fit through two lower pivot highs (≥6 hourly bars apart, line not meaningfully violated in between); fires when the latest hourly close breaks back above the projected line value with the same fresh-cross + buffer logic.
-- Both are `requiredCycles: 1` — the breakout condition itself is already a "this cycle" fresh-cross check, not a streak.
-
-Each pattern fires once per "episode" (stays suppressed while its base condition keeps holding, re-arms once it goes false) — no time-based cooldown, matching the old "active state only" model. Episode-suppression state is in-memory only, so on server restart it's rehydrated from any open (unclosed) `pattern_signals` rows for that symbol+pattern — otherwise a still-holding pattern would re-fire right after a restart. Firing also double-checks against currently open positions for the same symbol+pattern as a second guard.
-
-## Open positions (dashboard-only, no auto-trading)
-On pattern fire, a virtual position is recorded (entry price = signal price). Each cycle, positions are checked against:
-- Take-profit: 3 partial levels — +5%, +10%, +15%, each closing 1/3 of the position
-- Stop-loss: -10% initially; moves to breakeven (0%, i.e. entry price) once the +10% level is hit
-- Max hold: 48 cycles (~4h)
-Closed positions are saved to `pattern_signals` with `closePrice`/`pnlPct` (weighted average across partial TP closes); open positions are hydrated from DB on startup (partial-fill state resets to fresh on restart) and shown live on the dashboard with per-level TP indicators and current stop threshold.
-
-## Dashboard (`/`)
-- **Общая статистика по сигналам**: total/open/closed/wins/losses, win-rate, avg PnL%
-- **Статистика по паттернам**: per-pattern total/closed/wins/win-rate/avg PnL%
-- **Открытые позиции**: symbol, pattern, entry price, current price, unrealized PnL%, cycles held
-- **Watchlist Metrics**: live per-symbol metric table
-- **Recent Pattern Hits**: session-local log of fired patterns
-
-## Architecture decisions
-- Coinalyze is rate-limited on the current plan — `getJson` in `coinalyzeData.ts` retries with retry-after-header-aware backoff (5 attempts). Occasional "rate limited, backing off" log lines during a cycle are expected, not an error.
-- Data fetches within a cycle run sequentially (OI → futures OHLCV → spot OHLCV → funding), not concurrently, specifically to reduce 429s.
-- Telegram: manual `getUpdates` polling in production; dev instance runs send-only (polling disabled) to avoid 409 conflicts with the production bot. All signals go directly to channel `@bitcoinmarginmaster` via `telegramService.publishPatternSignal()` — no private-chat delivery.
-- Old BTC-only engine (SignalEngine, fractalService DTW gate, bufferService, botEngine, Binance data layer, old Terminal/Risk/Signal/Liquidations pages) has been fully removed. Only `altScanner.ts`, `coinalyzeData.ts`, `dbService.ts`, `telegram.ts` remain in `services/`.
-- Old BTC-engine DB tables (`bot_sessions`, `open_positions`, `pnl_snapshots`, `trades`) were dropped; replaced by a single `pattern_signals` table.
-
-## User preferences
-- No trailing stop, no news guard, no cooldowns — do NOT add
-- No real trade execution — signals only, user trades manually
-- All signals go directly to the Telegram channel, not via bot private chat
-- Dashboard/Telegram copy stays in Russian, consistent with existing UI style
-
-## Gotchas
-- Coinalyze free-tier rate limits mean the first cycle(s) after a restart may show partial/stale data until retries clear — this is expected, not a bug.
-- `dbService.ts` may carry pre-existing TS quirks around Drizzle numeric/date types from the earlier engine — server runs fine.
-- Positions/signals only fully appear in stats once closed (TP/SL/timeout) — open positions show live in the "Открытые позиции" section but count toward `open` in stats until closed.
+## Правила владельца
+- Без трейлинг-стопа, без новостного фильтра, без кулдаунов — не добавлять.
+- Только сигналы, реальной торговли нет.
+- Все сигналы — напрямую в Telegram-канал.
+- Тексты Telegram и дашборда — на русском, простой текст.
+- Данные только агрегированные: нет данных — нет сигнала.
