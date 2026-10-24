@@ -7,7 +7,10 @@ import { fileURLToPath } from "node:url";
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 process.chdir(root);
 const once = process.argv.includes("--once");
-const expectedRemote = "https://github.com/ukdarya-netizen/alt-pattern-scanner-current.git";
+const expectedRemotes = new Set([
+  "https://github.com/ukdarya-netizen/alt-pattern-scanner-current.git",
+  "https://github.replit.internal/ukdarya-netizen/alt-pattern-scanner-current.git",
+]);
 const log = (message) => console.log(`[github-sync] ${message}`);
 const git = (...args) => execFileSync("git", args, {
   cwd: root,
@@ -58,7 +61,7 @@ function sync() {
   if (git("branch", "--show-current") !== "main") {
     throw new Error("Paused: checked-out branch is not main.");
   }
-  if (git("remote", "get-url", "origin") !== expectedRemote) {
+  if (!expectedRemotes.has(git("remote", "get-url", "origin"))) {
     throw new Error("Paused: origin does not match the configured repository.");
   }
   for (const marker of ["MERGE_HEAD", "CHERRY_PICK_HEAD", "REVERT_HEAD"]) {
