@@ -2,3 +2,4 @@
 - [CoinGlass v4 API quirks](coinglass-api-quirks.md) — per-symbol only endpoints, kebab-case paths, ms timestamps, taker volume needs separate merge.
 - [Intentional code reset](intentional-code-reset.md) — old scanner was explicitly deleted; do not restore it from archives or history without a new request.
 - [GitHub proxy](github-proxy.md) — GitHub CLI can use github.replit.internal remotes; this is Replit's secure proxy, not an unexpected repository.
+- [BTC rollout and legacy DB](btc-rollout.md) — patterns require history analysis and user approval; preserve legacy data during schema pushes.
