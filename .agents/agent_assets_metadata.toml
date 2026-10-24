@@ -1,8 +1,3 @@
 uploads = []
 generated = []
-
-[[outputs]]
-id = "Tdrjrj_d31IV7bHlTjtkq"
-uri = "file://exports/alt-pattern-scanner-code.zip"
-type = "unspecified"
-title = "ALT Pattern Scanner — исходный код"
+outputs = []
