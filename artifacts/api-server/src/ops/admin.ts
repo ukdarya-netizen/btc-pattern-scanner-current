@@ -1,12 +1,7 @@
 /**
- * Operator notifications, ported from AltBullet's policy:
- *  - "Бот перезапущен" on every start (owner: this message must stay)
- *  - external API outage > 30 min, at most once per 6 h per source, plus a
- *    "restored" message only after such an alert (lib/apiHealth)
- *  - scanner watchdog: no completed 5m cycle for 20 min → alert, at most
- *    hourly, with a recovery message
- * Recipients: TELEGRAM_ADMIN_CHAT_IDS (comma-separated private chat IDs).
- * Nothing here ever goes to the signal channel.
+ * Operational diagnostics stay in server logs. Automatic restarts, API
+ * outages and watchdog recovery must not send Telegram notifications.
+ * Explicit admin commands still return status on request.
  */
 import { db, btcSignalsTable } from "@workspace/db";
 import { eq } from "drizzle-orm";
@@ -14,7 +9,6 @@ import { PROFILES, type ProfileKey } from "../config/profiles";
 import { dueAlerts, healthSnapshot } from "../lib/apiHealth";
 import { logger } from "../lib/logger";
 import { coinglassGovernorStats } from "../market/coinglass";
-import { sendMessage } from "../telegram/transport";
 import { watchdogDecision, type WatchdogState } from "./watchdog";
 
 
@@ -23,35 +17,20 @@ export function adminChatIds(): string[] {
     .split(",").map((id) => id.trim()).filter(Boolean);
 }
 
-export async function sendAdmin(text: string): Promise<void> {
-  for (const chatId of adminChatIds()) {
-    try {
-      await sendMessage(chatId, text);
-    } catch (err) {
-      logger.warn({ err }, "admin notification failed");
-    }
-  }
-}
-
-export async function notifyRestart(openSignals: number): Promise<void> {
-  const at = new Date().toLocaleString("ru-RU", { timeZone: "Asia/Dubai" });
-  await sendAdmin(`BTC Bullet: бот перезапущен (${at}, Дубай). Открытых позиций восстановлено: ${openSignals}.`);
-}
-
 const watchdog: WatchdogState = { alertedAt: null };
 
 export function startOpsMonitor(getScanner: () => { lastCandleCloseAt: string | null; lastError: string | null }): void {
   const startedAt = Date.now();
   setInterval(() => {
     void (async () => {
-      for (const alert of dueAlerts()) await sendAdmin(alert.text);
+      for (const alert of dueAlerts()) logger.warn({ alert }, "BTC API health");
       const s = getScanner();
       const decision = watchdogDecision(s.lastCandleCloseAt, startedAt, Date.now(), watchdog);
       if (decision === "alert") {
         const minutes = Math.round((Date.now() - (s.lastCandleCloseAt ? Date.parse(s.lastCandleCloseAt) : startedAt)) / 60_000);
-        await sendAdmin(`BTC Bullet: сканер не завершал цикл ${minutes} мин.${s.lastError ? `\nПоследняя ошибка: ${s.lastError}` : ""}`);
+        logger.warn({ minutes, lastError: s.lastError }, "BTC scanner idle");
       } else if (decision === "recovered") {
-        await sendAdmin("BTC Bullet: сканер снова работает.");
+        logger.info("BTC scanner recovered");
       }
     })().catch((err) => logger.warn({ err }, "ops monitor pass failed"));
   }, 60_000);
