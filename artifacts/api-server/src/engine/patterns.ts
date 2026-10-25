@@ -8,6 +8,12 @@ export type PatternResult = {
   /** Optional per-signal overrides; validated against the liquidation guard. */
   stopPct?: number;
   targets?: TargetSpec[];
+  /**
+   * Absolute levels from the market structure (e.g. a range). Converted to
+   * the live entry at fire time; a signal whose entry is already past its
+   * first target or beyond its stop is not opened.
+   */
+  levels?: { stop: number; targets: { price: number; fraction: number }[] };
   /** Extra decision metrics specific to this pattern. */
   detail?: Record<string, unknown>;
 };
@@ -30,9 +36,7 @@ export function check(conditions: Array<[string, boolean | null]>): PatternResul
   return { fires: reasons.length === 0, reasons: reasons.length ? reasons : ["ok"] };
 }
 
-/**
- * The pattern set is filled in after the BTC history analysis (owner choice:
- * patterns are proposed from data and approved before going live). Until then
- * the engine runs, records metrics and tracks nothing.
- */
-export const PATTERNS: Pattern[] = [];
+import { RANGE_PATTERNS } from "./rangePatterns";
+
+/** Owner's base (2026-10-25): Auto Range Detector breakouts and deviations on 4h and 1d. */
+export const PATTERNS: Pattern[] = [...RANGE_PATTERNS];

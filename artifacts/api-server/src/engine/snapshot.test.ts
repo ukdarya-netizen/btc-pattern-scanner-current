@@ -16,7 +16,7 @@ const emptyFlow: FlowSeries = {
 };
 const allCandles = () => ({
   "1m": [], "5m": candles(50, 300_000), "15m": candles(50, 900_000),
-  "1h": candles(50, 3_600_000), "4h": candles(50, 14_400_000),
+  "1h": candles(50, 3_600_000), "4h": candles(50, 14_400_000), "1d": [],
 });
 
 test("missing flow series stay null instead of being substituted", () => {

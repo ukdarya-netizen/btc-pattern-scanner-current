@@ -106,7 +106,7 @@ function MetricsGrid({ m }: { m: Metrics }) {
   );
 }
 
-const PROFILE: Record<string, string> = { scalp: "Скальп x100", intraday: "Интрадей x50", swing: "Среднесрок x25" };
+const PROFILE: Record<string, string> = { h4: "4 часа x20", d1: "1 день x10" };
 const REASON: Record<string, string> = { take_profit: "Цели", stop: "Стоп", breakeven: "Безубыток", timeout: "Время" };
 const TAKER_FEE = 0.0005;
 

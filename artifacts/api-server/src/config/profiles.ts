@@ -1,9 +1,10 @@
 /**
- * Three BTC trade types. Stops/targets here are PROVISIONAL defaults until
- * the BTC history analysis calibrates them; every pattern may override stop
- * and targets, but never beyond the liquidation safety limit below.
+ * BTC trade types (owner, 2026-10-25): only the 4h and 1d timeframes, signals
+ * from the Auto Range Detector (breakout / deviation) with volume and flow
+ * confirmation. Stop and targets come from the range itself; the defaults
+ * below are only a fallback and the liquidation guard always applies.
  */
-export type ProfileKey = "scalp" | "intraday" | "swing";
+export type ProfileKey = "h4" | "d1";
 export type Direction = "long" | "short";
 
 export type TargetSpec = { pct: number; fraction: number };
@@ -13,7 +14,7 @@ export type TradeProfile = {
   label: string;
   leverage: number;
   /** Candle timeframe the profile's patterns are evaluated on. */
-  timeframe: "5m" | "15m" | "1h";
+  timeframe: "4h" | "1d";
   defaultStopPct: number;
   defaultTargets: TargetSpec[];
   /** Move the stop to entry once the first target is hit. */
@@ -22,46 +23,37 @@ export type TradeProfile = {
 };
 
 const H = 60 * 60 * 1000;
+const D = 24 * H;
 
 export const PROFILES: Record<ProfileKey, TradeProfile> = {
-  scalp: {
-    key: "scalp",
-    label: "Скальп",
-    leverage: 100,
-    timeframe: "5m",
-    defaultStopPct: 0.35,
+  h4: {
+    key: "h4",
+    label: "4 часа",
+    // Liquidation at ~4.6% → largest allowed stop ~3.7%; a 4h range stop
+    // (midpoint or swept extreme) is normally 0.7–2.5%.
+    leverage: 20,
+    timeframe: "4h",
+    defaultStopPct: 2.0,
     defaultTargets: [
-      { pct: 0.35, fraction: 0.5 },
-      { pct: 0.7, fraction: 0.5 },
-    ],
-    breakevenAfterFirstTarget: true,
-    maxHoldMs: 2 * H,
-  },
-  intraday: {
-    key: "intraday",
-    label: "Интрадей",
-    leverage: 50,
-    timeframe: "15m",
-    defaultStopPct: 1.0,
-    defaultTargets: [
-      { pct: 1.0, fraction: 0.5 },
       { pct: 2.0, fraction: 0.5 },
+      { pct: 4.0, fraction: 0.5 },
     ],
     breakevenAfterFirstTarget: true,
-    maxHoldMs: 24 * H,
+    maxHoldMs: 10 * D,
   },
-  swing: {
-    key: "swing",
-    label: "Среднесрок",
-    leverage: 25,
-    timeframe: "1h",
-    defaultStopPct: 2.5,
+  d1: {
+    key: "d1",
+    label: "1 день",
+    // Liquidation at ~9.6% → largest allowed stop ~7.7%; daily ranges are wide.
+    leverage: 10,
+    timeframe: "1d",
+    defaultStopPct: 4.0,
     defaultTargets: [
-      { pct: 2.5, fraction: 0.5 },
-      { pct: 5.0, fraction: 0.5 },
+      { pct: 4.0, fraction: 0.5 },
+      { pct: 8.0, fraction: 0.5 },
     ],
     breakevenAfterFirstTarget: true,
-    maxHoldMs: 7 * 24 * H,
+    maxHoldMs: 45 * D,
   },
 };
 

@@ -52,6 +52,27 @@ export function metricLines(m: Partial<Metrics> | null): string[] {
   ];
 }
 
+type RangeDetail = {
+  event?: { kind: string; top: number; bottom: number; heightPct: number; bars: number; sweepPrice: number | null };
+  volumeMult?: number | null;
+  flowWindow?: string;
+  futCvdUsd?: number | null;
+  spotCvdUsd?: number | null;
+};
+
+/** Range context of a range-detector signal (empty for other patterns). */
+export function rangeLines(detail: RangeDetail | null): string[] {
+  const e = detail?.event;
+  if (!e) return [];
+  return [
+    "",
+    `Диапазон: ${fmt(e.bottom)} – ${fmt(e.top)} (${e.heightPct.toFixed(2)}%, ${e.bars} баров)`,
+    ...(e.sweepPrice !== null && e.sweepPrice !== undefined ? [`Ложный пробой до ${fmt(e.sweepPrice)}`] : []),
+    `Объём бара: ${detail?.volumeMult == null ? "—" : `${detail.volumeMult.toFixed(2)}x`} к среднему за 20 баров`,
+    `CVD ${detail?.flowWindow ?? ""}: фьюч ${usd(detail?.futCvdUsd)} · спот ${usd(detail?.spotCvdUsd)}`,
+  ];
+}
+
 /** Plain text only (no HTML/Markdown), as the channel posts are copied as-is. */
 export function formatEvent(signal: SignalRow, event: EventRow, patternLabel: string): string {
   const profile = PROFILES[signal.profile as ProfileKey];
@@ -68,6 +89,7 @@ export function formatEvent(signal: SignalRow, event: EventRow, patternLabel: st
       `Стоп: ${fmt(signal.stopPrice)} (${pct(stopMove)})`,
       ...targets,
       `Ликвидация ≈ ${fmt(signal.liquidationPrice)}`,
+      ...rangeLines((signal.metrics as { pattern?: RangeDetail } | null)?.pattern ?? null),
       ...metricLines(signal.metrics as Partial<Metrics> | null),
     ].join("\n");
   }
