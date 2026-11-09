@@ -25,6 +25,11 @@ export type Pattern = {
   profile: ProfileKey;
   /** Only patterns explicitly enabled can publish to the channel. */
   live: boolean;
+  /**
+   * Timeframe whose closed bar triggers the evaluation (owner 2026-11-09: Smart Money on 30m / 1h structure
+   * breaks, liquidation cascade on 15m). Default: the profile's timeframe.
+   */
+  evalTf?: "15m" | "30m" | "1h";
   evaluate: (snapshot: Snapshot) => PatternResult;
 };
 
@@ -37,6 +42,11 @@ export function check(conditions: Array<[string, boolean | null]>): PatternResul
 }
 
 import { RANGE_PATTERNS } from "./rangePatterns";
+import { SMC_PATTERNS } from "./smcPatterns";
+import { LIQ_CASCADE_PATTERNS } from "./liqCascade";
 
-/** Owner's base (2026-10-25): Auto Range Detector breakouts and deviations on 4h and 1d. */
-export const PATTERNS: Pattern[] = [...RANGE_PATTERNS];
+/**
+ * Owner's base (2026-10-25): Auto Range Detector breakouts and deviations on 4h and 1d.
+ * Owner 2026-11-09: + Smart Money (Crypto Nihilist method) and liquidation cascade (CAB method), live.
+ */
+export const PATTERNS: Pattern[] = [...RANGE_PATTERNS, ...SMC_PATTERNS, ...LIQ_CASCADE_PATTERNS];

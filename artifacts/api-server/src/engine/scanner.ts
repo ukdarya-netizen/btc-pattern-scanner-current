@@ -16,6 +16,7 @@ import { PATTERNS, type Pattern, type PatternResult } from "./patterns";
 import { HISTORY_BARS } from "./rangePatterns";
 import { levelsAtEntry } from "./levels";
 import { computeMetrics, type Metrics, type Snapshot } from "./snapshot";
+import { entryStudy } from "./entryStudy";
 
 export type ScannerStatus = {
   lastCycleAt: string | null;
@@ -43,23 +44,31 @@ function closedBoundary(now: number, interval: Interval): number {
 async function buildSnapshot(now: number, longHistory: boolean): Promise<Snapshot> {
   // 4h and 1d patterns replay the range detector over HISTORY_BARS closed
   // bars (ATR 200 + 500-bar calibration); otherwise a short tail suffices.
+  // Smart Money (owner 2026-11-09) walks 400 bars of 30m (from 15m) / 1h on the same 4h / 1d history.
   const [c5, c15, c1h, c4h, c1d] = await Promise.all([
     getClosedCandles("5m", 300, now),
-    getClosedCandles("15m", 300, now),
-    getClosedCandles("1h", 300, now),
+    getClosedCandles("15m", longHistory ? 840 : 300, now),
+    getClosedCandles("1h", longHistory ? 420 : 300, now),
     getClosedCandles("4h", longHistory ? HISTORY_BARS : 120, now),
     longHistory ? getClosedCandles("1d", HISTORY_BARS, now) : Promise.resolve([]),
   ]);
-  const flow = await getBtcFlow(120, now);
+  // 200 bars of 15m: the liquidation cascade needs a 24 h baseline before a spike up to 12 h old.
+  const flow = await getBtcFlow(200, now);
   const candles = { "1m": [], "5m": c5, "15m": c15, "1h": c1h, "4h": c4h, "1d": c1d };
   scannerStatus.missingFlow = Object.entries(flow).filter(([, v]) => v === null).map(([k]) => k);
-  return { at: now, candles, flow, metrics: computeMetrics(candles, flow, getMarketContext()) };
+  return { at: now, candles, flow, metrics: computeMetrics(candles, flow, getMarketContext(), now) };
 }
 
-/** Patterns of a profile are evaluated only when that profile's candle closed. */
+/** Candle series whose closed bar triggers a pattern (30m bars are built from 15m). */
+function triggerSeries(pattern: Pattern): { tf: Interval; step: number } {
+  if (pattern.evalTf === "30m") return { tf: "15m", step: 30 * 60_000 };
+  const tf = pattern.evalTf ?? PROFILES[pattern.profile].timeframe;
+  return { tf, step: INTERVAL_MS[tf] };
+}
+
+/** A pattern is evaluated only when its trigger timeframe's candle closed. */
 function due(pattern: Pattern, candleCloseAt: number): boolean {
-  const step = INTERVAL_MS[PROFILES[pattern.profile].timeframe];
-  return candleCloseAt % step === 0;
+  return candleCloseAt % triggerSeries(pattern).step === 0;
 }
 
 async function openSignal(pattern: Pattern, snapshot: Snapshot, candleCloseAt: number,
@@ -85,6 +94,12 @@ async function openSignal(pattern: Pattern, snapshot: Snapshot, candleCloseAt: n
     targets = targetPricesFor(entry, (result.targets as TargetSpec[] | undefined) ?? profile.defaultTargets, pattern.direction);
   }
   const now = new Date();
+  // Owner 2026-11-09: everything at the entry — the volume study (Wyckoff, VSA colours, Elliott, ICT) and which
+  // other methods hold an open signal now (confluence / conflict between Range, Smart Money and the cascade).
+  const study = entryStudy(snapshot.candles["1h"], snapshot.candles["15m"], pattern.direction, now.getTime(), result.detail);
+  const others = await db.select({ id: btcSignalsTable.id, patternKey: btcSignalsTable.patternKey, direction: btcSignalsTable.direction, detectedAt: btcSignalsTable.detectedAt })
+    .from(btcSignalsTable).where(eq(btcSignalsTable.status, "open")).catch(() => []);
+  const openOthers = others.map((o) => ({ id: o.id, pattern: o.patternKey, direction: o.direction, sameDirection: o.direction === pattern.direction, openedAt: o.detectedAt }));
   const [row] = await db.insert(btcSignalsTable).values({
     patternKey: pattern.key,
     direction: pattern.direction,
@@ -99,7 +114,7 @@ async function openSignal(pattern: Pattern, snapshot: Snapshot, candleCloseAt: n
     detectedAt: now,
     candleCloseAt: new Date(candleCloseAt),
     expiresAt: new Date(now.getTime() + profile.maxHoldMs),
-    metrics: { ...snapshot.metrics, ...(result.detail ? { pattern: result.detail } : {}) },
+    metrics: { ...snapshot.metrics, ...(result.detail ? { pattern: result.detail } : {}), entryStudy: study, openSignalsAtEntry: openOthers },
     updatedAt: now,
   }).returning();
   if (!row) return "insert_failed";
@@ -122,7 +137,8 @@ export async function runCycle(currentPrice: () => Promise<number>, now = Date.n
   const started = Date.now();
   try {
     const duePatterns = PATTERNS.filter((pattern) => due(pattern, candleCloseAt));
-    const snapshot = await buildSnapshot(now, duePatterns.length > 0);
+    // Range (4h / 1d) and Smart Money need the long 4h / 1d history; the cascade needs only 15m / 1h.
+    const snapshot = await buildSnapshot(now, duePatterns.some((p) => p.evalTf !== "15m"));
     const lastCandle = snapshot.candles["5m"].at(-1);
     if (!lastCandle || lastCandle.time + INTERVAL_MS["5m"] !== candleCloseAt) {
       throw new Error("latest closed 5m candle not available yet");
@@ -133,7 +149,7 @@ export async function runCycle(currentPrice: () => Promise<number>, now = Date.n
     // After 10 minutes give up on that bar (logged per pattern) so a missing
     // or misaligned higher-timeframe candle can never stall the 5m cycle.
     const unavailable = new Set<string>();
-    for (const tf of new Set(duePatterns.map((pattern) => PROFILES[pattern.profile].timeframe))) {
+    for (const tf of new Set(duePatterns.map((pattern) => triggerSeries(pattern).tf))) {
       const last = snapshot.candles[tf].at(-1);
       if (!last || last.time + INTERVAL_MS[tf] !== candleCloseAt) {
         if (now - candleCloseAt < 10 * 60_000) throw new Error(`latest closed ${tf} candle not available yet`);
@@ -154,8 +170,8 @@ export async function runCycle(currentPrice: () => Promise<number>, now = Date.n
       let reasons: string[] = [];
       let signalId: number | null = null;
       try {
-        const result = unavailable.has(PROFILES[pattern.profile].timeframe)
-          ? { fires: false, reasons: [`${PROFILES[pattern.profile].timeframe}_candle_unavailable`] } as PatternResult
+        const result = unavailable.has(triggerSeries(pattern).tf)
+          ? { fires: false, reasons: [`${triggerSeries(pattern).tf}_candle_unavailable`] } as PatternResult
           : pattern.evaluate(snapshot);
         reasons = result.reasons;
         if (result.fires) {
