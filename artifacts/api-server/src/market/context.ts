@@ -213,18 +213,88 @@ async function loadDominance(): Promise<Dominance | null> {
   }
 }
 
+// ── BTC-specific context (owner 2026-11-09: recorded for analysis, never a filter) ──
+const tms = (raw: unknown) => { const n = num(raw); return n === null ? null : n < 10_000_000_000 ? n * 1000 : n; };
+/** Only scalar fields of a row (raw CoinGlass shapes vary by plan / endpoint version). */
+const scalars = (row: unknown) => Object.fromEntries(Object.entries((row ?? {}) as Record<string, unknown>)
+  .filter(([, v]) => typeof v === "number" || typeof v === "string").slice(0, 25));
+
+export type CoinbasePremium = { fetchedAt: string; premiumUsd: number | null; premiumRatePct: number | null; rateChange4hPct: number | null; rateChange24hPct: number | null };
+async function loadCoinbasePremium(): Promise<CoinbasePremium | null> {
+  const rows = await cgGet("/api/coinbase-premium-index", { interval: "1h", limit: 30 });
+  if (!Array.isArray(rows) || !rows.length) return null;
+  const pts = (rows as Array<Record<string, unknown>>).map((r) => ({ t: tms(r.time), p: num(r.premium), rate: num(r.premium_rate ?? r.premiumRate) }))
+    .filter((x) => x.t !== null).sort((a, b) => a.t! - b.t!);
+  const last = pts.at(-1)!;
+  const ago = (h: number) => [...pts].reverse().find((x) => x.t! <= last.t! - h * 3_600_000 + 60_000);
+  const pct = (x: number | null) => (x === null ? null : Number((x * 100).toFixed(4)));
+  const a4 = ago(4), a24 = ago(24);
+  return {
+    fetchedAt: new Date().toISOString(), premiumUsd: last.p, premiumRatePct: pct(last.rate),
+    rateChange4hPct: a4 && last.rate !== null && a4.rate !== null ? pct(last.rate - a4.rate) : null,
+    rateChange24hPct: a24 && last.rate !== null && a24.rate !== null ? pct(last.rate - a24.rate) : null,
+  };
+}
+
+export type EtfFlows = { fetchedAt: string; lastDay: string | null; lastDayUsd: number | null; sum5dUsd: number | null; sum20dUsd: number | null };
+async function loadEtfFlows(): Promise<EtfFlows | null> {
+  const rows = await cgGet("/api/etf/bitcoin/flow-history", {});
+  if (!Array.isArray(rows) || !rows.length) return null;
+  const pts = (rows as Array<Record<string, unknown>>).map((r) => ({ t: tms(r.timestamp ?? r.time), f: num(r.flow_usd ?? r.change_usd) }))
+    .filter((x) => x.t !== null && x.f !== null).sort((a, b) => a.t! - b.t!);
+  if (!pts.length) return null;
+  const sum = (n: number) => (pts.length >= n ? Math.round(pts.slice(-n).reduce((s, x) => s + x.f!, 0)) : null);
+  const last = pts.at(-1)!;
+  return { fetchedAt: new Date().toISOString(), lastDay: new Date(last.t!).toISOString().slice(0, 10), lastDayUsd: Math.round(last.f!), sum5dUsd: sum(5), sum20dUsd: sum(20) };
+}
+
+export type FuturesBasis = { fetchedAt: string; closeBasisPct: number | null; change4h: number | null; change24h: number | null };
+async function loadBasis(): Promise<FuturesBasis | null> {
+  const rows = await cgGet("/api/futures/basis/history", { exchange: "Binance", symbol: "BTCUSDT", interval: "1h", limit: 30 });
+  if (!Array.isArray(rows) || !rows.length) return null;
+  const pts = (rows as Array<Record<string, unknown>>).map((r) => ({ t: tms(r.time), b: num(r.close_basis) })).filter((x) => x.t !== null && x.b !== null)
+    .sort((a, b) => a.t! - b.t!);
+  if (!pts.length) return null;
+  const last = pts.at(-1)!;
+  const ago = (h: number) => pts.length > h ? pts[pts.length - 1 - h]!.b! : null;
+  const d = (x: number | null) => (x === null ? null : Number((last.b! - x).toFixed(5)));
+  return { fetchedAt: new Date().toISOString(), closeBasisPct: last.b, change4h: d(ago(4)), change24h: d(ago(24)) };
+}
+
+export type Options = { fetchedAt: string; info: Array<Record<string, unknown>> | null; maxPain: Array<Record<string, unknown>> | null };
+async function loadOptions(): Promise<Options | null> {
+  const [info, pain] = await Promise.all([
+    cgGet("/api/option/info", { symbol: "BTC" }),
+    cgGet("/api/option/max-pain", { symbol: "BTC", exchange: "Deribit" }),
+  ]);
+  if (!Array.isArray(info) && !Array.isArray(pain)) return null;
+  return {
+    fetchedAt: new Date().toISOString(),
+    info: Array.isArray(info) ? info.slice(0, 12).map(scalars) : null,
+    maxPain: Array.isArray(pain) ? pain.slice(0, 4).map(scalars) : null,
+  };
+}
+
 // ── Public ──────────────────────────────────────────────────────────────────
 export type MarketContext = {
   heatmap: HeatmapSummary | null;
   hyperliquidWhales: HyperliquidWhales | null;
   exchangeBalance: ExchangeBalance | null;
   dominance: Dominance | null;
+  coinbasePremium?: CoinbasePremium | null;
+  etfFlows?: EtfFlows | null;
+  basis?: FuturesBasis | null;
+  options?: Options | null;
 };
 
 const heatmap = cache<HeatmapSummary>();
 const whales = cache<HyperliquidWhales>();
 const balance = cache<ExchangeBalance>();
 const dominance = cache<Dominance>();
+const premium = cache<CoinbasePremium>();
+const etf = cache<EtfFlows>();
+const basis = cache<FuturesBasis>();
+const options = cache<Options>();
 
 /** Refreshes whatever is due (in the background) and returns the cached context. */
 export function getMarketContext(): MarketContext {
@@ -232,10 +302,18 @@ export function getMarketContext(): MarketContext {
   void refresh(whales, 5 * MIN, loadWhales);
   void refresh(balance, 60 * MIN, loadExchangeBalance);
   void refresh(dominance, 30 * MIN, loadDominance);
+  void refresh(premium, 5 * MIN, loadCoinbasePremium);
+  void refresh(etf, 60 * MIN, loadEtfFlows);
+  void refresh(basis, 5 * MIN, loadBasis);
+  void refresh(options, 15 * MIN, loadOptions);
   return {
     heatmap: heatmap.value,
     hyperliquidWhales: whales.value,
     exchangeBalance: balance.value,
     dominance: dominance.value,
+    coinbasePremium: premium.value,
+    etfFlows: etf.value,
+    basis: basis.value,
+    options: options.value,
   };
 }

@@ -73,6 +73,26 @@ export function rangeLines(detail: RangeDetail | null): string[] {
   ];
 }
 
+/** Owner 2026-11-09: what the Smart Money / cascade signal stands on (empty for other methods). */
+export function methodLines(detail: Record<string, any> | null): string[] {
+  if (!detail) return [];
+  if (detail.method === "smart_money" && detail.block) {
+    return [
+      "",
+      `Ордер-блок ${detail.htf === "1d" ? "1D" : "4h"} (${detail.block.scope === "swing" ? "swing" : "internal"}): ${fmt(detail.block.bottom)} – ${fmt(detail.block.top)}`,
+      `Слом структуры (CHoCH) ${detail.ltf}: уровень ${fmt(detail.chochLevel)}`,
+    ];
+  }
+  if (detail.method === "liquidation_cascade") {
+    return [
+      "",
+      `Каскад ликвидаций: ${usd(detail.spikeHourUsd)} за час (${detail.spikeMult == null ? "—" : `${Number(detail.spikeMult).toFixed(1)}x`} к среднему часу)`,
+      `Экстремум каскада: ${fmt(detail.cascadeExtreme)} · реакция: хвост ${detail.reactionWickPct == null ? "—" : `${Number(detail.reactionWickPct).toFixed(2)}%`}`,
+    ];
+  }
+  return [];
+}
+
 /** Plain text only (no HTML/Markdown), as the channel posts are copied as-is. */
 export function formatEvent(signal: SignalRow, event: EventRow, patternLabel: string): string {
   const profile = PROFILES[signal.profile as ProfileKey];
@@ -90,6 +110,7 @@ export function formatEvent(signal: SignalRow, event: EventRow, patternLabel: st
       ...targets,
       `Ликвидация ≈ ${fmt(signal.liquidationPrice)}`,
       ...rangeLines((signal.metrics as { pattern?: RangeDetail } | null)?.pattern ?? null),
+      ...methodLines((signal.metrics as { pattern?: Record<string, any> } | null)?.pattern ?? null),
       ...metricLines(signal.metrics as Partial<Metrics> | null),
     ].join("\n");
   }

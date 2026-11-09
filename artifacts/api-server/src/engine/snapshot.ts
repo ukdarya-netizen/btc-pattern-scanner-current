@@ -1,6 +1,7 @@
 import type { Candle, Interval } from "../market/bingx";
 import type { FlowBar, FlowSeries } from "../market/coinglass";
 import type { MarketContext } from "../market/context";
+import { moneyFlowMetrics } from "../market/moneyFlow";
 
 export type Candles = Record<Interval, Candle[]>;
 
@@ -47,9 +48,18 @@ export type Metrics = {
   whaleIndexChange4h: number | null;
   /** Whale Index on 4h bars (AltBullet market context). */
   whaleIndex4h: number | null;
-  /** Liquidation heatmap, Hyperliquid whales, exchange balances, dominance. */
+  /** Liquidation heatmap, Hyperliquid whales, exchange balances, dominance (+ Coinbase premium, ETF, basis, options). */
   context: MarketContext | null;
+  /** Owner 2026-11-09: MFI and Chaikin on aggregated futures / spot volume, 15m / 1H / 4H (market/moneyFlow.ts). */
+  moneyFlow?: Record<string, Record<string, number | null> | null>;
+  /** Owner 2026-11-09: trading session at the bar (UTC): Asia 00–08, London 07–16, New York 13–21; weekend. */
+  session?: { hourUtc: number; dayOfWeekUtc: number; weekend: boolean; asia: boolean; london: boolean; newYork: boolean };
 };
+
+export function sessionAt(t: number) {
+  const d = new Date(t), h = d.getUTCHours(), w = d.getUTCDay();
+  return { hourUtc: h, dayOfWeekUtc: w, weekend: w === 0 || w === 6, asia: h < 8, london: h >= 7 && h < 16, newYork: h >= 13 && h < 21 };
+}
 
 export type Snapshot = {
   at: number;
@@ -150,7 +160,7 @@ const byTf = <K extends Tf>(keys: readonly K[], fn: (bars: number) => number | n
 const TFS = ["15m", "30m", "1h", "4h", "24h"] as const;
 const TFS_NO_DAY = ["15m", "30m", "1h", "4h"] as const;
 
-export function computeMetrics(candles: Candles, flow: FlowSeries, context: MarketContext | null = null): Metrics {
+export function computeMetrics(candles: Candles, flow: FlowSeries, context: MarketContext | null = null, now = Date.now()): Metrics {
   const c5 = candles["5m"];
   const price = c5[c5.length - 1]?.close ?? Number.NaN;
   const lastOb = flow.orderbook?.[flow.orderbook.length - 1];
@@ -210,5 +220,7 @@ export function computeMetrics(candles: Candles, flow: FlowSeries, context: Mark
       : null,
     whaleIndex4h: round(flow.whaleIndex4h?.[flow.whaleIndex4h.length - 1]?.value ?? null),
     context,
+    moneyFlow: moneyFlowMetrics(candles["15m"], flow, now),
+    session: sessionAt(c5.length ? c5[c5.length - 1]!.time + 5 * 60_000 : now),
   };
 }

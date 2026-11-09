@@ -1,6 +1,6 @@
 import { Router } from "express";
 import { db, btcDecisionsTable, btcMarketSnapshotsTable, btcSignalsTable } from "@workspace/db";
-import { and, desc, eq, gte } from "drizzle-orm";
+import { and, desc, eq, gte, lte } from "drizzle-orm";
 import { PROFILES } from "../config/profiles";
 import { PATTERNS } from "../engine/patterns";
 import { scannerStatus } from "../engine/scanner";
@@ -107,6 +107,40 @@ router.get("/btc/metrics/history", async (req, res) => {
     .orderBy(desc(btcMarketSnapshotsTable.candleCloseAt))
     .limit(2016);
   res.json({ rows });
+});
+
+/**
+ * Owner 2026-11-09: the whole path of one signal for analysis — every 5m market snapshot (price and the full
+ * metric set: flow, OI, liquidations, MFI / Chaikin, context) from 6 h before the entry to 72 h after the close
+ * (or until now while open), with the price move from the entry in the trade's direction.
+ */
+router.get("/btc/signals/:id/path", async (req, res) => {
+  try {
+    const id = Number(req.params.id);
+    if (!Number.isSafeInteger(id)) { res.status(400).json({ error: "invalid_id" }); return; }
+    const [sig] = await db.select().from(btcSignalsTable).where(eq(btcSignalsTable.id, id)).limit(1);
+    if (!sig) { res.status(404).json({ error: "not_found" }); return; }
+    const from = new Date(sig.detectedAt.getTime() - 6 * 3_600_000);
+    const to = new Date(Math.min(Date.now(), (sig.closedAt ?? new Date()).getTime() + 72 * 3_600_000));
+    const rows = await db.select().from(btcMarketSnapshotsTable)
+      .where(and(gte(btcMarketSnapshotsTable.candleCloseAt, from), lte(btcMarketSnapshotsTable.candleCloseAt, to)))
+      .orderBy(btcMarketSnapshotsTable.candleCloseAt);
+    const dir = sig.direction === "long" ? 1 : -1;
+    res.json({
+      signal: sig,
+      points: rows.map((r) => ({
+        at: r.candleCloseAt,
+        phase: r.candleCloseAt < sig.detectedAt ? "before" : sig.closedAt && r.candleCloseAt > sig.closedAt ? "after_close" : "open",
+        price: r.price,
+        pctFromEntry: Number((((r.price - sig.entryPrice) / sig.entryPrice) * 100 * dir).toFixed(4)),
+        metrics: r.metrics,
+        missing: r.missing,
+      })),
+    });
+  } catch (err) {
+    logger.error({ err }, "btc signal path failed");
+    res.status(500).json({ error: "path_failed" });
+  }
 });
 
 export default router;
