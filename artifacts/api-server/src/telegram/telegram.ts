@@ -3,9 +3,14 @@ import { and, asc, eq, isNull, lt, lte } from "drizzle-orm";
 import { PROFILES, type ProfileKey } from "../config/profiles";
 import type { Metrics } from "../engine/snapshot";
 import { logger } from "../lib/logger";
-import { sendMessage, SIGNAL_CHANNEL, TelegramError } from "./transport";
+import { sendMessage, sendSignalPhoto, SIGNAL_CHANNEL, splitSignalCaption, TelegramError } from "./transport";
 
 const MAX_ATTEMPTS = 8;
+const NEW_SIGNAL = "__BTC_NEW_SIGNAL__\n";
+const TAKE_PROFIT = "__BTC_TAKE_PROFIT__\n";
+const STOP_LOSS = "__BTC_STOP_LOSS__\n";
+const POSITION_UPDATE = "__BTC_POSITION_UPDATE__\n";
+const PHOTO_SENT = "__BTC_PHOTO_SENT__\n";
 
 function fmt(price: number): string {
   return price >= 1000 ? price.toFixed(1) : price.toPrecision(6);
@@ -122,6 +127,14 @@ export function formatEvent(signal: SignalRow, event: EventRow, patternLabel: st
       detail.breakevenMoved ? "Стоп перенесён в безубыток" : null,
     ].filter(Boolean).join("\n");
   }
+  if (event.kind === "position_update") {
+    return [
+      head,
+      "Обновление позиции",
+      `Цена: ${fmt(event.price ?? 0)}`,
+      `Движение от входа: ${pct(Number(detail.movePct ?? 0))}`,
+    ].join("\n");
+  }
   const pnlPrice = Number(detail.pnlPricePct ?? 0);
   const pnlMargin = Number(detail.pnlMarginPct ?? 0);
   return [
@@ -151,7 +164,12 @@ async function deliverBatch(patternLabel: (key: string) => string): Promise<void
       eq(btcTelegramSubscribersTable.active, true),
       lte(btcTelegramSubscribersTable.subscribedAt, event.createdAt),
     ));
-    const text = formatEvent(signal, event, patternLabel(signal.patternKey));
+    const body = formatEvent(signal, event, patternLabel(signal.patternKey));
+    const eventDetail = event.detail as Record<string, unknown>;
+    const text = event.kind === "opened" ? `${NEW_SIGNAL}${body}`
+      : event.kind === "target_hit" ? `${TAKE_PROFIT}${body}`
+      : event.kind === "position_update" ? `${POSITION_UPDATE}${body}`
+      : event.kind === "closed" && eventDetail.reason === "stop" ? `${STOP_LOSS}${body}` : body;
     await db.insert(btcTelegramDeliveriesTable).values([
       { eventId: event.id, chatId: SIGNAL_CHANNEL, channel: true, text },
       ...subscribers.map((s) => ({ eventId: event.id, chatId: s.chatId, channel: false, text })),
@@ -173,7 +191,42 @@ async function deliverBatch(patternLabel: (key: string) => string): Promise<void
       }
     }
     try {
-      await sendMessage(delivery.chatId, delivery.text);
+      if (delivery.text.startsWith(PHOTO_SENT)) {
+        const remainder = delivery.text.slice(PHOTO_SENT.length);
+        if (remainder) await sendMessage(delivery.chatId, remainder);
+      } else {
+        let body = delivery.text;
+        let image: "new-signal" | "take-profit" | "stop-loss" | "position-update" | null = null;
+        if (body.startsWith(NEW_SIGNAL)) {
+          image = "new-signal";
+          body = body.slice(NEW_SIGNAL.length);
+        } else if (body.startsWith(TAKE_PROFIT)) {
+          image = "take-profit";
+          body = body.slice(TAKE_PROFIT.length);
+        } else if (body.startsWith(STOP_LOSS)) {
+          image = "stop-loss";
+          body = body.slice(STOP_LOSS.length);
+        } else if (body.startsWith(POSITION_UPDATE)) {
+          image = "position-update";
+          body = body.slice(POSITION_UPDATE.length);
+        } else {
+          const [event] = await db.select({ kind: btcSignalEventsTable.kind, detail: btcSignalEventsTable.detail })
+            .from(btcSignalEventsTable).where(eq(btcSignalEventsTable.id, delivery.eventId));
+          if (event?.kind === "opened") image = "new-signal";
+          else if (event?.kind === "target_hit") image = "take-profit";
+          else if (event?.kind === "position_update") image = "position-update";
+          else if (event?.kind === "closed" && (event.detail as Record<string, unknown> | null)?.reason === "stop") image = "stop-loss";
+        }
+        if (image) {
+          const { caption, remainder } = splitSignalCaption(body);
+          await sendSignalPhoto(delivery.chatId, caption, image);
+          await db.update(btcTelegramDeliveriesTable).set({ text: `${PHOTO_SENT}${remainder}` })
+            .where(eq(btcTelegramDeliveriesTable.id, delivery.id));
+          if (remainder) await sendMessage(delivery.chatId, remainder);
+        } else {
+          await sendMessage(delivery.chatId, body);
+        }
+      }
       await db.update(btcTelegramDeliveriesTable).set({ status: "sent", sentAt: new Date() })
         .where(eq(btcTelegramDeliveriesTable.id, delivery.id));
     } catch (err) {

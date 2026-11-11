@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { applyCandle, applyTick, type PositionState } from "./positionEngine";
+import { applyCandle, applyTick, crossedProgressThreshold, type PositionState } from "./positionEngine";
 import {
   liquidationPrice,
   marginPnlPct,
@@ -88,4 +88,12 @@ test("margin PnL includes leverage and taker fees on both sides", () => {
   // +0.35% move at 100x: 35% gross, fees 0.05% × (1 + 1.0035) × 100 ≈ 10.02%
   const pnl = marginPnlPct(0.35, 1.0035, 100);
   assert.ok(Math.abs(pnl - (35 - 0.05 * 2.0035 * 100)) < 1e-9);
+});
+
+test("position progress reports each 1% move in either direction", () => {
+  assert.equal(crossedProgressThreshold(0, 0.99), false);
+  assert.equal(crossedProgressThreshold(0, 1), true);
+  assert.equal(crossedProgressThreshold(1, 0), true);
+  assert.equal(crossedProgressThreshold(-1, -2), true);
+  assert.equal(crossedProgressThreshold(1, 1.99), false);
 });

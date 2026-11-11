@@ -3,7 +3,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { build as esbuild } from "esbuild";
 import esbuildPluginPino from "esbuild-plugin-pino";
-import { rm } from "node:fs/promises";
+import { copyFile, rm } from "node:fs/promises";
 
 // Plugins (e.g. 'esbuild-plugin-pino') may use `require` to resolve dependencies
 globalThis.require = createRequire(import.meta.url);
@@ -118,6 +118,22 @@ globalThis.__dirname = __bannerPath.dirname(globalThis.__filename);
     `,
     },
   });
+  await copyFile(
+    path.resolve(artifactDir, "src/telegram/new-signal.jpg"),
+    path.resolve(distDir, "new-signal.jpg"),
+  );
+  await copyFile(
+    path.resolve(artifactDir, "src/telegram/take-profit.jpg"),
+    path.resolve(distDir, "take-profit.jpg"),
+  );
+  await copyFile(
+    path.resolve(artifactDir, "src/telegram/stop-loss.jpg"),
+    path.resolve(distDir, "stop-loss.jpg"),
+  );
+  await copyFile(
+    path.resolve(artifactDir, "src/telegram/position-update.jpg"),
+    path.resolve(distDir, "position-update.jpg"),
+  );
 }
 
 buildAll().catch((err) => {

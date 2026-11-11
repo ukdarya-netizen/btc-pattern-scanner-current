@@ -1,7 +1,7 @@
 import { db, btcSignalsTable, btcSignalEventsTable, type BtcSignal } from "@workspace/db";
-import { eq } from "drizzle-orm";
+import { and, desc, eq } from "drizzle-orm";
 import { PROFILES, type Direction, type ProfileKey } from "../config/profiles";
-import { marginPnlPct } from "../lib/tradeMath";
+import { marginPnlPct, movePct } from "../lib/tradeMath";
 import { logger } from "../lib/logger";
 import { getCandlesRange, type PriceTick } from "../market/bingx";
 import {
@@ -10,7 +10,10 @@ import {
   type PositionEvent,
   type PositionState,
   type TargetState,
+  crossedProgressThreshold,
 } from "./positionEngine";
+
+type ProgressUpdate = { sequence: number; price: number; movePct: number; at: number };
 
 type Tracked = {
   id: number;
@@ -19,6 +22,8 @@ type Tracked = {
   state: PositionState;
   lastProcessedAt: number;
   dirty: boolean; // mfe/mae changed since last flush
+  lastProgressPct: number;
+  progressSequence: number;
   /** Ticks are held until missed time is replayed from 1m candles, in order. */
   needsCatchUp: boolean;
   queue: Promise<void>;
@@ -50,7 +55,7 @@ function toState(row: BtcSignal): PositionState {
   };
 }
 
-export function trackSignal(row: BtcSignal): void {
+export function trackSignal(row: BtcSignal, lastProgressPct = 0, progressSequence = 0): void {
   open.set(row.id, {
     id: row.id,
     profile: row.profile as ProfileKey,
@@ -58,6 +63,8 @@ export function trackSignal(row: BtcSignal): void {
     state: toState(row),
     lastProcessedAt: Math.max(row.detectedAt.getTime(), row.updatedAt.getTime()),
     dirty: false,
+    lastProgressPct,
+    progressSequence,
     needsCatchUp: false,
     queue: Promise.resolve(),
   });
@@ -66,7 +73,20 @@ export function trackSignal(row: BtcSignal): void {
 export async function loadOpenSignals(): Promise<number> {
   const rows = await db.select().from(btcSignalsTable).where(eq(btcSignalsTable.status, "open"));
   for (const row of rows) {
-    trackSignal(row);
+    const [lastUpdate] = await db.select({ detail: btcSignalEventsTable.detail })
+      .from(btcSignalEventsTable)
+      .where(and(
+        eq(btcSignalEventsTable.signalId, row.id),
+        eq(btcSignalEventsTable.kind, "position_update"),
+      ))
+      .orderBy(desc(btcSignalEventsTable.id))
+      .limit(1);
+    const detail = lastUpdate?.detail as Record<string, unknown> | null;
+    trackSignal(
+      row,
+      typeof detail?.movePct === "number" ? detail.movePct : 0,
+      typeof detail?.sequence === "number" ? detail.sequence : 0,
+    );
     open.get(row.id)!.needsCatchUp = true; // time passed while the process was down
   }
   return rows.length;
@@ -80,7 +100,7 @@ export function hasOpenSignal(patternKey: string, rows: BtcSignal[]): boolean {
   return rows.some((r) => r.patternKey === patternKey && r.status === "open");
 }
 
-async function persist(t: Tracked, events: PositionEvent[]): Promise<void> {
+async function persist(t: Tracked, events: PositionEvent[], progress?: ProgressUpdate): Promise<void> {
   const s = t.state;
   const now = new Date();
   const closed = s.closed;
@@ -124,6 +144,15 @@ async function persist(t: Tracked, events: PositionEvent[]): Promise<void> {
           },
       }).onConflictDoNothing();
     }
+    if (progress) {
+      await tx.insert(btcSignalEventsTable).values({
+        signalId: t.id,
+        eventKey: `${t.id}:position_update:${progress.sequence}`,
+        kind: "position_update",
+        price: progress.price,
+        detail: { sequence: progress.sequence, movePct: progress.movePct, at: progress.at },
+      }).onConflictDoNothing();
+    }
   });
   t.dirty = false;
   if (closed) open.delete(t.id);
@@ -147,7 +176,21 @@ export function onTick(tick: PriceTick): void {
     const events = applyTick(t.state, tick.price, tick.at);
     t.lastProcessedAt = tick.at;
     if (t.state.mfePct !== before.mfe || t.state.maePct !== before.mae) t.dirty = true;
-    if (events.length) enqueue(t, () => persist(t, events));
+    let progress: ProgressUpdate | undefined;
+    if (!t.state.closed && events.length === 0) {
+      const movement = movePct(t.state.entryPrice, tick.price, t.state.direction);
+      if (crossedProgressThreshold(t.lastProgressPct, movement)) {
+        progress = {
+          sequence: t.progressSequence + 1,
+          price: tick.price,
+          movePct: movement,
+          at: tick.at,
+        };
+        t.progressSequence = progress.sequence;
+        t.lastProgressPct = movement;
+      }
+    }
+    if (events.length || progress) enqueue(t, () => persist(t, events, progress));
   }
 }
 

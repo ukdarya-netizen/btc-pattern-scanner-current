@@ -28,6 +28,10 @@ export type PositionEvent =
   | { kind: "breakeven_moved"; price: number; at: number }
   | { kind: "closed"; reason: CloseReason; price: number; at: number };
 
+export function crossedProgressThreshold(lastReportedPct: number, currentPct: number): boolean {
+  return Math.abs(currentPct - lastReportedPct) >= 1;
+}
+
 const EPS = 1e-12;
 
 function crossed(direction: Direction, price: number, level: number, favourable: boolean): boolean {
