@@ -19,6 +19,12 @@ app.listen(port, (err) => {
     process.exit(1);
   }
   logger.info({ port }, "Server listening");
+  // Owner 2026-11-12: no requests from dev — the engine (BingX, CoinGlass, Telegram) runs only in the deployment.
+  const deployed = process.env.REPLIT_DEPLOYMENT === "1" || process.env.NODE_ENV === "production";
+  if (!deployed) {
+    logger.warn("BTC engine not started: not the production deployment (dev makes no requests)");
+    return;
+  }
   if (process.env.BTC_ENGINE_ENABLED === "false") {
     logger.warn("BTC engine disabled by BTC_ENGINE_ENABLED=false");
     return;

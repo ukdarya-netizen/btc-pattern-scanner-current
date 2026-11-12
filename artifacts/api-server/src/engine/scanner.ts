@@ -17,6 +17,7 @@ import { HISTORY_BARS } from "./rangePatterns";
 import { levelsAtEntry } from "./levels";
 import { computeMetrics, type Metrics, type Snapshot } from "./snapshot";
 import { entryStudy } from "./entryStudy";
+import { aggVolumeStudy } from "../market/aggVolumeStudy";
 
 export type ScannerStatus = {
   lastCycleAt: string | null;
@@ -97,6 +98,13 @@ async function openSignal(pattern: Pattern, snapshot: Snapshot, candleCloseAt: n
   // Owner 2026-11-09: everything at the entry — the volume study (Wyckoff, VSA colours, Elliott, ICT) and which
   // other methods hold an open signal now (confluence / conflict between Range, Smart Money and the cascade).
   const study = entryStudy(snapshot.candles["1h"], snapshot.candles["15m"], pattern.direction, now.getTime(), result.detail);
+  // Owner 2026-11-12: aggregated volume at the entry as in CAB — VPVR (30 days), Welkin on 20 / 50 / 120 bars and
+  // Lucy's VSA rule, futures / spot / total, 24h volume vs the 30-day average and the 60-day busiest day. At most
+  // 8 s; a timeout or an error is recorded, the signal is opened anyway.
+  const aggVolume = await Promise.race([
+    getClosedCandles("1h", 760, now.getTime()).then((c1h) => aggVolumeStudy(c1h, entry, now.getTime())),
+    new Promise<Record<string, unknown>>((res) => setTimeout(() => res({ version: 1, error: "timeout_8s" }), 8_000)),
+  ]).catch((err) => ({ version: 1, error: err instanceof Error ? err.message.slice(0, 120) : String(err) }));
   const others = await db.select({ id: btcSignalsTable.id, patternKey: btcSignalsTable.patternKey, direction: btcSignalsTable.direction, detectedAt: btcSignalsTable.detectedAt })
     .from(btcSignalsTable).where(eq(btcSignalsTable.status, "open")).catch(() => []);
   const openOthers = others.map((o) => ({ id: o.id, pattern: o.patternKey, direction: o.direction, sameDirection: o.direction === pattern.direction, openedAt: o.detectedAt }));
@@ -114,7 +122,7 @@ async function openSignal(pattern: Pattern, snapshot: Snapshot, candleCloseAt: n
     detectedAt: now,
     candleCloseAt: new Date(candleCloseAt),
     expiresAt: new Date(now.getTime() + profile.maxHoldMs),
-    metrics: { ...snapshot.metrics, ...(result.detail ? { pattern: result.detail } : {}), entryStudy: study, openSignalsAtEntry: openOthers },
+    metrics: { ...snapshot.metrics, ...(result.detail ? { pattern: result.detail } : {}), entryStudy: study, aggVolume, openSignalsAtEntry: openOthers },
     updatedAt: now,
   }).returning();
   if (!row) return "insert_failed";

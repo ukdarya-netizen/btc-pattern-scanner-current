@@ -124,9 +124,9 @@ export function evaluateRangeSetup(
     futTakerNetPct: futTaker, spotTakerNetPct: spotTaker,
     levels,
   };
-  return reasons.length
-    ? { fires: false, reasons, detail }
-    : { fires: true, reasons: ["ok"], levels, detail };
+  // Owner 2026-11-12: every detector signal goes out for now (to be reviewed in a couple of months): the volume
+  // and CVD confirmations no longer block — they are recorded (confirmationsFailed) for the review.
+  return { fires: true, reasons: reasons.length ? reasons.map((x) => `shadow:${x}`) : ["ok"], levels, detail: { ...detail, confirmationsFailed: reasons } };
 }
 
 const LABEL: Record<Setup, Record<Direction, string>> = {

@@ -25,7 +25,7 @@ test("only 4h and 1d setups exist: breakout and deviation, long and short", () =
   ]);
 });
 
-test("a breakout fires only with volume and both futures and spot flow in its direction", () => {
+test("a breakout fires on the detector event; volume / flow confirmations are recorded, not blocking (owner 2026-11-12)", () => {
   const strong = rangeScenario([{ close: RANGE_MID + 4, volume: 300 }]);
   const ok = evaluateRangeSetup(snapshotWith(strong, { fut: 5e7, spot: 2e7 }), "h4", "breakout", "long");
   assert.equal(ok.fires, true, JSON.stringify(ok.reasons));
@@ -33,15 +33,17 @@ test("a breakout fires only with volume and both futures and spot flow in its di
   assert.deepEqual(ok.levels!.targets.map((t) => Number(t.price.toFixed(6))),
     [Number((RANGE_MID + 1.2 + 2.4).toFixed(6)), Number((RANGE_MID + 1.2 + 4.8).toFixed(6))]);
 
-  assert.deepEqual(evaluateRangeSetup(snapshotWith(strong, { fut: 5e7, spot: -1e6 }), "h4", "breakout", "long").reasons,
-    ["spot_cvd_4h_long"]);
+  const against = evaluateRangeSetup(snapshotWith(strong, { fut: 5e7, spot: -1e6 }), "h4", "breakout", "long");
+  assert.equal(against.fires, true);
+  assert.deepEqual(against.reasons, ["shadow:spot_cvd_4h_long"]);
+  assert.deepEqual((against.detail as { confirmationsFailed: string[] }).confirmationsFailed, ["spot_cvd_4h_long"]);
   assert.deepEqual(evaluateRangeSetup(snapshotWith(strong, { fut: 5e7, spot: null }), "h4", "breakout", "long").reasons,
-    ["spot_cvd_4h_long:no_data"], "no data — no signal");
+    ["shadow:spot_cvd_4h_long:no_data"]);
   assert.equal(evaluateRangeSetup(snapshotWith(strong, { fut: 5e7, spot: 2e7 }), "h4", "breakout", "short").fires, false);
 
   const quiet = rangeScenario([{ close: RANGE_MID + 4, volume: 120 }]);
   assert.deepEqual(evaluateRangeSetup(snapshotWith(quiet, { fut: 5e7, spot: 2e7 }), "h4", "breakout", "long").reasons,
-    ["volume>=1.5x"]);
+    ["shadow:volume>=1.5x"]);
 });
 
 test("a bullish deviation trades back into the range with the stop beyond the swept low", () => {
@@ -52,7 +54,8 @@ test("a bullish deviation trades back into the range with the stop beyond the sw
   assert.ok(result.levels!.stop < RANGE_MID - 4.2);
   assert.deepEqual(result.levels!.targets.map((t) => Number(t.price.toFixed(6))), [RANGE_MID, RANGE_MID + 1.2]);
   const against = evaluateRangeSetup(snapshotWith(candles, { fut: -1e7, spot: 5e6 }), "h4", "deviation", "long");
-  assert.deepEqual(against.reasons, ["fut_cvd_4h_long"]);
+  assert.equal(against.fires, true);
+  assert.deepEqual(against.reasons, ["shadow:fut_cvd_4h_long"]);
 });
 
 test("levels are re-checked at the live entry", () => {
