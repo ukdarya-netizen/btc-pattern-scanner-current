@@ -1,14 +1,14 @@
 import { STYLE_LABEL, type Pattern, type Signal, type Style, dir, num, signed, tone } from "../lib/api";
-import { type Data, type Filter, type Mode, type Tab, inPeriod, styleOf, summarize } from "../lib/data";
+import { type Data, type Filter, type Mode, type Period, type Tab, inPeriod, styleOf, summarize } from "../lib/data";
 import { Card, type Col, Pill, SortTable } from "../components/ui";
 
 const count = (xs: Signal[], reason: string) => xs.filter((s) => s.closeReason === reason).length;
 
 /** Every pattern of the chosen mode with its results, grouped by style (scalp / intraday / swing); every column sorts. */
-export function Patterns({ data, days, mode, go }: { data: Data; days: number; mode: Mode; go: (t: Tab, f?: Partial<Filter>) => void }) {
+export function Patterns({ data, period, mode, go }: { data: Data; period: Period; mode: Mode; go: (t: Tab, f?: Partial<Filter>) => void }) {
   const all = data.status?.patterns ?? [];
   const patterns = all.filter((p) => (mode === "live") === p.live);
-  const closed = inPeriod(data.closed, days);
+  const closed = inPeriod(data.closed, period);
   const xsOf = (p: Pattern) => closed.filter((s) => s.patternKey === p.key);
   const sm = (p: Pattern) => summarize(xsOf(p));
   const avg = (p: Pattern, f: (s: Signal) => number) => { const xs = xsOf(p); return xs.length ? xs.reduce((a, s) => a + f(s), 0) / xs.length : null; };
@@ -21,6 +21,8 @@ export function Patterns({ data, days, mode, go }: { data: Data; days: number; m
     { head: "Винрейт", cell: (p) => { const w = sm(p).winRate; return w == null ? "—" : `${num(w, 0)}%`; }, sort: (p) => sm(p).winRate },
     { head: "Среднее", cell: (p) => <span className={tone(sm(p).avg)}>{signed(sm(p).avg)}</span>, sort: (p) => sm(p).avg },
     { head: "Сумма", cell: (p) => <span className={`font-medium ${tone(sm(p).sum)}`}>{signed(sm(p).sum, 1)}</span>, sort: (p) => sm(p).sum },
+    { head: "Лучшая", cell: (p) => signed(sm(p).best), sort: (p) => sm(p).best },
+    { head: "Худшая", cell: (p) => signed(sm(p).worst), sort: (p) => sm(p).worst },
     { head: "Цели", cell: (p) => count(xsOf(p), "take_profit"), sort: (p) => count(xsOf(p), "take_profit") },
     { head: "Стоп", cell: (p) => count(xsOf(p), "stop"), sort: (p) => count(xsOf(p), "stop") },
     { head: "Б/У", cell: (p) => count(xsOf(p), "breakeven"), sort: (p) => count(xsOf(p), "breakeven") },

@@ -6,6 +6,7 @@ import { PATTERNS } from "../engine/patterns";
 import type { Metrics } from "../engine/snapshot";
 import { logger } from "../lib/logger";
 import { sendMessage, sendSignalPhoto, SIGNAL_CHANNEL, splitSignalCaption, TelegramError } from "./transport";
+import { REPORT_MARK } from "../stats/reports";
 
 const MAX_ATTEMPTS = 8;
 const NEW_SIGNAL = "__BTC_NEW_SIGNAL__\n";
@@ -276,7 +277,9 @@ async function deliverBatch(patternLabel: (key: string) => string): Promise<void
       } else {
         let body = delivery.text;
         let image: "new-signal" | "take-profit" | "stop-loss" | "position-update" | null = null;
-        if (body.startsWith(NEW_SIGNAL)) {
+        if (body.startsWith(REPORT_MARK)) {
+          body = body.slice(REPORT_MARK.length); // reports: text (pictures are the owner's, not changed here)
+        } else if (body.startsWith(NEW_SIGNAL)) {
           image = "new-signal";
           body = body.slice(NEW_SIGNAL.length);
         } else if (body.startsWith(TAKE_PROFIT)) {
@@ -288,7 +291,7 @@ async function deliverBatch(patternLabel: (key: string) => string): Promise<void
         } else if (body.startsWith(POSITION_UPDATE)) {
           image = "position-update";
           body = body.slice(POSITION_UPDATE.length);
-        } else {
+        } else if (delivery.eventId > 0) {
           const [event] = await db.select({ kind: btcSignalEventsTable.kind, detail: btcSignalEventsTable.detail })
             .from(btcSignalEventsTable).where(eq(btcSignalEventsTable.id, delivery.eventId));
           if (event?.kind === "opened") image = "new-signal";

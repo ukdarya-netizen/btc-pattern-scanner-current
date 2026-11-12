@@ -1,85 +1,122 @@
-import { PROFILES, type ProfileKey } from "../config/profiles";
+/**
+ * Period reports (owner 2026-11-12: "всё полезное из CAB и Нигилиста"). Pure part: schedule and text, no DB.
+ * Schedule as CAB / Nihilist (Dubai, UTC+4): daily 22:00 (trades closed since local midnight), weekly Sunday 10:00
+ * (the last 7 days), monthly on the 1st at 11:00 (the previous calendar month). A report missed by a restart goes
+ * out late, within 24 h; each period is claimed once (btc_reports).
+ * Layout as Nihilist / CAB: result by outcome (profit / stop / break-even / holding time), every closed trade with
+ * how long it was in the position (daily) or the shortest – longest time (weekly / monthly), total, win rate as CAB
+ * ((profit + break-even) / (profit + break-even + stop)), longs / shorts, patterns, the 3 best (weekly / monthly).
+ * Closed trades only — open positions are never listed. The result is the clean price move: no leverage, no fees.
+ * Plain text (no HTML).
+ */
+const TZ_MS = 4 * 3_600_000;
+const DAY = 86_400_000;
 
-/** Reports follow the owner's clock (Dubai, UTC+4, no DST). */
-const TZ_OFFSET_MS = 4 * 60 * 60 * 1000;
-const DAY = 24 * 60 * 60 * 1000;
-
-export type Period = { kind: "day" | "week" | "month"; key: string; start: Date; end: Date; title: string };
+export type ReportKind = "daily" | "weekly" | "monthly";
+export type Schedule = { kind: ReportKind; at: number; from: number; to: number; key: string; title: string };
 
 const pad = (n: number) => String(n).padStart(2, "0");
-const localDate = (ms: number) => new Date(ms + TZ_OFFSET_MS); // read with getUTC*
-const label = (ms: number) => {
-  const d = localDate(ms);
-  return `${pad(d.getUTCDate())}.${pad(d.getUTCMonth() + 1)}.${d.getUTCFullYear()}`;
-};
+const local = (ms: number) => new Date(ms + TZ_MS); // read with getUTC*
+const dmy = (ms: number) => { const d = local(ms); return `${pad(d.getUTCDate())}.${pad(d.getUTCMonth() + 1)}.${d.getUTCFullYear()}`; };
+const MONTHS = ["январь", "февраль", "март", "апрель", "май", "июнь", "июль", "август", "сентябрь", "октябрь", "ноябрь", "декабрь"];
 
-/** Completed periods that end at or before `now` (the latest one of each kind). */
-export function completedPeriods(now: number): Period[] {
-  const local = localDate(now);
-  const dayStartLocal = Date.UTC(local.getUTCFullYear(), local.getUTCMonth(), local.getUTCDate());
-  const todayStart = dayStartLocal - TZ_OFFSET_MS;
-  const yesterday = todayStart - DAY;
-  const weekday = (local.getUTCDay() + 6) % 7; // Monday = 0
-  const weekStart = todayStart - weekday * DAY;
-  const prevWeek = weekStart - 7 * DAY;
-  const monthStart = Date.UTC(local.getUTCFullYear(), local.getUTCMonth(), 1) - TZ_OFFSET_MS;
-  const prevMonthLocal = new Date(Date.UTC(local.getUTCFullYear(), local.getUTCMonth() - 1, 1));
-  const prevMonthStart = prevMonthLocal.getTime() - TZ_OFFSET_MS;
-  const ym = `${prevMonthLocal.getUTCFullYear()}-${pad(prevMonthLocal.getUTCMonth() + 1)}`;
-  const months = ["январь", "февраль", "март", "апрель", "май", "июнь", "июль", "август",
-    "сентябрь", "октябрь", "ноябрь", "декабрь"];
-  const isoDay = (ms: number) => {
-    const d = localDate(ms);
-    return `${d.getUTCFullYear()}-${pad(d.getUTCMonth() + 1)}-${pad(d.getUTCDate())}`;
-  };
-  return [
-    { kind: "day", key: `day:${isoDay(yesterday)}`, start: new Date(yesterday), end: new Date(todayStart),
-      title: `Итоги дня ${label(yesterday)}` },
-    { kind: "week", key: `week:${isoDay(prevWeek)}`, start: new Date(prevWeek), end: new Date(weekStart),
-      title: `Итоги недели ${label(prevWeek)}–${label(weekStart - DAY)}` },
-    { kind: "month", key: `month:${ym}`, start: new Date(prevMonthStart), end: new Date(monthStart),
-      title: `Итоги месяца: ${months[prevMonthLocal.getUTCMonth()]} ${prevMonthLocal.getUTCFullYear()}` },
-  ];
+/** The latest scheduled report of a kind at or before `now` (UTC ms). */
+export function latestSchedule(kind: ReportKind, now: number): Schedule {
+  const localDay = Math.floor((now + TZ_MS) / DAY);
+  const dayStart = (d: number) => d * DAY - TZ_MS;
+  if (kind === "daily") {
+    let d = localDay;
+    if (dayStart(d) + 22 * 3_600_000 > now) d -= 1;
+    const at = dayStart(d) + 22 * 3_600_000;
+    return { kind, at, from: dayStart(d), to: at, key: `day:${dmy(dayStart(d))}`, title: `Итоги дня ${dmy(dayStart(d))}` };
+  }
+  if (kind === "weekly") {
+    let d = localDay - ((localDay + 4) % 7); // 1970-01-01 was a Thursday: (day + 4) % 7 === 0 is Sunday
+    if (dayStart(d) + 10 * 3_600_000 > now) d -= 7;
+    const at = dayStart(d) + 10 * 3_600_000;
+    return { kind, at, from: at - 7 * DAY, to: at, key: `week:${dmy(dayStart(d))}`, title: `Недельный отчёт ${dmy(at - 7 * DAY)} – ${dmy(at - 1)}` };
+  }
+  const l = local(now);
+  let y = l.getUTCFullYear(), m = l.getUTCMonth();
+  const monthStart = (yy: number, mm: number) => Date.UTC(yy, mm, 1) - TZ_MS;
+  if (monthStart(y, m) + 11 * 3_600_000 > now) { m -= 1; if (m < 0) { m = 11; y -= 1; } }
+  const at = monthStart(y, m) + 11 * 3_600_000;
+  const py = m === 0 ? y - 1 : y, pm = m === 0 ? 11 : m - 1;
+  return { kind, at, from: monthStart(py, pm), to: monthStart(y, m), key: `month:${py}-${pad(pm + 1)}`, title: `Месячный отчёт: ${MONTHS[pm]} ${py}` };
 }
 
-export type Closed = {
-  profile: string; direction: string; patternKey: string;
-  pnlMarginPct: number | null; pnlPricePct: number | null; closeReason: string | null;
+/** On-demand (/daily, /weekly, /monthly): today since local midnight, the last 7 days, this calendar month. */
+export function onDemandSchedule(kind: ReportKind, now: number): Schedule {
+  const localDay = Math.floor((now + TZ_MS) / DAY);
+  if (kind === "daily") { const from = localDay * DAY - TZ_MS; return { kind, at: now, from, to: now, key: "", title: `Итоги дня ${dmy(from)} (на сейчас)` }; }
+  if (kind === "weekly") return { kind, at: now, from: now - 7 * DAY, to: now, key: "", title: `Отчёт за 7 дней ${dmy(now - 7 * DAY)} – ${dmy(now)}` };
+  const l = local(now);
+  const from = Date.UTC(l.getUTCFullYear(), l.getUTCMonth(), 1) - TZ_MS;
+  return { kind, at: now, from, to: now, key: "", title: `Отчёт за ${MONTHS[l.getUTCMonth()]} ${l.getUTCFullYear()} (на сейчас)` };
+}
+
+/** Delivery-queue id of a scheduled report: negative, unique per kind and period (never collides with events). */
+export function reportEventId(s: Schedule): number {
+  const base = s.kind === "daily" ? 100_000_000 : s.kind === "weekly" ? 200_000_000 : 300_000_000;
+  return -(base + Math.floor((s.from + TZ_MS) / DAY));
+}
+
+export type ReportRow = {
+  direction: string; patternKey: string; pnlPricePct: number | null; mfePct: number | null;
+  closeReason: string | null; detectedAt: Date; closedAt: Date | null;
 };
 
-const sign = (v: number) => `${v >= 0 ? "+" : ""}${v.toFixed(2)}%`;
+const pct = (v: number) => `${v > 0 ? "+" : v < 0 ? "−" : ""}${Math.abs(v).toFixed(2)}%`;
+const res = (r: ReportRow) => r.pnlPricePct ?? 0;
+const sum = (rows: ReportRow[]) => rows.reduce((a, r) => a + res(r), 0);
+const held = (r: ReportRow) => Math.max(0, (r.closedAt ?? r.detectedAt).getTime() - r.detectedAt.getTime());
+export function durationText(ms: number): string {
+  const mins = Math.round(ms / 60_000);
+  const d = Math.floor(mins / 1440), h = Math.floor((mins % 1440) / 60), m = mins % 60;
+  return d > 0 ? `${d}д ${h}ч` : h > 0 ? `${h}ч ${m}м` : `${m}м`;
+}
+const side = (d: string) => (d === "long" ? "лонг" : "шорт");
 
-/**
- * Live signals closed inside the period. Plain text (no HTML). A trade counts
- * as a win only when margin PnL after fees is positive.
- */
-export function formatReport(title: string, rows: Closed[]): string | null {
-  if (rows.length === 0) return null;
-  const lines = [`BTC · ${title}`, `Закрыто сделок: ${rows.length}`];
-  for (const key of Object.keys(PROFILES) as ProfileKey[]) {
-    const group = rows.filter((r) => r.profile === key);
-    if (!group.length) continue;
-    const wins = group.filter((r) => (r.pnlMarginPct ?? 0) > 0).length;
-    const sum = group.reduce((s, r) => s + (r.pnlMarginPct ?? 0), 0);
-    const parts = (["long", "short"] as const).map((dir) => {
-      const g = group.filter((r) => r.direction === dir);
-      if (!g.length) return null;
-      const w = g.filter((r) => (r.pnlMarginPct ?? 0) > 0).length;
-      return `${dir === "long" ? "лонг" : "шорт"} ${w}/${g.length}`;
-    }).filter(Boolean);
-    lines.push("",
-      `${PROFILES[key].label} x${PROFILES[key].leverage}: ${wins} из ${group.length} в плюс (${Math.round((wins / group.length) * 100)}%)`,
-      `Сумма к марже: ${sign(sum)} · в среднем ${sign(sum / group.length)}`,
-      `По направлениям: ${parts.join(", ")}`,
-    );
+const GROUPS: Array<{ reason: string; title: string }> = [
+  { reason: "take_profit", title: "✅ Профит (все цели)" },
+  { reason: "stop", title: "❌ Стоп-лосс" },
+  { reason: "breakeven", title: "🛡 Безубыток" },
+  { reason: "timeout", title: "⏳ По времени" },
+];
+
+export function formatReport(s: Schedule, rows: ReportRow[], label: (key: string) => string): string {
+  const lines = [`📊 Bitcoin Margin Master — ${s.title}`, ""];
+  if (!rows.length) {
+    lines.push(s.kind === "daily" ? "Закрытых сделок за день нет." : "Закрытых сделок за период нет.");
+    return lines.join("\n");
   }
-  const best = rows.reduce((a, b) => ((b.pnlMarginPct ?? -Infinity) > (a.pnlMarginPct ?? -Infinity) ? b : a));
-  const worst = rows.reduce((a, b) => ((b.pnlMarginPct ?? Infinity) < (a.pnlMarginPct ?? Infinity) ? b : a));
-  lines.push("",
-    `Лучшая: ${sign(best.pnlMarginPct ?? 0)} к марже (${sign(best.pnlPricePct ?? 0)} цены)`,
-    `Худшая: ${sign(worst.pnlMarginPct ?? 0)} к марже (${sign(worst.pnlPricePct ?? 0)} цены)`,
-    "Результат к марже — с плечом и с учётом комиссий.",
-  );
+  const withList = s.kind === "daily";
+  for (const g of GROUPS) {
+    const xs = rows.filter((r) => r.closeReason === g.reason);
+    if (!xs.length) continue;
+    lines.push(`${g.title}: ${xs.length} | ${pct(sum(xs))}`);
+    if (withList) {
+      for (const r of [...xs].sort((a, b) => res(b) - res(a)))
+        lines.push(`  • ${side(r.direction)} ${pct(res(r))} | пик ${pct(r.mfePct ?? 0)} | в позиции ${durationText(held(r))} | ${label(r.patternKey)}`);
+    } else {
+      const ms = xs.map(held);
+      const lo = durationText(Math.min(...ms)), hi = durationText(Math.max(...ms));
+      lines.push(`  • в позиции: ${lo === hi ? lo : `${lo} – ${hi}`}`);
+    }
+  }
+  const n = (reason: string) => rows.filter((r) => r.closeReason === reason).length;
+  const wins = n("take_profit") + n("breakeven"), denom = wins + n("stop");
+  lines.push("", `💰 Итог: ${pct(sum(rows))} · сделок ${rows.length} · винрейт ${denom ? `${Math.round((wins / denom) * 100)}%` : "—"}`);
+  const sides = (["long", "short"] as const).map((d) => { const xs = rows.filter((r) => r.direction === d); return xs.length ? `${d === "long" ? "Лонги" : "Шорты"}: ${xs.length} · ${pct(sum(xs))}` : null; }).filter(Boolean);
+  if (sides.length) lines.push(sides.join(" | "));
+  const by = new Map<string, ReportRow[]>();
+  for (const r of rows) by.set(r.patternKey, [...(by.get(r.patternKey) ?? []), r]);
+  lines.push("", "По паттернам:");
+  for (const [k, xs] of [...by].sort((a, b) => sum(b[1]) - sum(a[1]))) lines.push(`• ${label(k)}: ${xs.length} · ${pct(sum(xs))}`);
+  if (!withList && rows.length > 3) {
+    lines.push("", "🏆 Лучшие 3:");
+    for (const r of [...rows].sort((a, b) => res(b) - res(a)).slice(0, 3)) lines.push(`• ${side(r.direction)} ${pct(res(r))} | ${label(r.patternKey)} | в позиции ${durationText(held(r))}`);
+  }
+  lines.push("", "Результат — чистое движение цены: без плеча и комиссий.");
   return lines.join("\n");
 }
-

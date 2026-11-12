@@ -1,8 +1,8 @@
 import { useEffect, useState } from "react";
-import { Activity, HeartPulse, History as HistoryIcon, Layers, LogOut, MoreHorizontal, Target, Users, X } from "lucide-react";
+import { Activity, BookOpen, HeartPulse, History as HistoryIcon, Layers, LogOut, MoreHorizontal, Target, Users, X } from "lucide-react";
 import { AuthError, type Decision, type Metrics, type OutcomeGroup, type Session, type Signal, type Status, asset, currentSession, getJson, post, price, saveSession, time } from "./lib/api";
 import { Login, Register, ResetPassword } from "./pages/Auth";
-import { type Data, type Filter, type Mode, NO_FILTER, type Tab } from "./lib/data";
+import { type Data, type Filter, type Mode, NO_FILTER, type Period, type Tab, periodOptions } from "./lib/data";
 import { Crown, Segmented } from "./components/ui";
 import { Overview } from "./pages/Overview";
 import { Positions } from "./pages/Positions";
@@ -10,6 +10,7 @@ import { History } from "./pages/History";
 import { Patterns } from "./pages/Patterns";
 import { Service } from "./pages/Service";
 import { Subscribers } from "./pages/Subscribers";
+import { Reference } from "./pages/Reference";
 
 /** Navigation on the left, as in CAB and Nihilist (owner 2026-11-12). «Подписчики» and Bot Health — owner only. */
 const NAV: Array<{ tab: Tab; label: string; sub: string; icon: typeof Target; owner?: boolean }> = [
@@ -17,6 +18,7 @@ const NAV: Array<{ tab: Tab; label: string; sub: string; icon: typeof Target; ow
   { tab: "overview", label: "Обзор", sub: "общая статистика", icon: Activity },
   { tab: "history", label: "История сигналов", sub: "закрытые сделки", icon: HistoryIcon },
   { tab: "patterns", label: "Паттерны", sub: "результат каждого", icon: Layers },
+  { tab: "reference", label: "Справочник", sub: "паттерны · ведение сделки", icon: BookOpen },
   { tab: "subscribers", label: "Подписчики", sub: "дашборд + Telegram-бот", icon: Users, owner: true },
   { tab: "service", label: "Bot Health", sub: "сканер · рынок · решения", icon: HeartPulse, owner: true },
 ];
@@ -60,7 +62,7 @@ function usePendingCount(on: boolean): number {
 export default function App() {
   const [tab, setTabState] = useState<Tab>(tabFromHash);
   const [filter, setFilter] = useState<Filter>(NO_FILTER);
-  const [days, setDays] = useState<number>(0);
+  const [period, setPeriod] = useState<Period>("all");
   // Owner 2026-11-12: channel and shadow are never mixed — every number is for the chosen mode (default: channel).
   const [mode, setMode] = useState<Mode>("live");
   const [raw, setRaw] = useState<Data>({ status: null, open: [], closed: [], market: null, outcomes: [], decisions: [] });
@@ -176,19 +178,25 @@ export default function App() {
           </div>
           <div className="flex flex-wrap items-center gap-2">
             <span className="text-sm font-semibold tabular-nums md:hidden">{price(last)}</span>
-            {owner && tab !== "subscribers" && tab !== "service" && (
+            {owner && tab !== "subscribers" && tab !== "service" && tab !== "reference" && (
               <Segmented<Mode> value={mode} options={[["live", "Канал"], ["shadow", "Тень"]]} onChange={(m) => { setMode(m); setFilter(NO_FILTER); }} />
             )}
-            {periodMatters && <Segmented<number> value={days} options={[[0, "Всё"], [30, "30 д"], [7, "7 д"]]} onChange={setDays} />}
+            {periodMatters && (
+              <select value={period} onChange={(e) => setPeriod(e.target.value)} aria-label="Период"
+                className="rounded-full border border-gold/30 bg-black/60 px-3 py-1 text-xs text-foreground focus:border-gold focus:outline-none">
+                {periodOptions(data.closed).map(([v, l]) => <option key={v} value={v}>{l}</option>)}
+              </select>
+            )}
           </div>
         </header>
         <div id="content" className="flex-1 space-y-4 overflow-auto p-4 pb-24 md:p-6 md:pb-6">
           {error && <p className="rounded-lg border border-rose-500/40 bg-rose-500/5 p-3 text-sm text-rose-300">Нет связи с API: {error}</p>}
-          {owner && mode === "shadow" && tab !== "subscribers" && tab !== "service" && <p className="rounded-lg border border-gold/30 bg-gold/5 p-2 text-center text-xs text-gold">Режим «Тень»: сигналы, которые пишутся и считаются, но не публикуются в канал.</p>}
-          {tab === "overview" && <Overview data={data} days={days} mode={mode} go={go} />}
+          {owner && mode === "shadow" && tab !== "subscribers" && tab !== "service" && tab !== "reference" && <p className="rounded-lg border border-gold/30 bg-gold/5 p-2 text-center text-xs text-gold">Режим «Тень»: сигналы, которые пишутся и считаются, но не публикуются в канал.</p>}
+          {tab === "overview" && <Overview data={data} period={period} setPeriod={setPeriod} mode={mode} go={go} />}
           {tab === "positions" && <Positions data={data} label={label} />}
-          {tab === "history" && <History data={data} days={days} label={label} filter={filter} setFilter={setFilter} />}
-          {tab === "patterns" && <Patterns data={data} days={days} mode={mode} go={go} />}
+          {tab === "history" && <History data={data} period={period} label={label} filter={filter} setFilter={setFilter} />}
+          {tab === "patterns" && <Patterns data={data} period={period} mode={mode} go={go} />}
+          {tab === "reference" && <Reference data={data} />}
           {tab === "subscribers" && owner && <Subscribers />}
           {tab === "service" && owner && <Service data={raw} label={label} />}
           <footer className="pt-6 text-center text-[10px] uppercase tracking-[0.35em] text-gold/50">Honey badger don't care · время Дубай</footer>

@@ -1,16 +1,19 @@
 import { useState } from "react";
 import { REASON, STYLE_LABEL, type Signal, dir, duration, heldMs, num, price, signed, time, tone } from "../lib/api";
-import { type Data, type Filter, NO_FILTER, applyFilter, inPeriod, styleOf, summarize } from "../lib/data";
+import { type Data, type Filter, NO_FILTER, type Period, applyFilter, inPeriod, styleOf, summarize } from "../lib/data";
 import { Card, type Col, Pill, SortTable } from "../components/ui";
 import { SignalDetail } from "../components/SignalDetail";
 
 const sel = "rounded-full border border-gold/30 bg-black/60 px-3 py-1 text-xs text-foreground focus:border-gold focus:outline-none";
 
 /** Closed trades with filters (pattern, side, style, result) and the detail of one trade. */
-export function History({ data, days, label, filter, setFilter }: { data: Data; days: number; label: (k: string) => string; filter: Filter; setFilter: (f: Filter) => void }) {
+export function History({ data, period, label, filter, setFilter }: { data: Data; period: Period; label: (k: string) => string; filter: Filter; setFilter: (f: Filter) => void }) {
   const [open, setOpen] = useState<number | null>(null);
   const patterns = data.status?.patterns ?? [];
-  const rows = applyFilter(inPeriod(data.closed, days), filter, patterns);
+  const inP = inPeriod(data.closed, period);
+  const rows = applyFilter(inP, filter, patterns);
+  // Outcome chips with counts (as Nihilist / CAB): counted with every other filter applied.
+  const byReason = (r: Filter["reason"]) => applyFilter(inP, { ...filter, reason: r }, patterns);
   const sm = summarize(rows);
   const holds = rows.map((s) => heldMs(s)).sort((a, b) => a - b);
   const keys = [...new Set(data.closed.map((s) => s.patternKey))];
@@ -52,8 +55,21 @@ export function History({ data, days, label, filter, setFilter }: { data: Data; 
         </div>
       }>
         <div className="mb-3 flex flex-wrap gap-2 text-xs">
+          {([["", "Все"], ["take_profit", "Цели"], ["breakeven", "Безубыток"], ["stop", "Стоп"], ["timeout", "По времени"]] as Array<[Filter["reason"], string]>).map(([r, l]) => {
+            const xs = byReason(r);
+            const on = filter.reason === r;
+            return (
+              <button key={r || "all"} onClick={() => set({ reason: r })}
+                className={`rounded-full border px-3 py-1 ${on ? "border-gold bg-gold/15 text-gold" : "border-border text-muted-foreground hover:text-foreground"}`}>
+                {l} · {xs.length}{r ? ` · ${signed(xs.reduce((a, s) => a + (s.pnlPricePct ?? 0), 0), 1)}` : ""}
+              </button>
+            );
+          })}
+        </div>
+        <div className="mb-3 flex flex-wrap gap-2 text-xs">
           <Pill kind="gold">сделок {sm.n}</Pill>
           <Pill>винрейт {sm.winRate == null ? "—" : `${num(sm.winRate, 0)}%`}</Pill>
+          <Pill>в плюсе {sm.wins}</Pill>
           <Pill kind={sm.sum >= 0 ? "good" : "bad"}>сумма {signed(sm.sum, 1)}</Pill>
           <Pill>в среднем {signed(sm.avg)}</Pill>
           <Pill>в сделке от {holds.length ? duration(holds[0]!) : "—"} до {holds.length ? duration(holds.at(-1)!) : "—"}</Pill>

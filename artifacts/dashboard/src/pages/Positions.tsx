@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { STYLE_LABEL, type Signal, dir, distPct, duration, heldMs, liveMove, price, signed, time, tone } from "../lib/api";
+import { REASON, STYLE_LABEL, type Signal, dir, distPct, duration, heldMs, liveMove, price, signed, time, tone } from "../lib/api";
 import { type Data, styleOf } from "../lib/data";
 import { Card, type Col, Pill, SortTable, Tile } from "../components/ui";
 import { SignalDetail } from "../components/SignalDetail";
@@ -9,7 +9,8 @@ export function Positions({ data, label }: { data: Data; label: (k: string) => s
   const [sel, setSel] = useState<number | null>(null);
   const last = data.status?.stream.lastPrice ?? null;
   const patterns = data.status?.patterns ?? [];
-  const selected = data.open.find((s) => s.id === sel) ?? null;
+  const recent = [...data.closed].filter((s) => s.closedAt).sort((a, b) => Date.parse(b.closedAt!) - Date.parse(a.closedAt!)).slice(0, 5);
+  const selectedAny = data.open.find((s) => s.id === sel) ?? data.closed.find((s) => s.id === sel) ?? null;
   const next = (s: Signal) => s.targets.find((t) => !t.hitAt) ?? null;
   const toStop = (s: Signal) => distPct(s, last, s.stopPrice);
   const toTarget = (s: Signal) => { const n = next(s); return n ? distPct(s, last, n.price) : null; };
@@ -60,7 +61,25 @@ export function Positions({ data, label }: { data: Data; label: (k: string) => s
           ); }} />
         <p className="mt-2 text-xs text-muted-foreground">Сортировка — нажми на заголовок столбца. Движение — чистое: от входа в сторону сделки, без плеча и комиссий. Нажми на строку — путь цены, уровни, плечо и метрики на входе.</p>
       </Card>
-      {selected && <SignalDetail s={selected} label={label(selected.patternKey)} onClose={() => setSel(null)} />}
+      {/* As CAB «Недавно закрытые»: the last 5 closed trades right under the open ones. */}
+      <Card title="Недавно закрытые">
+        {recent.length === 0 ? <p className="text-sm text-muted-foreground">Закрытых сделок пока нет.</p> : (
+          <ul className="divide-y divide-border/70">
+            {recent.map((s) => (
+              <li key={s.id}>
+                <button onClick={() => setSel(s.id)} className="flex w-full items-center justify-between gap-3 py-2 text-left hover:text-gold">
+                  <span className="min-w-0">
+                    <span className="block truncate text-sm">{label(s.patternKey)}</span>
+                    <span className="text-[11px] text-muted-foreground">{dir(s.direction)} · {REASON[s.closeReason ?? ""] ?? "—"} · закрыта {time(s.closedAt)} · в позиции {duration(heldMs(s))}</span>
+                  </span>
+                  <span className={`text-lg font-semibold tabular-nums ${tone(s.pnlPricePct)}`}>{signed(s.pnlPricePct)}</span>
+                </button>
+              </li>
+            ))}
+          </ul>
+        )}
+      </Card>
+      {selectedAny && <SignalDetail s={selectedAny} label={label(selectedAny.patternKey)} onClose={() => setSel(null)} />}
     </div>
   );
 }

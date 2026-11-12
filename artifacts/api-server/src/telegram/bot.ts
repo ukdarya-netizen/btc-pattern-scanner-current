@@ -6,10 +6,11 @@
  * Admin (TELEGRAM_ADMIN_CHAT_IDS): /status, /open. Plain text only (no HTML).
  */
 import { randomInt } from "node:crypto";
-import { db, btcSignalsTable, pool } from "@workspace/db";
-import { and, eq, gte } from "drizzle-orm";
+import { pool } from "@workspace/db";
 import { logger } from "../lib/logger";
 import { PATTERNS } from "../engine/patterns";
+import { onDemandReport } from "../stats/reports";
+import type { ReportKind } from "../stats/reportFormat";
 import { accessStatus, isOwnerChat, isOwnerEmail, ownerChatId, userByChatId, userById, type UserRow } from "../lib/users";
 import { SIGNAL_CHANNEL, answerCallback, editMessage, sendMessageKb, telegramCall, type InlineKeyboard, type TelegramUpdate } from "./transport";
 
@@ -161,45 +162,11 @@ export const welcomeKeyboard = (): InlineKeyboard => [
   ...subscriptionKeyboard(),
 ];
 
-// ---------------- reports (channel signals only) ----------------
-type Kind = "daily" | "weekly" | "monthly";
-const PERIOD: Record<Kind, { days: number; title: string }> = {
-  daily: { days: 1, title: "за сутки" }, weekly: { days: 7, title: "за неделю" }, monthly: { days: 30, title: "за 30 дней" },
-};
-const pct = (v: number) => `${v >= 0 ? "+" : ""}${v.toFixed(2)}%`;
+// ---------------- reports (live signals only; the same text as the scheduled reports) ----------------
+type Kind = ReportKind;
+const PERIOD: Record<Kind, true> = { daily: true, weekly: true, monthly: true };
 const label = (key: string) => PATTERNS.find((p) => p.key === key)?.label ?? key;
-
-export async function reportText(kind: Kind, now = Date.now()): Promise<string> {
-  const since = new Date(now - PERIOD[kind].days * 86_400_000);
-  const closed = await db.select().from(btcSignalsTable)
-    .where(and(eq(btcSignalsTable.live, true), gte(btcSignalsTable.closedAt, since)));
-  const open = await db.select().from(btcSignalsTable)
-    .where(and(eq(btcSignalsTable.live, true), eq(btcSignalsTable.status, "open")));
-  const vals = closed.map((s) => s.pnlPricePct ?? 0);
-  const sum = vals.reduce((a, b) => a + b, 0);
-  const wins = vals.filter((v) => v > 0).length;
-  const lines = [`📊 Bitcoin Margin Master — отчёт ${PERIOD[kind].title}`, ""];
-  if (!closed.length) lines.push("Закрытых сделок за период нет.");
-  else {
-    lines.push(
-      `Закрыто: ${closed.length} · в плюсе ${wins} (${Math.round((100 * wins) / closed.length)}%)`,
-      `Движение цены, сумма: ${pct(sum)} · в среднем ${pct(sum / closed.length)}`,
-      `Лучшая: ${pct(Math.max(...vals))} · худшая: ${pct(Math.min(...vals))}`,
-    );
-    for (const side of ["long", "short"] as const) {
-      const xs = closed.filter((s) => s.direction === side);
-      if (xs.length) lines.push(`${side === "long" ? "Лонги" : "Шорты"}: ${xs.length} · ${pct(xs.reduce((a, s) => a + (s.pnlPricePct ?? 0), 0))}`);
-    }
-    const by = new Map<string, number[]>();
-    for (const s of closed) by.set(s.patternKey, [...(by.get(s.patternKey) ?? []), s.pnlPricePct ?? 0]);
-    lines.push("", "По паттернам:");
-    for (const [k, v] of [...by].sort((a, b) => b[1].reduce((x, y) => x + y, 0) - a[1].reduce((x, y) => x + y, 0))) {
-      lines.push(`• ${label(k)}: ${v.length} · ${pct(v.reduce((x, y) => x + y, 0))}`);
-    }
-  }
-  lines.push("", `Открыто сейчас: ${open.length}`, "", "Результат — чистое движение цены: без плеча и комиссий.");
-  return lines.join("\n");
-}
+export const reportText = (kind: Kind, now = Date.now()) => onDemandReport(kind, label, now);
 
 // ---------------- owner ----------------
 export async function notifyOwnerRegistration(

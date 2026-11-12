@@ -2,6 +2,8 @@ import { logger } from "../lib/logger";
 import { getLastPrice, startLastPriceStream } from "../market/bingx";
 import { syncCandles } from "../analysis/candleStore";
 import { deliverNext } from "../telegram/telegram";
+import { runReports } from "../stats/reports";
+import { runSubscriptionNotices } from "../lib/subscriptionNotices";
 import { setAdminCommandHandler, startTelegramSubscriptions } from "../telegram/subscribers";
 import { startOpsMonitor, statusText } from "../ops/admin";
 import { waitForEngineLease } from "../ops/lease";
@@ -78,6 +80,10 @@ export async function startEngine(): Promise<void> {
   const candleSync = () => void syncCandles().catch((err) => logger.warn({ err }, "candle sync failed"));
   candleSync();
   setInterval(candleSync, 60_000);
-  // Automatic Telegram delivery is limited to signal lifecycle events.
+  // Automatic Telegram delivery: signal lifecycle events and (owner 2026-11-12, as CAB / Nihilist) the scheduled
+  // reports — daily 22:00, weekly Sunday 10:00, monthly the 1st 11:00 (Dubai); never restart / diagnostics messages.
   setInterval(() => void deliverNext(labelOf).catch((err) => logger.warn({ err }, "telegram pass failed")), 3_000);
+  setInterval(() => void runReports(labelOf).catch((err) => logger.warn({ err }, "reports pass failed")), 60_000);
+  // Subscription notices (as CAB): 3 hours before the end and at the end to the subscriber, a summary to the owner.
+  setInterval(() => void runSubscriptionNotices().catch((err) => logger.warn({ err }, "subscription notices failed")), 10 * 60_000);
 }
