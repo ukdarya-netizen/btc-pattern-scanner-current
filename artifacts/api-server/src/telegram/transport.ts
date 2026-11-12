@@ -80,8 +80,24 @@ export async function sendSignalPhoto(
 
 export type TelegramUpdate = {
   update_id: number;
-  message?: { chat: { id: number; type: string }; text?: string };
+  message?: { chat: { id: number; type: string }; text?: string; from?: { id: number; username?: string } };
+  callback_query?: { id: string; data?: string; from: { id: number }; message?: { message_id: number; chat: { id: number; type: string } } };
 };
+
+export type InlineButton = { text: string; callback_data: string } | { text: string; url: string };
+export type InlineKeyboard = InlineButton[][];
+
+/** A plain-text message with inline buttons (owner 2026-11-12: buttons as in CAB and Nihilist). */
+export async function sendMessageKb(chatId: string, text: string, keyboard?: InlineKeyboard): Promise<void> {
+  await telegramCall("sendMessage", {
+    chat_id: chatId, text, disable_web_page_preview: true,
+    ...(keyboard?.length ? { reply_markup: { inline_keyboard: keyboard } } : {}),
+  });
+}
+
+export async function answerCallback(id: string, text?: string): Promise<void> {
+  await telegramCall("answerCallbackQuery", { callback_query_id: id, ...(text ? { text } : {}) });
+}
 
 export function subscriptionCommand(update: TelegramUpdate): "start" | "stop" | null {
   if (update.message?.chat.type !== "private") return null;
