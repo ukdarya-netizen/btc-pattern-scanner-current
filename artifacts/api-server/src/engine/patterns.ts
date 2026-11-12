@@ -44,9 +44,11 @@ export function check(conditions: Array<[string, boolean | null]>): PatternResul
 import { RANGE_PATTERNS } from "./rangePatterns";
 import { SMC_PATTERNS } from "./smcPatterns";
 import { LIQ_CASCADE_PATTERNS } from "./liqCascade";
+import { NEON_PATTERNS } from "./neonPatterns";
 
 /**
  * Owner's base (2026-10-25): Auto Range Detector breakouts and deviations on 4h and 1d.
  * Owner 2026-11-09: + Smart Money (Crypto Nihilist method) and liquidation cascade (CAB method), live.
+ * Owner 2026-11-12: + ABNeon bounce and Stealth level breakout (CAB), 15m / 1h / 4h, both sides — shadow.
  */
-export const PATTERNS: Pattern[] = [...RANGE_PATTERNS, ...SMC_PATTERNS, ...LIQ_CASCADE_PATTERNS];
+export const PATTERNS: Pattern[] = [...RANGE_PATTERNS, ...SMC_PATTERNS, ...LIQ_CASCADE_PATTERNS, ...NEON_PATTERNS];

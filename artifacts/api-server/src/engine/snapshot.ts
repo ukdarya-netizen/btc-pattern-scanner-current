@@ -1,6 +1,7 @@
 import type { Candle, Interval } from "../market/bingx";
 import type { FlowBar, FlowSeries } from "../market/coinglass";
 import type { MarketContext } from "../market/context";
+import type { LucyVolume } from "../market/lucyVolume";
 import { moneyFlowMetrics } from "../market/moneyFlow";
 
 export type Candles = Record<Interval, Candle[]>;
@@ -66,6 +67,8 @@ export type Snapshot = {
   candles: Candles;
   flow: FlowSeries;
   metrics: Metrics;
+  /** Owner 2026-11-12: Lucy's VSA volume (futures + spot, USD) on 15m / 1h / 4h — only when ABNeon / Stealth are due. */
+  lucy?: LucyVolume | null;
 };
 
 const BARS: Record<Tf, number> = { "15m": 1, "30m": 2, "1h": 4, "4h": 16, "24h": 96 };

@@ -18,6 +18,7 @@ import { levelsAtEntry } from "./levels";
 import { computeMetrics, type Metrics, type Snapshot } from "./snapshot";
 import { entryStudy } from "./entryStudy";
 import { aggVolumeStudy } from "../market/aggVolumeStudy";
+import { getLucyVolume } from "../market/lucyVolume";
 
 export type ScannerStatus = {
   lastCycleAt: string | null;
@@ -42,7 +43,7 @@ function closedBoundary(now: number, interval: Interval): number {
   return Math.floor(now / step) * step;
 }
 
-async function buildSnapshot(now: number, longHistory: boolean): Promise<Snapshot> {
+async function buildSnapshot(now: number, longHistory: boolean, neon = false): Promise<Snapshot> {
   // 4h and 1d patterns replay the range detector over HISTORY_BARS closed
   // bars (ATR 200 + 500-bar calibration); otherwise a short tail suffices.
   // Smart Money (owner 2026-11-09) walks 400 bars of 30m (from 15m) / 1h on the same 4h / 1d history.
@@ -57,7 +58,11 @@ async function buildSnapshot(now: number, longHistory: boolean): Promise<Snapsho
   const flow = await getBtcFlow(200, now);
   const candles = { "1m": [], "5m": c5, "15m": c15, "1h": c1h, "4h": c4h, "1d": c1d };
   scannerStatus.missingFlow = Object.entries(flow).filter(([, v]) => v === null).map(([k]) => k);
-  return { at: now, candles, flow, metrics: computeMetrics(candles, flow, getMarketContext(), now) };
+  // Owner 2026-11-12: ABNeon / Stealth need Lucy's VSA volume (futures + spot) on 15m / 1h / 4h; at most 10 s.
+  const lucy = neon
+    ? await Promise.race([getLucyVolume(now), new Promise<null>((res) => setTimeout(() => res(null), 10_000))]).catch(() => null)
+    : null;
+  return { at: now, candles, flow, metrics: computeMetrics(candles, flow, getMarketContext(), now), lucy };
 }
 
 /** Candle series whose closed bar triggers a pattern (30m bars are built from 15m). */
@@ -146,7 +151,9 @@ export async function runCycle(currentPrice: () => Promise<number>, now = Date.n
   try {
     const duePatterns = PATTERNS.filter((pattern) => due(pattern, candleCloseAt));
     // Range (4h / 1d) and Smart Money need the long 4h / 1d history; the cascade needs only 15m / 1h.
-    const snapshot = await buildSnapshot(now, duePatterns.some((p) => p.evalTf !== "15m"));
+    // ABNeon / Stealth (owner 2026-11-12) build their zones on the long 4h history even on 15m bars.
+    const neonDue = duePatterns.some((p) => p.key.startsWith("neon_"));
+    const snapshot = await buildSnapshot(now, neonDue || duePatterns.some((p) => p.evalTf !== "15m"), neonDue);
     const lastCandle = snapshot.candles["5m"].at(-1);
     if (!lastCandle || lastCandle.time + INTERVAL_MS["5m"] !== candleCloseAt) {
       throw new Error("latest closed 5m candle not available yet");
