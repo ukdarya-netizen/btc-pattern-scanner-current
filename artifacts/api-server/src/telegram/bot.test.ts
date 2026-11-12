@@ -18,7 +18,16 @@ test("commands: aliases, bot mentions, unknown", () => {
   assert.equal(parseCommand("/foo"), "/foo");
 });
 
-test("welcome: plain text with the channel button", () => {
+test("welcome: plain text, Mini App, site, channel and subscription buttons (as CAB / Nihilist)", () => {
   assert.ok(!/<[a-z]/i.test(welcomeText()));
-  assert.ok(welcomeKeyboard().flat().some((b) => "url" in b && b.url === "https://t.me/bitcoinmarginmaster"));
+  assert.ok(welcomeText().length <= 4096);
+  const buttons = welcomeKeyboard().flat();
+  assert.ok(buttons.some((b) => "web_app" in b && b.web_app.url === "https://bitcoin-margin-master.replit.app/"));
+  assert.ok(buttons.some((b) => "url" in b && b.url === "https://bitcoin-margin-master.replit.app/"));
+  assert.ok(buttons.some((b) => "url" in b && b.url === "https://t.me/bitcoinmarginmaster"));
+  assert.ok(buttons.some((b) => "callback_data" in b && b.callback_data === "subscription_status"));
+});
+
+test("menu: registration commands are there, admin commands are not", () => {
+  for (const c of ["myid", "subscription", "resetpassword", "daily", "weekly", "monthly"]) assert.ok(BOT_MENU.some((m) => m.command === c), c);
 });

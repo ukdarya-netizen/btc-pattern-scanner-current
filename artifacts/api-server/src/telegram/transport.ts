@@ -95,6 +95,14 @@ export async function sendMessageKb(chatId: string, text: string, keyboard?: Inl
   });
 }
 
+/** Replace the text (and buttons) of a message the bot sent — owner approve / block, unsubscribe confirm. */
+export async function editMessage(chatId: string, messageId: number, text: string, keyboard?: InlineKeyboard): Promise<void> {
+  await telegramCall("editMessageText", {
+    chat_id: chatId, message_id: messageId, text, disable_web_page_preview: true,
+    ...(keyboard?.length ? { reply_markup: { inline_keyboard: keyboard } } : {}),
+  });
+}
+
 export async function answerCallback(id: string, text?: string): Promise<void> {
   await telegramCall("answerCallbackQuery", { callback_query_id: id, ...(text ? { text } : {}) });
 }

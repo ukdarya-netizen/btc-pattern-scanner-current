@@ -11,11 +11,13 @@ import { logger } from "../lib/logger";
 import { healthSnapshot } from "../lib/apiHealth";
 import { candleCoverage, decisionOutcomes } from "../analysis/candleStore";
 import { coinglassGovernorStats } from "../market/coinglass";
+import { isOwnerReq, ownerOnly } from "../lib/users";
 
 const router = Router();
 const clampLimit = (raw: unknown, max = 500) => Math.min(Math.max(Number(raw) || 100, 1), max);
 
-router.get("/btc/status", (_req, res) => {
+router.get("/btc/status", (req, res) => {
+  const owner = isOwnerReq(req);
   res.json({
     scanner: scannerStatus,
     stream: engineHealth(),
@@ -23,12 +25,13 @@ router.get("/btc/status", (_req, res) => {
     coinglass: coinglassGovernorStats(),
     openSignals: openSignalCount(),
     // Owner 2026-11-12: the trading timeframe (style on the dashboard: 15m scalp, 30m / 1h intraday, 4h / 1d swing).
-    patterns: PATTERNS.map((p) => ({ key: p.key, label: p.label, direction: p.direction, profile: p.profile, live: p.live, tf: p.evalTf ?? PROFILES[p.profile].timeframe })),
+    // Users see the channel only (as CAB / Nihilist): shadow patterns are the owner's.
+    patterns: PATTERNS.filter((p) => owner || p.live).map((p) => ({ key: p.key, label: p.label, direction: p.direction, profile: p.profile, live: p.live, tf: p.evalTf ?? PROFILES[p.profile].timeframe })),
     profiles: PROFILES,
   });
 });
 
-router.get("/btc/stats", async (req, res) => {
+router.get("/btc/stats", ownerOnly, async (req, res) => {
   try {
     res.json({ rows: await getStats(Number(req.query.days) || undefined) });
   } catch (err) {
@@ -37,7 +40,7 @@ router.get("/btc/stats", async (req, res) => {
   }
 });
 
-router.get("/btc/stats/daily", async (req, res) => {
+router.get("/btc/stats/daily", ownerOnly, async (req, res) => {
   try {
     res.json({ rows: await getDailyStats(Math.min(Math.max(Number(req.query.days) || 30, 1), 365)) });
   } catch (err) {
@@ -48,14 +51,17 @@ router.get("/btc/stats/daily", async (req, res) => {
 
 router.get("/btc/signals", async (req, res) => {
   const status = typeof req.query.status === "string" ? req.query.status : null;
+  const owner = isOwnerReq(req);
+  // Users: channel signals only, without the engine's entry metrics (as CAB / Nihilist).
+  const where = [status ? eq(btcSignalsTable.status, status) : undefined, owner ? undefined : eq(btcSignalsTable.live, true)].filter(Boolean);
   const rows = await db.select().from(btcSignalsTable)
-    .where(status ? eq(btcSignalsTable.status, status) : undefined)
+    .where(where.length ? and(...where) : undefined)
     .orderBy(desc(btcSignalsTable.id))
     .limit(clampLimit(req.query.limit));
-  res.json({ rows });
+  res.json({ rows: owner ? rows : rows.map((r) => ({ ...r, metrics: null })) });
 });
 
-router.get("/btc/decisions", async (req, res) => {
+router.get("/btc/decisions", ownerOnly, async (req, res) => {
   const pattern = typeof req.query.pattern === "string" ? req.query.pattern : null;
   const decision = typeof req.query.decision === "string" ? req.query.decision : null;
   const rows = await db.select().from(btcDecisionsTable)
@@ -69,7 +75,7 @@ router.get("/btc/decisions", async (req, res) => {
 });
 
 /** First-touch outcome (first target vs stop) of every decision, grouped. */
-router.get("/btc/decisions/outcomes", async (req, res) => {
+router.get("/btc/decisions/outcomes", ownerOnly, async (req, res) => {
   try {
     const days = Math.min(Math.max(Number(req.query.days) || 7, 1), 60);
     const pattern = typeof req.query.pattern === "string" ? req.query.pattern : undefined;
@@ -81,7 +87,7 @@ router.get("/btc/decisions/outcomes", async (req, res) => {
 });
 
 /** Latest market metrics (same set the patterns see). */
-router.get("/btc/metrics", async (_req, res) => {
+router.get("/btc/metrics", ownerOnly, async (_req, res) => {
   if (scannerStatus.lastMetrics) {
     res.json({
       candleCloseAt: scannerStatus.lastCandleCloseAt,
@@ -101,7 +107,7 @@ router.get("/btc/metrics", async (_req, res) => {
 });
 
 /** Metric history, one row per 5m cycle (default 24h, max 7 days). */
-router.get("/btc/metrics/history", async (req, res) => {
+router.get("/btc/metrics/history", ownerOnly, async (req, res) => {
   const hours = Math.min(Math.max(Number(req.query.hours) || 24, 1), 168);
   const rows = await db.select().from(btcMarketSnapshotsTable)
     .where(gte(btcMarketSnapshotsTable.candleCloseAt, new Date(Date.now() - hours * 3_600_000)))
@@ -120,7 +126,8 @@ router.get("/btc/signals/:id/path", async (req, res) => {
     const id = Number(req.params.id);
     if (!Number.isSafeInteger(id)) { res.status(400).json({ error: "invalid_id" }); return; }
     const [sig] = await db.select().from(btcSignalsTable).where(eq(btcSignalsTable.id, id)).limit(1);
-    if (!sig) { res.status(404).json({ error: "not_found" }); return; }
+    const owner = isOwnerReq(req);
+    if (!sig || (!owner && !sig.live)) { res.status(404).json({ error: "not_found" }); return; }
     const from = new Date(sig.detectedAt.getTime() - 6 * 3_600_000);
     const to = new Date(Math.min(Date.now(), (sig.closedAt ?? new Date()).getTime() + 72 * 3_600_000));
     const rows = await db.select().from(btcMarketSnapshotsTable)
@@ -128,14 +135,13 @@ router.get("/btc/signals/:id/path", async (req, res) => {
       .orderBy(btcMarketSnapshotsTable.candleCloseAt);
     const dir = sig.direction === "long" ? 1 : -1;
     res.json({
-      signal: sig,
+      signal: owner ? sig : { ...sig, metrics: null },
       points: rows.map((r) => ({
         at: r.candleCloseAt,
         phase: r.candleCloseAt < sig.detectedAt ? "before" : sig.closedAt && r.candleCloseAt > sig.closedAt ? "after_close" : "open",
         price: r.price,
         pctFromEntry: Number((((r.price - sig.entryPrice) / sig.entryPrice) * 100 * dir).toFixed(4)),
-        metrics: r.metrics,
-        missing: r.missing,
+        ...(owner ? { metrics: r.metrics, missing: r.missing } : {}),
       })),
     });
   } catch (err) {

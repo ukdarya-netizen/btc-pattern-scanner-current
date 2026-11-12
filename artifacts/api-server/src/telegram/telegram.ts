@@ -1,5 +1,6 @@
-import { db, btcSignalEventsTable, btcSignalsTable, btcTelegramDeliveriesTable, btcTelegramSubscribersTable } from "@workspace/db";
+import { db, btcSignalEventsTable, btcSignalsTable, btcTelegramDeliveriesTable, pool } from "@workspace/db";
 import { and, asc, eq, isNull, lt, lte } from "drizzle-orm";
+import { ownerEmail, recipientSql } from "../lib/users";
 import { PROFILES, type ProfileKey } from "../config/profiles";
 import type { Metrics } from "../engine/snapshot";
 import { logger } from "../lib/logger";
@@ -160,10 +161,11 @@ async function deliverBatch(patternLabel: (key: string) => string): Promise<void
         .where(eq(btcSignalEventsTable.id, event.id));
       continue;
     }
-    const subscribers = await db.select().from(btcTelegramSubscribersTable).where(and(
-      eq(btcTelegramSubscribersTable.active, true),
-      lte(btcTelegramSubscribersTable.subscribedAt, event.createdAt),
-    ));
+    // Owner 2026-11-12 (as CAB / Nihilist): signals go to registered, approved users with an active subscription.
+    const { rows: subscribers } = await pool.query<{ chatId: string }>(
+      `SELECT u.chat_id AS "chatId" FROM btc_users u WHERE ${recipientSql("$2")} AND u.notify_since <= $1`,
+      [event.createdAt, ownerEmail()],
+    );
     const body = formatEvent(signal, event, patternLabel(signal.patternKey));
     const eventDetail = event.detail as Record<string, unknown>;
     const text = event.kind === "opened" ? `${NEW_SIGNAL}${body}`
@@ -182,9 +184,8 @@ async function deliverBatch(patternLabel: (key: string) => string): Promise<void
   )).orderBy(asc(btcTelegramDeliveriesTable.id)).limit(20);
   for (const delivery of pending) {
     if (!delivery.channel) {
-      const [subscriber] = await db.select().from(btcTelegramSubscribersTable)
-        .where(eq(btcTelegramSubscribersTable.chatId, delivery.chatId));
-      if (!subscriber?.active) {
+      const sub = await pool.query(`SELECT 1 FROM btc_users u WHERE u.chat_id = $1 AND ${recipientSql("$2")}`, [delivery.chatId, ownerEmail()]);
+      if (!sub.rowCount) {
         await db.update(btcTelegramDeliveriesTable).set({ status: "skipped" })
           .where(eq(btcTelegramDeliveriesTable.id, delivery.id));
         continue;
@@ -233,8 +234,8 @@ async function deliverBatch(patternLabel: (key: string) => string): Promise<void
       const attempts = delivery.attempts + 1;
       const blocked = !delivery.channel && err instanceof TelegramError && err.code === 403;
       if (blocked) {
-        await db.update(btcTelegramSubscribersTable).set({ active: false, updatedAt: new Date() })
-          .where(eq(btcTelegramSubscribersTable.chatId, delivery.chatId));
+        // The user blocked the bot: signals off until /start.
+        await pool.query("UPDATE btc_users SET notify = false, bot_blocked_at = now() WHERE chat_id = $1", [delivery.chatId]);
       }
       await db.update(btcTelegramDeliveriesTable).set({
         attempts, status: blocked ? "skipped" : attempts >= MAX_ATTEMPTS ? "failed" : "pending",

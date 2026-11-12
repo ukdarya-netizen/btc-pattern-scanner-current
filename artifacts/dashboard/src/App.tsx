@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
-import { Activity, HeartPulse, History as HistoryIcon, Layers, MoreHorizontal, Target, Users, X } from "lucide-react";
-import { type Decision, type Metrics, type OutcomeGroup, PinRequired, type Signal, type Status, asset, getJson, price, setPin, time } from "./lib/api";
+import { Activity, HeartPulse, History as HistoryIcon, Layers, LogOut, MoreHorizontal, Target, Users, X } from "lucide-react";
+import { AuthError, type Decision, type Metrics, type OutcomeGroup, type Session, type Signal, type Status, asset, currentSession, getJson, post, price, saveSession, time } from "./lib/api";
+import { Login, Register, ResetPassword } from "./pages/Auth";
 import { type Data, type Filter, type Mode, NO_FILTER, type Tab } from "./lib/data";
 import { Crown, Segmented } from "./components/ui";
 import { Overview } from "./pages/Overview";
@@ -10,14 +11,14 @@ import { Patterns } from "./pages/Patterns";
 import { Service } from "./pages/Service";
 import { Subscribers } from "./pages/Subscribers";
 
-/** Navigation on the left, as in CAB and Nihilist (owner 2026-11-12). «Подписчики» — owner only. */
+/** Navigation on the left, as in CAB and Nihilist (owner 2026-11-12). «Подписчики» and Bot Health — owner only. */
 const NAV: Array<{ tab: Tab; label: string; sub: string; icon: typeof Target; owner?: boolean }> = [
   { tab: "positions", label: "Открытые позиции", sub: "движение · стоп · цели", icon: Target },
   { tab: "overview", label: "Обзор", sub: "общая статистика", icon: Activity },
   { tab: "history", label: "История сигналов", sub: "закрытые сделки", icon: HistoryIcon },
   { tab: "patterns", label: "Паттерны", sub: "результат каждого", icon: Layers },
-  { tab: "subscribers", label: "Подписчики", sub: "Telegram-бот", icon: Users, owner: true },
-  { tab: "service", label: "Bot Health", sub: "сканер · рынок · решения", icon: HeartPulse },
+  { tab: "subscribers", label: "Подписчики", sub: "дашборд + Telegram-бот", icon: Users, owner: true },
+  { tab: "service", label: "Bot Health", sub: "сканер · рынок · решения", icon: HeartPulse, owner: true },
 ];
 const TABS = NAV.map((n) => [n.tab, n.label] as const);
 const tabFromHash = (): Tab => {
@@ -25,25 +26,35 @@ const tabFromHash = (): Tab => {
   return TABS.some(([t]) => t === h) ? h : "overview";
 };
 
-function PinForm({ onSubmit, error }: { onSubmit: (pin: string) => void; error: string | null }) {
-  const [pin, setValue] = useState("");
-  return (
-    <main className="relative flex min-h-screen items-center justify-center overflow-hidden bg-background p-4">
-      <img src={asset("brand/login.webp")} alt="" className="absolute inset-0 h-full w-full object-cover opacity-60" />
-      <div className="absolute inset-0 bg-gradient-to-t from-black via-black/60 to-black/30" />
-      <form className="gold-card relative w-full max-w-xs space-y-3 p-6 backdrop-blur"
-        onSubmit={(e) => { e.preventDefault(); onSubmit(pin); }}>
-        <div className="flex items-center gap-2 text-gold"><Crown className="h-5 w-7" /><span className="text-xs uppercase tracking-[0.3em]">Bitcoin</span></div>
-        <h1 className="brand-title text-3xl leading-none">Margin Master</h1>
-        <label className="block text-xs uppercase tracking-widest text-muted-foreground" htmlFor="pin">PIN</label>
-        <input id="pin" type="password" inputMode="numeric" autoFocus value={pin} onChange={(e) => setValue(e.target.value)}
-          className="w-full rounded-lg border border-gold/40 bg-black/70 px-3 py-2 text-foreground focus:border-gold focus:outline-none" />
-        {error && <p className="text-sm text-rose-400">{error}</p>}
-        <button className="w-full rounded-lg bg-gold px-3 py-2 font-semibold text-black hover:brightness-110">Войти</button>
-        <p className="text-center text-[10px] uppercase tracking-[0.3em] text-gold/70">Discipline · Leverage · Freedom</p>
-      </form>
-    </main>
-  );
+type AuthPage = "login" | "register" | "reset-password";
+const authPage = (): AuthPage | null => {
+  const h = window.location.hash.replace("#", "");
+  return h === "login" || h === "register" || h === "reset-password" ? h : null;
+};
+
+/** Presence (as CAB / Nihilist): heartbeat every 30 s while the tab is visible. */
+function useHeartbeat(on: boolean): void {
+  useEffect(() => {
+    if (!on) return;
+    const beat = () => { if (document.visibilityState === "visible") void post("/api/auth/heartbeat", {}).catch(() => undefined); };
+    beat();
+    const t = setInterval(beat, 30_000);
+    document.addEventListener("visibilitychange", beat);
+    return () => { clearInterval(t); document.removeEventListener("visibilitychange", beat); };
+  }, [on]);
+}
+
+/** Owner: access requests waiting for approval («+N» on «Подписчики», as CAB), every 60 s. */
+function usePendingCount(on: boolean): number {
+  const [n, setN] = useState(0);
+  useEffect(() => {
+    if (!on) return;
+    const load = () => void getJson<{ count: number }>("/api/admin/users/pending-count").then((d) => setN(d.count)).catch(() => undefined);
+    load();
+    const t = setInterval(load, 60_000);
+    return () => clearInterval(t);
+  }, [on]);
+  return n;
 }
 
 export default function App() {
@@ -54,57 +65,60 @@ export default function App() {
   const [mode, setMode] = useState<Mode>("live");
   const [raw, setRaw] = useState<Data>({ status: null, open: [], closed: [], market: null, outcomes: [], decisions: [] });
   const [error, setError] = useState<string | null>(null);
-  const [needPin, setNeedPin] = useState(false);
-  const [pinError, setPinError] = useState<string | null>(null);
-  const [reloadKey, setReloadKey] = useState(0);
-  const [owner, setOwner] = useState(false);
+  const [sess, setSess] = useState<Session | null>(currentSession);
+  const [notice, setNotice] = useState<string | null>(null);
+  const [page, setPage] = useState<AuthPage | null>(authPage);
   const [menu, setMenu] = useState(false);
-  useEffect(() => { getJson<{ owner: boolean }>("/api/btc/owner").then((r) => setOwner(r.owner)).catch(() => setOwner(false)); }, [reloadKey]);
+  const owner = sess?.role === "owner";
+  useHeartbeat(Boolean(sess));
+  const pending = usePendingCount(owner);
+  const logout = (msg: string | null = null) => { saveSession(null); setSess(null); setNotice(msg); window.location.hash = "login"; };
 
   const setTab = (t: Tab) => { setTabState(t); setMenu(false); window.location.hash = t; document.getElementById("content")?.scrollTo({ top: 0 }); };
   const go = (t: Tab, f?: Partial<Filter>) => { if (f) setFilter({ ...NO_FILTER, ...f }); setTab(t); };
   useEffect(() => {
-    const on = () => setTabState(tabFromHash());
+    const on = () => { setPage(authPage()); setTabState(tabFromHash()); };
     window.addEventListener("hashchange", on);
     return () => window.removeEventListener("hashchange", on);
   }, []);
 
   useEffect(() => {
+    if (!sess) return;
     let alive = true;
     const load = async () => {
       try {
-        const [status, o, c, market] = await Promise.all([
+        const [status, o, c] = await Promise.all([
           getJson<Status>("/api/btc/status"),
           getJson<{ rows: Signal[] }>("/api/btc/signals?status=open&limit=200"),
           getJson<{ rows: Signal[] }>("/api/btc/signals?status=closed&limit=500"),
-          getJson<{ candleCloseAt: string | null; metrics: Metrics | null }>("/api/btc/metrics"),
         ]);
-        const [oc, dc] = await Promise.all([
+        // Market, decisions and outcomes are the owner's (Bot Health).
+        const [market, oc, dc] = sess.role === "owner" ? await Promise.all([
+          getJson<{ candleCloseAt: string | null; metrics: Metrics | null }>("/api/btc/metrics"),
           getJson<{ groups: OutcomeGroup[] }>("/api/btc/decisions/outcomes?days=7"),
           getJson<{ rows: Decision[] }>("/api/btc/decisions?limit=100"),
-        ]);
+        ]) : [null, { groups: [] }, { rows: [] }];
         if (!alive) return;
         setRaw({ status, open: o.rows, closed: c.rows, market, outcomes: oc.groups, decisions: dc.rows });
-        setError(null); setNeedPin(false); setPinError(null);
+        setError(null);
       } catch (err) {
         if (!alive) return;
-        if (err instanceof PinRequired) { setNeedPin(true); return; }
+        if (err instanceof AuthError) { logout(err.message === "Требуется вход" ? null : err.message); return; }
         setError(err instanceof Error ? err.message : String(err));
       }
     };
     void load();
     const timer = setInterval(load, 15_000);
     return () => { alive = false; clearInterval(timer); };
-  }, [reloadKey]);
+  }, [sess]);
 
-  if (needPin) {
-    return <PinForm error={pinError} onSubmit={(pin) => {
-      setPin(pin); setPinError("Проверяю…"); setReloadKey((k) => k + 1);
-      setTimeout(() => setPinError("Неверный PIN"), 1500);
-    }} />;
+  if (!sess || page) {
+    if (page === "register") return <Register />;
+    if (page === "reset-password") return <ResetPassword />;
+    return <Login notice={notice} onLogin={(s) => { setSess(s); setNotice(null); setPage(null); window.location.hash = "overview"; }} />;
   }
 
-  const isLive = (s: Signal) => (mode === "live") === s.live;
+  const isLive = (s: Signal) => ((owner ? mode : "live") === "live") === s.live;
   const data: Data = { ...raw, open: raw.open.filter(isLive), closed: raw.closed.filter(isLive) };
   const label = (key: string) => data.status?.patterns.find((p) => p.key === key)?.label ?? key;
   const last = data.status?.stream.lastPrice ?? null;
@@ -122,6 +136,7 @@ export default function App() {
         <span className="flex flex-1 flex-col">
           <span className="flex items-center justify-between gap-2 font-medium">{n.label}
             {n.tab === "positions" && data.open.length > 0 && <span className="rounded-full bg-gold px-1.5 text-[10px] font-bold text-black">{data.open.length}</span>}
+            {n.tab === "subscribers" && pending > 0 && <span className="rounded-full bg-rose-500 px-1.5 text-[10px] font-bold text-white">+{pending}</span>}
           </span>
           <span className="text-xs font-normal opacity-60">{n.sub}</span>
         </span>
@@ -141,6 +156,9 @@ export default function App() {
           </div>
         </button>
         <nav className="flex-1 space-y-1 overflow-y-auto p-3">{nav.map((n) => navItem(n))}</nav>
+        <button onClick={() => logout()} title={sess.email} className="mx-3 mb-2 flex items-center gap-2 px-3 py-2 text-left text-xs text-muted-foreground hover:text-foreground">
+          <LogOut className="h-3.5 w-3.5" /><span className="truncate">Выйти · {sess.name}</span>
+        </button>
         <div className="space-y-1.5 border-t border-gold/20 p-4 text-[11px] text-muted-foreground">
           <div className="flex justify-between"><span>BTC-USDT</span><span className="tabular-nums text-foreground">{price(last)}</span></div>
           <div className="flex justify-between"><span>Поток цены</span><span className={connected ? "text-emerald-400" : "text-rose-400"}>● {connected ? "на связи" : "нет связи"}</span></div>
@@ -158,7 +176,7 @@ export default function App() {
           </div>
           <div className="flex flex-wrap items-center gap-2">
             <span className="text-sm font-semibold tabular-nums md:hidden">{price(last)}</span>
-            {tab !== "subscribers" && tab !== "service" && (
+            {owner && tab !== "subscribers" && tab !== "service" && (
               <Segmented<Mode> value={mode} options={[["live", "Канал"], ["shadow", "Тень"]]} onChange={(m) => { setMode(m); setFilter(NO_FILTER); }} />
             )}
             {periodMatters && <Segmented<number> value={days} options={[[0, "Всё"], [30, "30 д"], [7, "7 д"]]} onChange={setDays} />}
@@ -166,13 +184,13 @@ export default function App() {
         </header>
         <div id="content" className="flex-1 space-y-4 overflow-auto p-4 pb-24 md:p-6 md:pb-6">
           {error && <p className="rounded-lg border border-rose-500/40 bg-rose-500/5 p-3 text-sm text-rose-300">Нет связи с API: {error}</p>}
-          {mode === "shadow" && tab !== "subscribers" && tab !== "service" && <p className="rounded-lg border border-gold/30 bg-gold/5 p-2 text-center text-xs text-gold">Режим «Тень»: сигналы, которые пишутся и считаются, но не публикуются в канал.</p>}
+          {owner && mode === "shadow" && tab !== "subscribers" && tab !== "service" && <p className="rounded-lg border border-gold/30 bg-gold/5 p-2 text-center text-xs text-gold">Режим «Тень»: сигналы, которые пишутся и считаются, но не публикуются в канал.</p>}
           {tab === "overview" && <Overview data={data} days={days} mode={mode} go={go} />}
           {tab === "positions" && <Positions data={data} label={label} />}
           {tab === "history" && <History data={data} days={days} label={label} filter={filter} setFilter={setFilter} />}
           {tab === "patterns" && <Patterns data={data} days={days} mode={mode} go={go} />}
-          {tab === "subscribers" && (owner ? <Subscribers /> : <p className="text-sm text-muted-foreground">Раздел только для владельца: открой приложение из Telegram-бота.</p>)}
-          {tab === "service" && <Service data={raw} label={label} />}
+          {tab === "subscribers" && owner && <Subscribers />}
+          {tab === "service" && owner && <Service data={raw} label={label} />}
           <footer className="pt-6 text-center text-[10px] uppercase tracking-[0.35em] text-gold/50">Honey badger don't care · время Дубай</footer>
         </div>
       </main>
@@ -180,7 +198,10 @@ export default function App() {
       {/* Phones: bottom bar + «Ещё» (as in Nihilist). */}
       {menu && (
         <div className="fixed inset-0 z-40 bg-black/70 md:hidden" onClick={() => setMenu(false)}>
-          <div className="gold-card absolute inset-x-3 bottom-20 space-y-1 p-2" onClick={(e) => e.stopPropagation()}>{nav.map((n) => navItem(n, true))}</div>
+          <div className="gold-card absolute inset-x-3 bottom-20 space-y-1 p-2" onClick={(e) => e.stopPropagation()}>
+            {nav.map((n) => navItem(n, true))}
+            <button onClick={() => logout()} className="flex w-full items-center gap-3 px-3 py-3 text-sm text-muted-foreground"><LogOut className="h-4 w-4" />Выйти · {sess.email}</button>
+          </div>
         </div>
       )}
       <nav className="fixed inset-x-0 bottom-0 z-50 grid h-16 grid-cols-4 border-t border-gold/20 bg-black/95 backdrop-blur md:hidden">

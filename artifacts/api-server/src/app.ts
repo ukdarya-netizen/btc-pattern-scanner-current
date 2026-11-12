@@ -1,8 +1,8 @@
 import express, { type Express } from "express";
 import cors from "cors";
 import btcRoutes from "./routes/btc";
-import subscriberRoutes from "./routes/subscribers";
-import { requireDashboardPin } from "./lib/dashboardAccess";
+import authRoutes from "./routes/auth";
+import { requireUser } from "./lib/users";
 
 const app: Express = express();
 
@@ -15,8 +15,10 @@ app.get("/api/healthz", (_req, res) => {
 });
 
 app.set("trust proxy", 1);
-app.use("/api/btc", requireDashboardPin);
+// Owner 2026-11-12 (as CAB / Nihilist): registration, login and the owner's «Подписчики» under /api/auth and
+// /api/admin; the dashboard data only for approved users with an active subscription (the owner always).
+app.use("/api", authRoutes);
+app.use("/api/btc", requireUser);
 app.use("/api", btcRoutes);
-app.use("/api", subscriberRoutes);
 
 export default app;

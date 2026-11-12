@@ -1,6 +1,7 @@
 import app from "./app";
 import { startEngine } from "./engine/runtime";
 import { logger } from "./lib/logger";
+import { ensureUserTables } from "./lib/users";
 
 const rawPort = process.env["PORT"];
 
@@ -29,7 +30,11 @@ app.listen(port, (err) => {
     logger.warn("BTC engine disabled by BTC_ENGINE_ENABLED=false");
     return;
   }
-  startEngine().catch((engineErr) => {
-    logger.error({ err: engineErr }, "BTC engine failed to start");
-  });
+  // Accounts (owner 2026-11-12): the tables exist before the first delivery picks recipients from them.
+  ensureUserTables()
+    .catch((err) => logger.error({ err }, "btc: user tables not created"))
+    .then(() => startEngine())
+    .catch((engineErr) => {
+      logger.error({ err: engineErr }, "BTC engine failed to start");
+    });
 });

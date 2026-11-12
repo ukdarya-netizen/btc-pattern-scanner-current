@@ -66,34 +66,41 @@ export type PathPoint = { at: string; phase: "before" | "open" | "after_close"; 
 /** A file from public/ under the app's base path. */
 export const asset = (p: string) => `${import.meta.env.BASE_URL.replace(/\/$/, "")}/${p}`;
 
-// ── PIN ───────────────────────────────────────────────────────────────────────
-const PIN_KEY = "btc-bullet-pin";
-function storedPin(): string {
-  try { return localStorage.getItem(PIN_KEY) ?? ""; } catch { return ""; }
+// ── session (accounts as in CAB / Nihilist, owner 2026-11-12) ──────────────────
+const TOKEN_KEY = "btc-session";
+export type Session = { token: string; name: string; email: string; role: "owner" | "user" };
+export class ApiError extends Error {
+  constructor(message: string, public code?: string) { super(message); }
 }
-let memoryPin = storedPin();
-export function setPin(pin: string): void {
-  memoryPin = pin;
-  try { localStorage.setItem(PIN_KEY, pin); } catch { /* private mode: PIN kept in memory only */ }
-}
-export class PinRequired extends Error {}
+/** Signed out, or access ended (pending / blocked / subscription expired). */
+export class AuthError extends ApiError {}
 
-/** Telegram MiniApp initData (signed by Telegram): the server recognises the owner by it. Empty outside Telegram. */
-function initData(): string {
-  try { return (window as unknown as { Telegram?: { WebApp?: { initData?: string } } }).Telegram?.WebApp?.initData ?? ""; } catch { return ""; }
+function readSession(): Session | null {
+  try { const raw = localStorage.getItem(TOKEN_KEY); return raw ? JSON.parse(raw) as Session : null; } catch { return null; }
 }
+let session = readSession();
+export function saveSession(s: Session | null): void {
+  session = s;
+  try { if (s) localStorage.setItem(TOKEN_KEY, JSON.stringify(s)); else localStorage.removeItem(TOKEN_KEY); } catch { /* private mode: this tab only */ }
+}
+export const currentSession = () => session;
+/** The owner sees everything (shadow, Bot Health, «Подписчики»); users see the channel. */
+export const isOwner = () => session?.role === "owner";
 
-export async function getJson<T>(path: string): Promise<T> {
+async function request<T>(method: string, path: string, body?: unknown): Promise<T> {
   const headers: Record<string, string> = {};
-  if (memoryPin) headers["x-dashboard-pin"] = memoryPin;
-  const tg = initData();
-  if (tg) headers["x-telegram-init-data"] = tg;
-  const res = await fetch(path, { headers });
-  if (res.status === 401) throw new PinRequired("pin");
-  if (res.status === 429) throw new Error("Слишком много неверных PIN — подождите 15 минут");
-  if (!res.ok) throw new Error(`${path}: HTTP ${res.status}`);
-  return (await res.json()) as T;
+  if (session?.token) headers.Authorization = `Bearer ${session.token}`;
+  if (body !== undefined) headers["Content-Type"] = "application/json";
+  const res = await fetch(path, { method, headers, body: body === undefined ? undefined : JSON.stringify(body) });
+  const data = await res.json().catch(() => ({})) as { error?: string; code?: string };
+  if ((res.status === 401 || (res.status === 403 && data.code)) && !path.startsWith("/api/auth/")) throw new AuthError(data.error ?? "Требуется вход", data.code);
+  if (!res.ok) throw new ApiError(data.error ?? `HTTP ${res.status}`, data.code ?? String(res.status));
+  return data as T;
 }
+export const getJson = <T>(path: string) => request<T>("GET", path);
+export const post = <T>(path: string, body: unknown) => request<T>("POST", path, body);
+export const patch = <T>(path: string, body: unknown) => request<T>("PATCH", path, body);
+export const del = <T>(path: string) => request<T>("DELETE", path);
 
 // ── formatters ───────────────────────────────────────────────────────────────
 export const num = (v: number | null | undefined, d = 2) => (v == null ? "—" : v.toFixed(d));
@@ -109,12 +116,6 @@ export const usd = (v: number | null | undefined) => {
   return `${v < 0 ? "−" : ""}$${t}`;
 };
 export const mult = (v: number | null | undefined) => (v == null ? "—" : `${v.toFixed(2)}×`);
-export type Subscriber = {
-  chatId: string; name: string | null; username: string | null; active: boolean;
-  subscribedAt: string; updatedAt: string; sent: number; failed: number; lastSentAt: string | null;
-};
-export type Subscribers = { rows: Subscriber[]; totals: { all: number; active: number; inactive: number; newToday: number }; namesPending: number };
-
 export const REASON: Record<string, string> = { take_profit: "Цели", stop: "Стоп", breakeven: "Безубыток", timeout: "Время" };
 
 /** Duration as "3 ч 20 мин" / "2 д 5 ч". */
