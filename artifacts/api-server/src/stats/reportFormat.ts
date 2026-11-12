@@ -121,7 +121,7 @@ export function formatReport(s: Schedule, rows: ReportRow[], label: (key: string
   return lines.join("\n");
 }
 
-// ── Morning market report (owner 2026-11-12): every day 09:00 Dubai — sentiment (Fear / Greed), liquidations
+// ── Morning Market update (owner 2026-11-12): every day 09:00 Dubai — sentiment (Fear / Greed), liquidations
 // over 24 h, price and its change over 24 h. Market data only, no trades. ──
 export type MorningSchedule = { at: number; key: string; title: string; eventId: number };
 
@@ -129,7 +129,7 @@ export function morningSchedule(now: number): MorningSchedule {
   let d = Math.floor((now + TZ_MS) / DAY);
   if (d * DAY - TZ_MS + 9 * 3_600_000 > now) d -= 1;
   const at = d * DAY - TZ_MS + 9 * 3_600_000;
-  return { at, key: `morning:${dmy(d * DAY - TZ_MS)}`, title: `BTC утром ${dmy(d * DAY - TZ_MS)}`, eventId: -(400_000_000 + d) };
+  return { at, key: `morning:${dmy(d * DAY - TZ_MS)}`, title: `Market update ${dmy(d * DAY - TZ_MS)}`, eventId: -(400_000_000 + d) };
 }
 
 export type MorningData = {

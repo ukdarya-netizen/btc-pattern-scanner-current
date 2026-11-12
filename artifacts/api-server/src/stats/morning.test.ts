@@ -18,7 +18,7 @@ test("morning report text: sentiment, liquidations 24h, price, change 24h; plain
     fearGreed: { value: 62, prev: 55, label: "Greed" },
   });
   assert.equal(t, [
-    "☀️ Bitcoin Margin Master — BTC утром 12.11.2026",
+    "☀️ Bitcoin Margin Master — Market update 12.11.2026",
     "",
     "Сентимент: 62 — Greed (вчера 55)",
     "Ликвидации за сутки: $312.3M · лонги $250.1M · шорты $62.2M",

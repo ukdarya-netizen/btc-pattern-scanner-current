@@ -134,6 +134,13 @@ globalThis.__dirname = __bannerPath.dirname(globalThis.__filename);
     path.resolve(artifactDir, "src/telegram/position-update.jpg"),
     path.resolve(distDir, "position-update.jpg"),
   );
+  // Market update picture (owner's own file, jpg or png); the update goes as text if it is missing.
+  for (const ext of ["jpg", "png"]) {
+    await copyFile(
+      path.resolve(artifactDir, `src/telegram/market-update.${ext}`),
+      path.resolve(distDir, `market-update.${ext}`),
+    ).catch(() => {});
+  }
 }
 
 buildAll().catch((err) => {

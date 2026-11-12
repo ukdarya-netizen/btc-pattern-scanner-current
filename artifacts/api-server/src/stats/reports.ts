@@ -14,6 +14,8 @@ import { ownerEmail, recipientSql } from "../lib/users";
 import { SIGNAL_CHANNEL } from "../telegram/transport";
 
 export const REPORT_MARK = "__BTC_REPORT__\n";
+/** Morning market update: sent with the market-update picture. */
+export const MARKET_MARK = "__BTC_MARKET_UPDATE__\n";
 const LATE_MS = 24 * 3_600_000;
 
 async function rowsFor(s: Schedule): Promise<ReportRow[]> {
@@ -57,13 +59,13 @@ export async function runReports(label: (key: string) => string, now = Date.now(
   await runMorning(now);
 }
 
-async function queueText(eventId: number, text: string): Promise<number> {
+async function queueText(eventId: number, text: string, mark: string): Promise<number> {
   const { rows: subs } = await pool.query<{ chatId: string }>(
     `SELECT u.chat_id AS "chatId" FROM btc_users u WHERE ${recipientSql("$1")}`, [ownerEmail()],
   );
   await db.insert(btcTelegramDeliveriesTable).values([
-    { eventId, chatId: SIGNAL_CHANNEL, channel: true, text: `${REPORT_MARK}${text}` },
-    ...subs.map((u) => ({ eventId, chatId: u.chatId, channel: false, text: `${REPORT_MARK}${text}` })),
+    { eventId, chatId: SIGNAL_CHANNEL, channel: true, text: `${mark}${text}` },
+    ...subs.map((u) => ({ eventId, chatId: u.chatId, channel: false, text: `${mark}${text}` })),
   ]).onConflictDoNothing();
   return subs.length + 1;
 }
@@ -73,7 +75,7 @@ const METRICS_FRESH_MS = 15 * 60_000;
 const FEAR_GREED_WAIT_MS = 30 * 60_000;
 
 /**
- * Morning market report (owner 2026-11-12), 09:00 Dubai: Fear / Greed, liquidations over 24 h, price and its change
+ * Morning Market update (owner 2026-11-12), 09:00 Dubai, with her market-update picture: Fear / Greed, liquidations over 24 h, price and its change
  * over 24 h, from the scanner's last 5m cycle (CoinGlass liquidations of all exchanges, BingX price). Waits for fresh
  * metrics; Fear / Greed is waited for up to 30 minutes, then the report goes with «—». Later than 3 h it is skipped.
  */
@@ -97,6 +99,6 @@ async function runMorning(now: number): Promise<void> {
   const claimed = await db.insert(btcReportsTable).values({ periodKey: s.key, text, sentAt: new Date() })
     .onConflictDoNothing().returning({ key: btcReportsTable.periodKey });
   if (!claimed.length) return;
-  const recipients = await queueText(s.eventId, text);
+  const recipients = await queueText(s.eventId, text, MARKET_MARK);
   logger.info({ period: s.key, recipients }, "BTC morning report queued");
 }

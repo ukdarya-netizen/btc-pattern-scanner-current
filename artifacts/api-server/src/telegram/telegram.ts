@@ -5,8 +5,8 @@ import { PROFILES, type ProfileKey } from "../config/profiles";
 import { PATTERNS } from "../engine/patterns";
 import type { Metrics } from "../engine/snapshot";
 import { logger } from "../lib/logger";
-import { sendMessage, sendSignalPhoto, SIGNAL_CHANNEL, splitSignalCaption, TelegramError } from "./transport";
-import { REPORT_MARK } from "../stats/reports";
+import { imageFile, sendMessage, sendSignalPhoto, SIGNAL_CHANNEL, splitSignalCaption, TelegramError, type SignalImage } from "./transport";
+import { MARKET_MARK, REPORT_MARK } from "../stats/reports";
 
 const MAX_ATTEMPTS = 8;
 const NEW_SIGNAL = "__BTC_NEW_SIGNAL__\n";
@@ -313,8 +313,12 @@ async function deliverBatch(patternLabel: (key: string) => string): Promise<void
         if (remainder) await sendMessage(delivery.chatId, remainder);
       } else {
         let body = delivery.text;
-        let image: "new-signal" | "take-profit" | "stop-loss" | "position-update" | null = null;
-        if (body.startsWith(REPORT_MARK)) {
+        let image: SignalImage | null = null;
+        if (body.startsWith(MARKET_MARK)) {
+          // Market update (owner 2026-11-12): her picture with the text; text only if the picture is not in place.
+          body = body.slice(MARKET_MARK.length);
+          if (await imageFile("market-update")) image = "market-update";
+        } else if (body.startsWith(REPORT_MARK)) {
           body = body.slice(REPORT_MARK.length); // reports: text (pictures are the owner's, not changed here)
         } else if (body.startsWith(NEW_SIGNAL)) {
           image = "new-signal";

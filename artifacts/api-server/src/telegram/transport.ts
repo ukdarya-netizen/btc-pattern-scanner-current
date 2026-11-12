@@ -47,18 +47,31 @@ export async function sendMessage(chatId: string, text: string): Promise<void> {
   await telegramCall("sendMessage", { chat_id: chatId, text, disable_web_page_preview: true });
 }
 
+export type SignalImage = "new-signal" | "take-profit" | "stop-loss" | "position-update" | "market-update";
+
+/** The picture next to the bundle: <name>.jpg, or <name>.png (the market-update picture is the owner's own file). */
+export async function imageFile(image: SignalImage): Promise<{ bytes: Buffer; type: string; name: string } | null> {
+  for (const [ext, type] of [["jpg", "image/jpeg"], ["png", "image/png"]] as const) {
+    try {
+      return { bytes: await readFile(new URL(`./${image}.${ext}`, import.meta.url)), type, name: `${image}.${ext}` };
+    } catch { /* next */ }
+  }
+  return null;
+}
+
 export async function sendSignalPhoto(
   chatId: string,
   caption: string,
-  image: "new-signal" | "take-profit" | "stop-loss" | "position-update" = "new-signal",
+  image: SignalImage = "new-signal",
 ): Promise<void> {
   const token = process.env.TELEGRAM_BOT_TOKEN;
   if (!token) throw new Error("TELEGRAM_BOT_TOKEN not set");
-  const photo = await readFile(new URL(`./${image}.jpg`, import.meta.url));
+  const file = await imageFile(image);
+  if (!file) throw new Error(`picture ${image} not found`);
   const form = new FormData();
   form.set("chat_id", chatId);
   form.set("caption", caption);
-  form.set("photo", new Blob([new Uint8Array(photo)], { type: "image/jpeg" }), `${image}.jpg`);
+  form.set("photo", new Blob([new Uint8Array(file.bytes)], { type: file.type }), file.name);
 
   let response: Response;
   try {
