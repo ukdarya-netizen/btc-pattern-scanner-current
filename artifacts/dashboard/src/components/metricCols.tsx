@@ -70,3 +70,30 @@ export const METRIC_COLS: Col<Signal>[] = [
   numCol("MFI фьюч 1h", "MFI 14 на агрегированном фьюч объёме, 1h", (x) => x.moneyFlow?.fut_1h?.mfi14 ?? null),
   { head: "LiqR", title: "Ликвидации 1h / 24h, %", cell: (s) => { const v = liqRatio(m(s)); return v == null ? "—" : `${v.toFixed(1)}%`; }, sort: (s) => liqRatio(m(s)) },
 ];
+
+/** Phones (cards instead of the wide table): the main entry metrics in one block (owner only). */
+export function EntryLine({ s }: { s: Signal }) {
+  const x = s.metrics;
+  if (!x) return null;
+  const items: Array<[string, string, number | null | undefined]> = [
+    ["OI 1h", signed(x.oiChangePct?.["1h"]), x.oiChangePct?.["1h"]],
+    ["OI 24h", signed(x.oiChangePct?.["24h"]), x.oiChangePct?.["24h"]],
+    ["CVD спот 1h", usd(x.spotCvdUsd?.["1h"]), x.spotCvdUsd?.["1h"]],
+    ["CVD фьюч 1h", usd(x.futCvdUsd?.["1h"]), x.futCvdUsd?.["1h"]],
+    ["Тейкер фьюч", signed(x.futTakerNetPct?.["1h"], 1), x.futTakerNetPct?.["1h"]],
+    ["Тейкер спот", signed(x.spotTakerNetPct?.["1h"], 1), x.spotTakerNetPct?.["1h"]],
+    ["Fund BingX", x.fundingBingxPct == null ? "—" : `${x.fundingBingxPct.toFixed(4)}%`, null],
+    ["Fund CG", x.fundingRatePct == null ? "—" : `${x.fundingRatePct.toFixed(4)}%`, null],
+    ["WI", num(x.whaleIndex, 1), null],
+    ["RSI 1h", num(ind(x, "1h", "rsi14"), 0), null],
+    ["RSI 4h", num(ind(x, "4h", "rsi14"), 0), null],
+    ["Liq 1h L/S", `${usd(x.liqLongUsd?.["1h"])} / ${usd(x.liqShortUsd?.["1h"])}`, null],
+  ];
+  return (
+    <div className="mt-2 grid grid-cols-3 gap-x-2 gap-y-1 rounded-md border border-border/60 p-2 text-[11px]">
+      {items.map(([k, v, t]) => (
+        <div key={k} className="min-w-0"><div className="truncate text-muted-foreground">{k}</div><div className={`tabular-nums ${tone(t)}`}>{v}</div></div>
+      ))}
+    </div>
+  );
+}

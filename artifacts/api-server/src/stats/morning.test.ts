@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { formatMorning, morningSchedule } from "./reportFormat";
-import { parseFearGreed } from "../market/fearGreed";
+import { parseFearGreed, parseFearGreedHistory } from "../market/fearGreed";
 
 test("morning report: 09:00 Dubai (05:00 UTC), the latest at or before now", () => {
   const s = morningSchedule(Date.parse("2026-11-12T05:30:00Z"));
@@ -34,4 +34,9 @@ test("fear & greed: last two points by time; out-of-range values ignored", () =>
   assert.deepEqual(parseFearGreed({ data_list: [18], time_list: [1] }), { value: 18, prev: null, label: "Extreme Fear" });
   assert.equal(parseFearGreed([{ data_list: [4611285.1] }]), null);
   assert.equal(parseFearGreed(null), null);
+});
+
+test("fear & greed history: by time, seconds → ms, last N days", () => {
+  assert.deepEqual(parseFearGreedHistory([{ data_list: [40, 71, 55], time_list: [1_700_000_000, 1_700_172_800, 1_700_086_400] }], 2),
+    [{ t: 1_700_086_400_000, v: 55 }, { t: 1_700_172_800_000, v: 71 }]);
 });

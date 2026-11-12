@@ -3,7 +3,7 @@ import { REASON, STYLE_LABEL, type Signal, dir, duration, heldMs, num, price, si
 import { type Data, type Filter, NO_FILTER, type Period, applyFilter, inPeriod, styleOf, summarize } from "../lib/data";
 import { Card, type Col, Pill, SortTable } from "../components/ui";
 import { SignalDetail } from "../components/SignalDetail";
-import { METRIC_COLS } from "../components/metricCols";
+import { METRIC_COLS, EntryLine } from "../components/metricCols";
 
 const sel = "rounded-full border border-gold/30 bg-black/60 px-3 py-1 text-xs text-foreground focus:border-gold focus:outline-none";
 
@@ -93,6 +93,7 @@ export function History({ data, period, label, filter, setFilter }: { data: Data
                 </div>
                 <div className={`text-xl font-semibold tabular-nums ${tone(s.pnlPricePct)}`}>{signed(s.pnlPricePct)}</div>
               </div>
+              <EntryLine s={s} />
               <div className="mt-2 flex justify-between text-[11px] text-muted-foreground">
                 <span>#{s.id} · {time(s.detectedAt)} → {time(s.closedAt)}</span><span>{duration(heldMs(s))}</span>
               </div>

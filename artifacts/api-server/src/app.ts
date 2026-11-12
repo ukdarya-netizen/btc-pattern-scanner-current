@@ -1,6 +1,7 @@
 import express, { type Express } from "express";
 import cors from "cors";
 import btcRoutes from "./routes/btc";
+import marketRoutes from "./routes/market";
 import authRoutes from "./routes/auth";
 import { requireUser } from "./lib/users";
 
@@ -20,5 +21,6 @@ app.set("trust proxy", 1);
 app.use("/api", authRoutes);
 app.use("/api/btc", requireUser);
 app.use("/api", btcRoutes);
+app.use("/api", marketRoutes);
 
 export default app;
