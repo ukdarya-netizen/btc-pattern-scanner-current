@@ -1,5 +1,5 @@
 /**
- * BTC Bullet bot (owner 2026-11-12: "кнопки, описание, всё как у CAB и Нигилиста"). Plain text only (no HTML).
+ * Bitcoin Margin Master bot (owner 2026-11-12: "кнопки, описание, всё как у CAB и Нигилиста"). Plain text only (no HTML).
  * Bot profile: description («Что умеет этот бот?») and short description, the command menu.
  * Public: /start (subscribe + welcome with buttons), /myid, /menu, /daily, /weekly, /monthly (reports on the
  * channel's signals), /subscription (status and date), /stop and /unsubscribe (with a confirmation).
@@ -18,12 +18,13 @@ export const CONTACT = "@The_Lucy_x";
 export const MINI_APP_URL = "https://bitcoin-margin-master.replit.app/";
 
 export const BOT_DESCRIPTION = [
-  "BTC Bullet — сигналы только по биткоину: фьючерсы BTC-USDT, лонги и шорты.",
+  "Bitcoin Margin Master — сигналы только по биткоину: фьючерсы BTC-USDT, лонги и шорты.",
   "",
   "Пробои и девиации рейнджа, Smart Money, каскады ликвидаций, уровни ABNeon. Объёмы по всем биржам: спот и фьючерсы.",
   "",
   "Вход, стоп, цели и сопровождение каждой сделки до закрытия, отчёты за день, неделю и месяц. Нажми /start.",
 ].join("\n");
+export const BOT_NAME = "Bitcoin Margin Master";
 export const BOT_SHORT_DESCRIPTION = "Сигналы по BTC-USDT: лонги и шорты, вход, стоп, цели и сопровождение до закрытия.";
 
 type Command = { command: string; aliases?: string[]; menu?: string; admin?: boolean };
@@ -51,7 +52,7 @@ export function parseCommand(text: string | undefined): string | null {
 
 // ---------------- texts ----------------
 export const welcomeText = () => [
-  "₿ BTC Bullet — Bitcoin Margin Master",
+  "₿ Bitcoin Margin Master",
   "",
   "Сигналы только по биткоину: фьючерсы BTC-USDT, лонги и шорты.",
   "",
@@ -106,7 +107,7 @@ export async function reportText(kind: Kind, now = Date.now()): Promise<string> 
   const vals = closed.map((s) => s.pnlPricePct ?? 0);
   const sum = vals.reduce((a, b) => a + b, 0);
   const wins = vals.filter((v) => v > 0).length;
-  const lines = [`📊 BTC Bullet — отчёт ${PERIOD[kind].title}`, ""];
+  const lines = [`📊 Bitcoin Margin Master — отчёт ${PERIOD[kind].title}`, ""];
   if (!closed.length) lines.push("Закрытых сделок за период нет.");
   else {
     lines.push(
@@ -199,6 +200,7 @@ export async function handleUpdate(update: TelegramUpdate, admin: ((command: str
 /** Bot profile and command menu, set on every start (idempotent). */
 export async function setupBotProfile(): Promise<void> {
   const warn = (what: string) => (err: unknown) => logger.warn({ err }, `telegram ${what} failed`);
+  await telegramCall("setMyName", { name: BOT_NAME }).catch(warn("setMyName"));
   await telegramCall("setMyCommands", { commands: BOT_MENU }).catch(warn("setMyCommands"));
   await telegramCall("setMyDescription", { description: BOT_DESCRIPTION }).catch(warn("setMyDescription"));
   await telegramCall("setMyShortDescription", { short_description: BOT_SHORT_DESCRIPTION }).catch(warn("setMyShortDescription"));

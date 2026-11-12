@@ -24,7 +24,7 @@ function PinForm({ onSubmit, error }: { onSubmit: (pin: string) => void; error: 
       <div className="absolute inset-0 bg-gradient-to-t from-black via-black/60 to-black/30" />
       <form className="gold-card relative w-full max-w-xs space-y-3 p-6 backdrop-blur"
         onSubmit={(e) => { e.preventDefault(); onSubmit(pin); }}>
-        <div className="flex items-center gap-2 text-gold"><Crown className="h-5 w-7" /><span className="text-xs uppercase tracking-[0.3em]">BTC Bullet</span></div>
+        <div className="flex items-center gap-2 text-gold"><Crown className="h-5 w-7" /><span className="text-xs uppercase tracking-[0.3em]">Bitcoin</span></div>
         <h1 className="brand-title text-3xl leading-none">Margin Master</h1>
         <label className="block text-xs uppercase tracking-widest text-muted-foreground" htmlFor="pin">PIN</label>
         <input id="pin" type="password" inputMode="numeric" autoFocus value={pin} onChange={(e) => setValue(e.target.value)}
@@ -105,7 +105,7 @@ export default function App() {
           <button onClick={() => setTab("overview")} className="flex items-center gap-2">
             <img src={asset("brand/avatar.webp")} alt="" className="h-9 w-9 rounded-full border border-gold/60 object-cover" />
             <div className="text-left leading-tight">
-              <div className="flex items-center gap-1 text-gold"><Crown className="h-3 w-4" /><span className="text-[10px] uppercase tracking-[0.3em]">BTC Bullet</span></div>
+              <div className="flex items-center gap-1 text-gold"><Crown className="h-3 w-4" /><span className="text-[10px] uppercase tracking-[0.3em]">Bitcoin</span></div>
               <div className="brand-title text-lg leading-none">Margin Master</div>
             </div>
           </button>

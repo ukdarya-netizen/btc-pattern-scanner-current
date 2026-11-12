@@ -43,7 +43,7 @@ export function Overview({ data, days, mode, go }: { data: Data; days: number; m
         <img src={asset("brand/hero.webp")} alt="" className="absolute inset-0 h-full w-full object-cover object-[center_72%]" />
         <div className="absolute inset-0 bg-gradient-to-r from-black via-black/70 to-transparent" />
         <div className="relative flex min-h-[220px] flex-col justify-end gap-3 p-6 md:min-h-[260px] md:w-3/5">
-          <div className="flex items-center gap-2 text-gold"><Crown className="h-6 w-8" /><span className="text-xs uppercase tracking-[0.3em]">BTC Bullet</span></div>
+          <div className="flex items-center gap-2 text-gold"><Crown className="h-6 w-8" /><span className="text-xs uppercase tracking-[0.3em]">BTC-USDT · Long · Short</span></div>
           <h1 className="brand-title text-4xl leading-none md:text-6xl">Bitcoin<br /><span className="text-3xl md:text-4xl">Margin Master</span></h1>
           <p className="text-xs uppercase tracking-[0.35em] text-gold/80">Discipline · Leverage · Freedom</p>
           <div className="flex flex-wrap items-end gap-6 pt-1">

@@ -1,4 +1,4 @@
-/** API types, PIN-aware fetch and formatters of the BTC Bullet dashboard. */
+/** API types, PIN-aware fetch and formatters of the Bitcoin Margin Master dashboard. */
 
 export type Pattern = { key: string; label: string; direction: string; profile: string; live: boolean; tf?: string };
 

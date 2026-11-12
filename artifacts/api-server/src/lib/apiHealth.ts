@@ -62,11 +62,11 @@ export function dueAlerts(now = Date.now()): HealthAlert[] {
       const minutes = Math.round((now - s.downSince) / 60_000);
       alerts.push({
         api, kind: "down",
-        text: `BTC Bullet: ${LABELS[api]} недоступен ${minutes} мин.${s.lastError ? `\nОшибка: ${s.lastError}` : ""}`,
+        text: `Bitcoin Margin Master: ${LABELS[api]} недоступен ${minutes} мин.${s.lastError ? `\nОшибка: ${s.lastError}` : ""}`,
       });
     } else if (s.downSince === null && s.alerted) {
       s.alerted = false;
-      alerts.push({ api, kind: "restored", text: `BTC Bullet: ${LABELS[api]} снова работает.` });
+      alerts.push({ api, kind: "restored", text: `Bitcoin Margin Master: ${LABELS[api]} снова работает.` });
     }
   }
   return alerts;

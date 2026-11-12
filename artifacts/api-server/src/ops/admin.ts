@@ -49,7 +49,7 @@ export async function statusText(input: {
   const health = healthSnapshot();
   const cg = coinglassGovernorStats();
   const lines = [
-    "BTC Bullet · статус",
+    "Bitcoin Margin Master · статус",
     `Цена: ${input.lastPrice ?? "—"} · поток ${input.streamConnected ? "на связи" : "НЕТ СВЯЗИ"}`,
     `Последняя свеча: ${input.lastCandleCloseAt ? new Date(input.lastCandleCloseAt).toLocaleString("ru-RU", { timeZone: "Asia/Dubai" }) : "—"}`,
     `Нет данных: ${input.missingFlow.join(", ") || "—"}`,
