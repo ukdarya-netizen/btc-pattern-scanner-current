@@ -56,6 +56,8 @@
   --color-sidebar-accent-border: var(--sidebar-accent-border);
   --color-sidebar-ring: hsl(var(--sidebar-ring));
 
+  --color-gold: #f2b10f;
+
   --font-sans: var(--app-font-sans);
   --font-serif: var(--app-font-serif);
   --font-mono: var(--app-font-mono);
@@ -76,13 +78,13 @@
   --elevate-1: rgba(255,255,255, .04);
   --elevate-2: rgba(255,255,255, .09);
 
-  --background: 220 10% 4%;
-  --foreground: 0 0% 98%;
+  --background: 30 18% 3%;
+  --foreground: 40 30% 92%;
 
-  --border: 220 10% 12%;
-  --card: 220 10% 6%;
-  --card-foreground: 0 0% 98%;
-  --card-border: 220 10% 12%;
+  --border: 38 30% 15%;
+  --card: 30 14% 6%;
+  --card-foreground: 40 30% 92%;
+  --card-border: 38 40% 18%;
 
   --sidebar: 220 10% 4%;
   --sidebar-foreground: 0 0% 98%;
@@ -93,18 +95,18 @@
   --sidebar-accent-foreground: 0 0% 98%;
   --sidebar-ring: 210 100% 50%;
 
-  --popover: 220 10% 6%;
-  --popover-foreground: 0 0% 98%;
-  --popover-border: 220 10% 12%;
+  --popover: 30 14% 6%;
+  --popover-foreground: 40 30% 92%;
+  --popover-border: 38 40% 18%;
 
-  --primary: 210 100% 50%;
-  --primary-foreground: 0 0% 100%;
+  --primary: 43 90% 50%;
+  --primary-foreground: 30 20% 4%;
 
   --secondary: 220 10% 12%;
   --secondary-foreground: 0 0% 98%;
 
-  --muted: 220 10% 12%;
-  --muted-foreground: 220 10% 60%;
+  --muted: 30 12% 12%;
+  --muted-foreground: 38 14% 60%;
 
   --accent: 220 10% 12%;
   --accent-foreground: 0 0% 98%;
@@ -112,8 +114,8 @@
   --destructive: 0 84% 60%;
   --destructive-foreground: 0 0% 98%;
 
-  --input: 220 10% 16%;
-  --ring: 210 100% 50%;
+  --input: 38 30% 16%;
+  --ring: 43 90% 50%;
 
   --chart-1: 142 71% 45%;
   --chart-2: 0 84% 60%;
@@ -124,7 +126,7 @@
   --app-font-sans: 'Inter', sans-serif;
   --app-font-serif: Georgia, serif;
   --app-font-mono: 'JetBrains Mono', 'Menlo', monospace;
-  --radius: 0;
+  --radius: 0.75rem;
   
   --shadow-2xs: 0px 2px 0px 0px hsl(202.8169 89.1213% 53.1373% / 0.00);
   --shadow-xs: 0px 2px 0px 0px hsl(202.8169 89.1213% 53.1373% / 0.00);
@@ -163,3 +165,31 @@
 .text-red { color: var(--color-red); }
 .bg-green { background-color: var(--color-green); }
 .bg-red { background-color: var(--color-red); }
+
+/* Owner 2026-11-12: "Bitcoin Margin Master" — black and gold, as the honey badger artwork. */
+body {
+  background:
+    radial-gradient(1200px 500px at 85% -10%, rgba(242, 177, 15, 0.10), transparent 60%),
+    radial-gradient(900px 400px at -10% 110%, rgba(242, 177, 15, 0.06), transparent 60%),
+    hsl(var(--background));
+  background-attachment: fixed;
+}
+.gold-card {
+  border-radius: 1rem;
+  border: 1px solid rgba(242, 177, 15, 0.18);
+  background: linear-gradient(180deg, rgba(28, 22, 12, 0.85), rgba(12, 10, 7, 0.92));
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.4) inset, 0 10px 30px -18px rgba(242, 177, 15, 0.25);
+}
+.gold-hover { transition: border-color 0.15s, transform 0.15s, box-shadow 0.15s; }
+.gold-hover:hover { border-color: rgba(242, 177, 15, 0.55); transform: translateY(-1px); box-shadow: 0 12px 34px -16px rgba(242, 177, 15, 0.45); }
+.brand-title {
+  font-family: "Permanent Marker", "Inter", sans-serif;
+  background: linear-gradient(180deg, #ffd85a 0%, #f2b10f 45%, #b77d06 100%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  letter-spacing: 0.02em;
+  text-shadow: 0 0 24px rgba(242, 177, 15, 0.15);
+}
+.hero { box-shadow: 0 30px 60px -30px rgba(242, 177, 15, 0.35); }
+select option { background: #0f0c08; }
