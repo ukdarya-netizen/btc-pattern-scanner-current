@@ -90,10 +90,13 @@ test("margin PnL includes leverage and taker fees on both sides", () => {
   assert.ok(Math.abs(pnl - (35 - 0.05 * 2.0035 * 100)) < 1e-9);
 });
 
-test("position progress reports each 1% move in either direction", () => {
+test("position progress: only each new +1% in profit, nothing on the way down", () => {
   assert.equal(crossedProgressThreshold(0, 0.99), false);
   assert.equal(crossedProgressThreshold(0, 1), true);
-  assert.equal(crossedProgressThreshold(1, 0), true);
-  assert.equal(crossedProgressThreshold(-1, -2), true);
+  assert.equal(crossedProgressThreshold(1, 0), false);
+  assert.equal(crossedProgressThreshold(0, -1), false);
+  assert.equal(crossedProgressThreshold(-1, -2), false);
+  assert.equal(crossedProgressThreshold(-2, 1), true);
   assert.equal(crossedProgressThreshold(1, 1.99), false);
+  assert.equal(crossedProgressThreshold(1, 2), true);
 });

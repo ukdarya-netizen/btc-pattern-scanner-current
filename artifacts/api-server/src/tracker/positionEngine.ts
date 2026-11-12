@@ -28,8 +28,12 @@ export type PositionEvent =
   | { kind: "breakeven_moved"; price: number; at: number }
   | { kind: "closed"; reason: CloseReason; price: number; at: number };
 
+/**
+ * Position update (owner 2026-11-12, as CAB / Nihilist): only a new +1% step in profit — no updates on the way down.
+ * `lastReportedPct` is the last reported move (an old negative one counts as 0).
+ */
 export function crossedProgressThreshold(lastReportedPct: number, currentPct: number): boolean {
-  return Math.abs(currentPct - lastReportedPct) >= 1;
+  return currentPct >= Math.max(0, lastReportedPct) + 1;
 }
 
 const EPS = 1e-12;
