@@ -14,6 +14,8 @@ import { SIGNAL_CHANNEL, answerCallback, sendMessageKb, telegramCall, type Inlin
 const TZ = "Asia/Dubai";
 const CHANNEL_URL = `https://t.me/${SIGNAL_CHANNEL.replace(/^@/, "")}`;
 export const CONTACT = "@The_Lucy_x";
+/** The dashboard as a Telegram MiniApp (owner 2026-11-12). */
+export const MINI_APP_URL = "https://bitcoin-margin-master.replit.app/";
 
 export const BOT_DESCRIPTION = [
   "BTC Bullet — сигналы только по биткоину: фьючерсы BTC-USDT, лонги и шорты.",
@@ -58,8 +60,7 @@ export const welcomeText = () => [
   "✅ Сигналы со входом, стопом и целями.",
   "✅ Сопровождение каждой сделки: цели, безубыток, закрытие.",
   "✅ Отчёты за день, неделю и месяц — /menu.",
-  "",
-  `📢 Все сигналы дублируются в канал ${SIGNAL_CHANNEL}.`,
+  "✅ Вся статистика — в приложении: кнопка «Открыть приложение».",
   "",
   `По вопросам — ${CONTACT}`,
 ].join("\n");
@@ -76,6 +77,7 @@ export const menuText = () => [
 const fmtDate = (d: Date) => d.toLocaleString("ru-RU", { timeZone: TZ, day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit" });
 
 export const welcomeKeyboard = (): InlineKeyboard => [
+  [{ text: "📱 Открыть приложение", web_app: { url: MINI_APP_URL } }],
   [{ text: "📢 Канал сигналов", url: CHANNEL_URL }],
   [{ text: "📊 Отчёт за неделю", callback_data: "report_weekly" }, { text: "📅 Подписка", callback_data: "subscription" }],
 ];
@@ -136,7 +138,7 @@ async function setSubscribed(chatId: string, active: boolean): Promise<void> {
 async function subscriptionText(chatId: string): Promise<string> {
   const [row] = await db.select().from(btcTelegramSubscribersTable).where(eq(btcTelegramSubscribersTable.chatId, chatId));
   if (!row || !row.active) return "🔕 Подписка не активна.\n\nНажми /start, чтобы получать сигналы.";
-  return `✅ Подписка активна с ${fmtDate(row.subscribedAt)} (Дубай).\n\nСигналы приходят сюда и в канал ${SIGNAL_CHANNEL}.`;
+  return `✅ Подписка активна с ${fmtDate(row.subscribedAt)} (Дубай).\n\nСигналы приходят сюда.`;
 }
 
 const isAdmin = (chatId: string) => (process.env.TELEGRAM_ADMIN_CHAT_IDS ?? "").split(",").map((x) => x.trim()).includes(chatId);
@@ -200,4 +202,7 @@ export async function setupBotProfile(): Promise<void> {
   await telegramCall("setMyCommands", { commands: BOT_MENU }).catch(warn("setMyCommands"));
   await telegramCall("setMyDescription", { description: BOT_DESCRIPTION }).catch(warn("setMyDescription"));
   await telegramCall("setMyShortDescription", { short_description: BOT_SHORT_DESCRIPTION }).catch(warn("setMyShortDescription"));
+  // MiniApp: the menu button next to the input field opens the dashboard.
+  await telegramCall("setChatMenuButton", { menu_button: { type: "web_app", text: "Приложение", web_app: { url: MINI_APP_URL } } })
+    .catch(warn("setChatMenuButton"));
 }
