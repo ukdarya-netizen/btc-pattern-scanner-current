@@ -1,50 +1,44 @@
-import { PROFILE, dir, num, signed, tone } from "../lib/api";
-import type { Data, Filter, Tab } from "../lib/data";
+import { STYLE_LABEL, type Signal, type Style, dir, num, signed, tone } from "../lib/api";
+import { type Data, type Filter, type Mode, type Tab, inPeriod, styleOf, summarize } from "../lib/data";
 import { Card, Pill, Table } from "../components/ui";
 
-const hold = (ms: number) => `${Math.round(ms / 86_400_000)} д`;
+const count = (xs: Signal[], reason: string) => xs.filter((s) => s.closeReason === reason).length;
 
-/** Statistics per pattern and the rules of every trade type (profile) with its patterns. */
-export function Patterns({ data, label, go }: { data: Data; label: (k: string) => string; go: (t: Tab, f?: Partial<Filter>) => void }) {
-  const profiles = Object.values(data.status?.profiles ?? {});
-  const patterns = data.status?.patterns ?? [];
+/** Every pattern of the chosen mode with its results, grouped by style (scalp / intraday / swing). */
+export function Patterns({ data, days, mode, label, go }: { data: Data; days: number; mode: Mode; label: (k: string) => string; go: (t: Tab, f?: Partial<Filter>) => void }) {
+  const patterns = (data.status?.patterns ?? []).filter((p) => (mode === "live") === p.live);
+  const closed = inPeriod(data.closed, days);
   return (
     <div className="space-y-4">
-      <Card title="Статистика по паттернам">
-        <Table
-          head={["Паттерн", "Тип", "Напр.", "Режим", "Закрыто", "Открыто", "Винрейт", "Ср. к марже", "Сумма к марже", "Ср. цена", "Цели / Стоп / Б/У / Время", "MFE", "MAE"]}
-          rows={data.stats.map((r) => [
-            <span className="text-foreground">{label(r.patternKey)}</span>, PROFILE[r.profile] ?? r.profile,
-            <Pill kind={r.direction === "long" ? "long" : "short"}>{dir(r.direction)}</Pill>, r.live ? "канал" : "тень",
-            r.closed, r.open, r.winRatePct == null ? "—" : `${num(r.winRatePct, 1)}%`,
-            <span className={tone(r.avgPnlMarginPct)}>{signed(r.avgPnlMarginPct)}</span>,
-            <span className={`font-medium ${tone(r.sumPnlMarginPct)}`}>{signed(r.sumPnlMarginPct)}</span>,
-            <span className={tone(r.avgPnlPricePct)}>{signed(r.avgPnlPricePct, 3)}</span>,
-            `${r.takeProfit} / ${r.stop} / ${r.breakeven} / ${r.timeout}`, signed(r.avgMfePct, 3), signed(r.avgMaePct, 3),
-          ])}
-          onRow={(i) => go("history", { pattern: data.stats[i]!.patternKey, direction: data.stats[i]!.direction, profile: data.stats[i]!.profile })}
-        />
-        <p className="mt-2 text-xs text-muted-foreground">Нажми на строку — сделки этого паттерна в истории.</p>
-      </Card>
-      <div className="grid gap-4 lg:grid-cols-2">
-        {profiles.map((p) => (
-          <Card key={p.key} title={`${p.label} · ${p.timeframe.toUpperCase()} · плечо x${p.leverage}`}>
-            <ul className="mb-3 space-y-1 text-sm">
-              <li><span className="text-muted-foreground">Стоп:</span> от структуры сигнала (запасной — {p.defaultStopPct}%), всегда ближе ликвидации</li>
-              <li><span className="text-muted-foreground">Цели:</span> {p.defaultTargets.map((t, i) => `цель ${i + 1} +${t.pct}% (${Math.round(t.fraction * 100)}%)`).join(" · ")} — запасные, если у сигнала нет своих</li>
-              <li><span className="text-muted-foreground">Безубыток:</span> {p.breakevenAfterFirstTarget ? "после первой цели стоп в точку входа" : "нет"}</li>
-              <li><span className="text-muted-foreground">Максимум в сделке:</span> {hold(p.maxHoldMs)}</li>
-            </ul>
-            <div className="flex flex-wrap gap-1.5">
-              {patterns.filter((x) => x.profile === p.key).map((x) => (
-                <button key={x.key} onClick={() => go("history", { pattern: x.key })}>
-                  <Pill kind={x.direction === "long" ? "long" : "short"}>{x.label}{x.live ? " · канал" : " · тень"}</Pill>
-                </button>
-              ))}
-            </div>
+      {(["scalp", "intraday", "swing"] as Style[]).map((st) => {
+        const list = patterns.filter((p) => styleOf(patterns, p.key) === st);
+        if (!list.length) return null;
+        return (
+          <Card key={st} title={`${STYLE_LABEL[st]} · ${list.length} паттернов`}>
+            <Table
+              head={["Паттерн", "Напр.", "Закрыто", "Открыто", "Винрейт", "Среднее движение", "Сумма", "Цели / Стоп / Б/У / Время", "Макс. в плюс", "Макс. в минус"]}
+              rows={list.map((p) => {
+                const xs = closed.filter((s) => s.patternKey === p.key);
+                const sm = summarize(xs);
+                const avg = (f: (s: Signal) => number) => (xs.length ? xs.reduce((a, s) => a + f(s), 0) / xs.length : null);
+                return [
+                  <span className="text-foreground">{p.label}</span>,
+                  <Pill kind={p.direction === "long" ? "long" : "short"}>{dir(p.direction)}</Pill>,
+                  sm.n, data.open.filter((s) => s.patternKey === p.key).length,
+                  sm.winRate == null ? "—" : `${num(sm.winRate, 0)}%`,
+                  <span className={tone(sm.avg)}>{signed(sm.avg)}</span>,
+                  <span className={`font-medium ${tone(sm.sum)}`}>{signed(sm.sum, 1)}</span>,
+                  `${count(xs, "take_profit")} / ${count(xs, "stop")} / ${count(xs, "breakeven")} / ${count(xs, "timeout")}`,
+                  signed(avg((s) => s.mfePct)), signed(avg((s) => s.maePct)),
+                ];
+              })}
+              onRow={(i) => go("history", { pattern: list[i]!.key })}
+            />
           </Card>
-        ))}
-      </div>
+        );
+      })}
+      {patterns.length === 0 && <Card title="Паттерны"><p className="text-sm text-muted-foreground">В этом режиме паттернов нет.</p></Card>}
+      <p className="text-center text-xs text-muted-foreground">Нажми на паттерн — его сделки в истории. Движение — чистое, без плеча и комиссий. Сейчас показан режим «{mode === "live" ? "Канал" : "Тень"}».</p>
     </div>
   );
 }

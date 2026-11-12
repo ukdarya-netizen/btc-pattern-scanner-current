@@ -1,17 +1,15 @@
 import { useEffect, useState } from "react";
-import { type DailyRow, type Decision, type Metrics, type OutcomeGroup, PinRequired, type Signal, type StatsRow, type Status, asset, getJson, price, setPin, time } from "./lib/api";
-import { type Data, type Filter, NO_FILTER, type Tab } from "./lib/data";
+import { type Decision, type Metrics, type OutcomeGroup, PinRequired, type Signal, type Status, asset, getJson, price, setPin, time } from "./lib/api";
+import { type Data, type Filter, type Mode, NO_FILTER, type Tab } from "./lib/data";
 import { Crown, Segmented } from "./components/ui";
 import { Overview } from "./pages/Overview";
 import { Positions } from "./pages/Positions";
 import { History } from "./pages/History";
 import { Patterns } from "./pages/Patterns";
-import { Decisions } from "./pages/Decisions";
-import { Market } from "./pages/Market";
+import { Service } from "./pages/Service";
 
 const TABS: Array<[Tab, string]> = [
-  ["overview", "Обзор"], ["positions", "Позиции"], ["history", "История"],
-  ["patterns", "Паттерны"], ["decisions", "Решения"], ["market", "Рынок"],
+  ["overview", "Обзор"], ["positions", "Позиции"], ["history", "История"], ["patterns", "Паттерны"], ["service", "Служебное"],
 ];
 const tabFromHash = (): Tab => {
   const h = window.location.hash.replace("#", "") as Tab;
@@ -43,7 +41,9 @@ export default function App() {
   const [tab, setTabState] = useState<Tab>(tabFromHash);
   const [filter, setFilter] = useState<Filter>(NO_FILTER);
   const [days, setDays] = useState<number>(0);
-  const [data, setData] = useState<Data>({ status: null, stats: [], open: [], closed: [], market: null, daily: [], outcomes: [], decisions: [] });
+  // Owner 2026-11-12: channel and shadow are never mixed — every number is for the chosen mode (default: channel).
+  const [mode, setMode] = useState<Mode>("live");
+  const [raw, setRaw] = useState<Data>({ status: null, open: [], closed: [], market: null, outcomes: [], decisions: [] });
   const [error, setError] = useState<string | null>(null);
   const [needPin, setNeedPin] = useState(false);
   const [pinError, setPinError] = useState<string | null>(null);
@@ -61,20 +61,18 @@ export default function App() {
     let alive = true;
     const load = async () => {
       try {
-        const [status, st, o, c, market] = await Promise.all([
+        const [status, o, c, market] = await Promise.all([
           getJson<Status>("/api/btc/status"),
-          getJson<{ rows: StatsRow[] }>(`/api/btc/stats${days ? `?days=${days}` : ""}`),
           getJson<{ rows: Signal[] }>("/api/btc/signals?status=open&limit=200"),
           getJson<{ rows: Signal[] }>("/api/btc/signals?status=closed&limit=500"),
           getJson<{ candleCloseAt: string | null; metrics: Metrics | null }>("/api/btc/metrics"),
         ]);
-        const [dl, oc, dc] = await Promise.all([
-          getJson<{ rows: DailyRow[] }>("/api/btc/stats/daily?days=30"),
+        const [oc, dc] = await Promise.all([
           getJson<{ groups: OutcomeGroup[] }>("/api/btc/decisions/outcomes?days=7"),
           getJson<{ rows: Decision[] }>("/api/btc/decisions?limit=100"),
         ]);
         if (!alive) return;
-        setData({ status, stats: st.rows, open: o.rows, closed: c.rows, market, daily: dl.rows, outcomes: oc.groups, decisions: dc.rows });
+        setRaw({ status, open: o.rows, closed: c.rows, market, outcomes: oc.groups, decisions: dc.rows });
         setError(null); setNeedPin(false); setPinError(null);
       } catch (err) {
         if (!alive) return;
@@ -85,7 +83,7 @@ export default function App() {
     void load();
     const timer = setInterval(load, 15_000);
     return () => { alive = false; clearInterval(timer); };
-  }, [days, reloadKey]);
+  }, [reloadKey]);
 
   if (needPin) {
     return <PinForm error={pinError} onSubmit={(pin) => {
@@ -94,6 +92,8 @@ export default function App() {
     }} />;
   }
 
+  const isLive = (s: Signal) => (mode === "live") === s.live;
+  const data: Data = { ...raw, open: raw.open.filter(isLive), closed: raw.closed.filter(isLive) };
   const label = (key: string) => data.status?.patterns.find((p) => p.key === key)?.label ?? key;
   const last = data.status?.stream.lastPrice ?? null;
   const connected = data.status?.stream.connected ?? false;
@@ -122,6 +122,7 @@ export default function App() {
               <div className="text-sm font-semibold tabular-nums text-foreground">{price(last)}</div>
               <div className={`text-[10px] ${connected ? "text-emerald-400" : "text-rose-400"}`}>● {connected ? "поток на связи" : "нет связи"} · {time(data.status?.scanner.lastCandleCloseAt)}</div>
             </div>
+            <Segmented<Mode> value={mode} options={[["live", "Канал"], ["shadow", "Тень"]]} onChange={(m) => { setMode(m); setFilter(NO_FILTER); }} />
             <Segmented<number> value={days} options={[[0, "Всё"], [30, "30 д"], [7, "7 д"]]} onChange={setDays} />
           </div>
         </div>
@@ -129,12 +130,12 @@ export default function App() {
 
       <main className="mx-auto max-w-7xl space-y-4 p-4">
         {error && <p className="rounded-lg border border-rose-500/40 bg-rose-500/5 p-3 text-sm text-rose-300">Нет связи с API: {error}</p>}
-        {tab === "overview" && <Overview data={data} days={days} label={label} go={go} />}
+        {mode === "shadow" && <p className="rounded-lg border border-gold/30 bg-gold/5 p-2 text-center text-xs text-gold">Режим «Тень»: сигналы, которые пишутся и считаются, но не публикуются в канал.</p>}
+        {tab === "overview" && <Overview data={data} days={days} mode={mode} go={go} />}
         {tab === "positions" && <Positions data={data} label={label} />}
         {tab === "history" && <History data={data} days={days} label={label} filter={filter} setFilter={setFilter} />}
-        {tab === "patterns" && <Patterns data={data} label={label} go={go} />}
-        {tab === "decisions" && <Decisions data={data} label={label} />}
-        {tab === "market" && <Market data={data} />}
+        {tab === "patterns" && <Patterns data={data} days={days} mode={mode} label={label} go={go} />}
+        {tab === "service" && <Service data={raw} label={label} />}
         <footer className="pt-6 text-center text-[10px] uppercase tracking-[0.35em] text-gold/50">Honey badger don't care · время Дубай</footer>
       </main>
     </div>

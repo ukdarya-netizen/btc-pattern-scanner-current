@@ -1,6 +1,11 @@
 /** API types, PIN-aware fetch and formatters of the BTC Bullet dashboard. */
 
-export type Pattern = { key: string; label: string; direction: string; profile: string; live: boolean };
+export type Pattern = { key: string; label: string; direction: string; profile: string; live: boolean; tf?: string };
+
+/** Trading style by the pattern's trading timeframe (owner 2026-11-12): 15m scalp, 30m / 1h intraday, 4h / 1d swing. */
+export type Style = "scalp" | "intraday" | "swing";
+export const STYLE_LABEL: Record<Style, string> = { scalp: "Скальп", intraday: "Интрадей", swing: "Свинг" };
+export const styleOfTf = (tf: string | undefined): Style => (tf === "15m" || tf === "5m" ? "scalp" : tf === "30m" || tf === "1h" ? "intraday" : "swing");
 export type Profile = {
   key: string; label: string; leverage: number; timeframe: string; defaultStopPct: number;
   defaultTargets: Array<{ pct: number; fraction: number }>; breakevenAfterFirstTarget: boolean; maxHoldMs: number;
@@ -82,7 +87,6 @@ export async function getJson<T>(path: string): Promise<T> {
 }
 
 // ── formatters ───────────────────────────────────────────────────────────────
-export const TAKER_FEE = 0.0005;
 export const num = (v: number | null | undefined, d = 2) => (v == null ? "—" : v.toFixed(d));
 export const signed = (v: number | null | undefined, d = 2) => (v == null ? "—" : `${v >= 0 ? "+" : ""}${v.toFixed(d)}%`);
 export const tone = (v: number | null | undefined) => (v == null ? "" : v > 0 ? "text-emerald-400" : v < 0 ? "text-rose-400" : "");
@@ -96,7 +100,6 @@ export const usd = (v: number | null | undefined) => {
   return `${v < 0 ? "−" : ""}$${t}`;
 };
 export const mult = (v: number | null | undefined) => (v == null ? "—" : `${v.toFixed(2)}×`);
-export const PROFILE: Record<string, string> = { h4: "4H · x20", d1: "1D · x10" };
 export const REASON: Record<string, string> = { take_profit: "Цели", stop: "Стоп", breakeven: "Безубыток", timeout: "Время" };
 
 /** Duration as "3 ч 20 мин" / "2 д 5 ч". */
@@ -110,13 +113,11 @@ export function duration(ms: number | null): string {
 }
 export const heldMs = (s: Signal, now = Date.now()) => (s.closedAt ? Date.parse(s.closedAt) : now) - Date.parse(s.detectedAt);
 
-/** Live move of an open trade from the entry, in the trade's direction (% of price) and to margin after fees. */
-export function liveResult(s: Signal, last: number | null): { move: number | null; margin: number | null } {
-  if (!last) return { move: null, margin: null };
+/** Live move of an open trade from the entry in the trade's direction — clean: no leverage, no fees (owner 2026-11-12). */
+export function liveMove(s: Signal, last: number | null): number | null {
+  if (!last) return null;
   const sign = s.direction === "long" ? 1 : -1;
-  const move = (sign * (last - s.entryPrice) / s.entryPrice) * 100;
-  const margin = s.leverage * (move - TAKER_FEE * (1 + last / s.entryPrice) * 100);
-  return { move, margin };
+  return (sign * (last - s.entryPrice) / s.entryPrice) * 100;
 }
 /** Distance from the last price to a level in the trade's favour (+) or against it (−), % of price. */
 export function distPct(s: Signal, last: number | null, level: number): number | null {

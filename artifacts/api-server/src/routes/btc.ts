@@ -22,7 +22,8 @@ router.get("/btc/status", (_req, res) => {
     apis: healthSnapshot(),
     coinglass: coinglassGovernorStats(),
     openSignals: openSignalCount(),
-    patterns: PATTERNS.map((p) => ({ key: p.key, label: p.label, direction: p.direction, profile: p.profile, live: p.live })),
+    // Owner 2026-11-12: the trading timeframe (style on the dashboard: 15m scalp, 30m / 1h intraday, 4h / 1d swing).
+    patterns: PATTERNS.map((p) => ({ key: p.key, label: p.label, direction: p.direction, profile: p.profile, live: p.live, tf: p.evalTf ?? PROFILES[p.profile].timeframe })),
     profiles: PROFILES,
   });
 });

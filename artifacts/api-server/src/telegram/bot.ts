@@ -101,7 +101,7 @@ export async function reportText(kind: Kind, now = Date.now()): Promise<string> 
     .where(and(eq(btcSignalsTable.live, true), gte(btcSignalsTable.closedAt, since)));
   const open = await db.select().from(btcSignalsTable)
     .where(and(eq(btcSignalsTable.live, true), eq(btcSignalsTable.status, "open")));
-  const vals = closed.map((s) => s.pnlMarginPct ?? 0);
+  const vals = closed.map((s) => s.pnlPricePct ?? 0);
   const sum = vals.reduce((a, b) => a + b, 0);
   const wins = vals.filter((v) => v > 0).length;
   const lines = [`📊 BTC Bullet — отчёт ${PERIOD[kind].title}`, ""];
@@ -109,21 +109,21 @@ export async function reportText(kind: Kind, now = Date.now()): Promise<string> 
   else {
     lines.push(
       `Закрыто: ${closed.length} · в плюсе ${wins} (${Math.round((100 * wins) / closed.length)}%)`,
-      `Итог к марже: ${pct(sum)} · в среднем ${pct(sum / closed.length)}`,
+      `Движение цены, сумма: ${pct(sum)} · в среднем ${pct(sum / closed.length)}`,
       `Лучшая: ${pct(Math.max(...vals))} · худшая: ${pct(Math.min(...vals))}`,
     );
     for (const side of ["long", "short"] as const) {
       const xs = closed.filter((s) => s.direction === side);
-      if (xs.length) lines.push(`${side === "long" ? "Лонги" : "Шорты"}: ${xs.length} · ${pct(xs.reduce((a, s) => a + (s.pnlMarginPct ?? 0), 0))}`);
+      if (xs.length) lines.push(`${side === "long" ? "Лонги" : "Шорты"}: ${xs.length} · ${pct(xs.reduce((a, s) => a + (s.pnlPricePct ?? 0), 0))}`);
     }
     const by = new Map<string, number[]>();
-    for (const s of closed) by.set(s.patternKey, [...(by.get(s.patternKey) ?? []), s.pnlMarginPct ?? 0]);
+    for (const s of closed) by.set(s.patternKey, [...(by.get(s.patternKey) ?? []), s.pnlPricePct ?? 0]);
     lines.push("", "По паттернам:");
     for (const [k, v] of [...by].sort((a, b) => b[1].reduce((x, y) => x + y, 0) - a[1].reduce((x, y) => x + y, 0))) {
       lines.push(`• ${label(k)}: ${v.length} · ${pct(v.reduce((x, y) => x + y, 0))}`);
     }
   }
-  lines.push("", `Открыто сейчас: ${open.length}`, "", "Результат к марже — с плечом и за вычетом комиссий.");
+  lines.push("", `Открыто сейчас: ${open.length}`, "", "Результат — чистое движение цены: без плеча и комиссий.");
   return lines.join("\n");
 }
 

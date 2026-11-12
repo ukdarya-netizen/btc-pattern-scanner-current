@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { CartesianGrid, Line, LineChart, ReferenceLine, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
-import { type PathPoint, type Signal, PROFILE, REASON, dir, duration, getJson, heldMs, price, signed, time } from "../lib/api";
+import { type PathPoint, type Signal, REASON, dir, duration, getJson, heldMs, price, signed, time } from "../lib/api";
 import { MetricsGrid } from "./MetricsGrid";
 import { Card, Pill } from "./ui";
 
@@ -35,13 +35,13 @@ export function SignalDetail({ s, label, onClose }: { s: Signal; label: string; 
     <Card title={<>Сигнал #{s.id} · {label}</>} right={<button onClick={onClose} className="text-xs text-muted-foreground hover:text-gold">закрыть ✕</button>}>
       <div className="mb-3 flex flex-wrap gap-2 text-xs">
         <Pill kind={s.direction === "long" ? "long" : "short"}>{dir(s.direction)}</Pill>
-        <Pill kind="gold">{PROFILE[s.profile] ?? s.profile}</Pill>
         <Pill>{s.live ? "в канал" : "тень"}</Pill>
+        <Pill kind="gold">плечо x{s.leverage}</Pill>
         <Pill>вход {price(s.entryPrice)} · {time(s.detectedAt)}</Pill>
         <Pill>стоп {price(s.initialStopPrice ?? s.stopPrice)} ({signed(pctOf(s, s.initialStopPrice ?? s.stopPrice))})</Pill>
         {s.targets.map((t, i) => <Pill key={i} kind={t.hitAt ? "good" : "muted"}>цель {i + 1}: {price(t.price)} ({signed(pctOf(s, t.price))}) · {Math.round(t.fraction * 100)}%{t.hitAt ? " ✓" : ""}</Pill>)}
         <Pill>ликвидация {price(s.liquidationPrice)}</Pill>
-        {s.closedAt && <Pill kind={(s.pnlMarginPct ?? 0) >= 0 ? "good" : "bad"}>{REASON[s.closeReason ?? ""] ?? s.closeReason} · к марже {signed(s.pnlMarginPct)}</Pill>}
+        {s.closedAt && <Pill kind={(s.pnlPricePct ?? 0) >= 0 ? "good" : "bad"}>{REASON[s.closeReason ?? ""] ?? s.closeReason} · движение {signed(s.pnlPricePct)}</Pill>}
         <Pill>в сделке {duration(heldMs(s))}</Pill>
       </div>
       <div className="h-64">
