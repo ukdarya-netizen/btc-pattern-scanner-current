@@ -1,6 +1,7 @@
 import express, { type Express } from "express";
 import cors from "cors";
 import btcRoutes from "./routes/btc";
+import subscriberRoutes from "./routes/subscribers";
 import { requireDashboardPin } from "./lib/dashboardAccess";
 
 const app: Express = express();
@@ -16,5 +17,6 @@ app.get("/api/healthz", (_req, res) => {
 app.set("trust proxy", 1);
 app.use("/api/btc", requireDashboardPin);
 app.use("/api", btcRoutes);
+app.use("/api", subscriberRoutes);
 
 export default app;

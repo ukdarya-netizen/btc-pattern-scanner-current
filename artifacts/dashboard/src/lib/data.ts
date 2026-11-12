@@ -15,7 +15,7 @@ export type Mode = "live" | "shadow";
 export type Filter = { pattern: string; direction: string; style: "" | Style; result: "all" | "win" | "loss" | "flat" };
 export const NO_FILTER: Filter = { pattern: "", direction: "", style: "", result: "all" };
 
-export type Tab = "overview" | "positions" | "history" | "patterns" | "service";
+export type Tab = "positions" | "overview" | "history" | "patterns" | "subscribers" | "service";
 
 /** Result of a trade: the clean price move, no leverage, no fees (owner 2026-11-12). */
 export const res = (s: Signal) => s.pnlPricePct ?? 0;

@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { Activity, HeartPulse, History as HistoryIcon, Layers, MoreHorizontal, Target, Users, X } from "lucide-react";
 import { type Decision, type Metrics, type OutcomeGroup, PinRequired, type Signal, type Status, asset, getJson, price, setPin, time } from "./lib/api";
 import { type Data, type Filter, type Mode, NO_FILTER, type Tab } from "./lib/data";
 import { Crown, Segmented } from "./components/ui";
@@ -7,10 +8,18 @@ import { Positions } from "./pages/Positions";
 import { History } from "./pages/History";
 import { Patterns } from "./pages/Patterns";
 import { Service } from "./pages/Service";
+import { Subscribers } from "./pages/Subscribers";
 
-const TABS: Array<[Tab, string]> = [
-  ["overview", "Обзор"], ["positions", "Позиции"], ["history", "История"], ["patterns", "Паттерны"], ["service", "Служебное"],
+/** Navigation on the left, as in CAB and Nihilist (owner 2026-11-12). «Подписчики» — owner only. */
+const NAV: Array<{ tab: Tab; label: string; sub: string; icon: typeof Target; owner?: boolean }> = [
+  { tab: "positions", label: "Открытые позиции", sub: "движение · стоп · цели", icon: Target },
+  { tab: "overview", label: "Обзор", sub: "общая статистика", icon: Activity },
+  { tab: "history", label: "История сигналов", sub: "закрытые сделки", icon: HistoryIcon },
+  { tab: "patterns", label: "Паттерны", sub: "результат каждого", icon: Layers },
+  { tab: "subscribers", label: "Подписчики", sub: "Telegram-бот", icon: Users, owner: true },
+  { tab: "service", label: "Bot Health", sub: "сканер · рынок · решения", icon: HeartPulse },
 ];
+const TABS = NAV.map((n) => [n.tab, n.label] as const);
 const tabFromHash = (): Tab => {
   const h = window.location.hash.replace("#", "") as Tab;
   return TABS.some(([t]) => t === h) ? h : "overview";
@@ -48,8 +57,11 @@ export default function App() {
   const [needPin, setNeedPin] = useState(false);
   const [pinError, setPinError] = useState<string | null>(null);
   const [reloadKey, setReloadKey] = useState(0);
+  const [owner, setOwner] = useState(false);
+  const [menu, setMenu] = useState(false);
+  useEffect(() => { getJson<{ owner: boolean }>("/api/btc/owner").then((r) => setOwner(r.owner)).catch(() => setOwner(false)); }, [reloadKey]);
 
-  const setTab = (t: Tab) => { setTabState(t); window.location.hash = t; window.scrollTo({ top: 0 }); };
+  const setTab = (t: Tab) => { setTabState(t); setMenu(false); window.location.hash = t; document.getElementById("content")?.scrollTo({ top: 0 }); };
   const go = (t: Tab, f?: Partial<Filter>) => { if (f) setFilter({ ...NO_FILTER, ...f }); setTab(t); };
   useEffect(() => {
     const on = () => setTabState(tabFromHash());
@@ -98,46 +110,92 @@ export default function App() {
   const last = data.status?.stream.lastPrice ?? null;
   const connected = data.status?.stream.connected ?? false;
 
-  return (
-    <div className="min-h-screen">
-      <header className="sticky top-0 z-20 border-b border-gold/20 bg-black/80 backdrop-blur">
-        <div className="mx-auto flex max-w-7xl flex-wrap items-center gap-3 px-4 py-2">
-          <button onClick={() => setTab("overview")} className="flex items-center gap-2">
-            <img src={asset("brand/avatar.webp")} alt="" className="h-9 w-9 rounded-full border border-gold/60 object-cover" />
-            <div className="text-left leading-tight">
-              <div className="flex items-center gap-1 text-gold"><Crown className="h-3 w-4" /><span className="text-[10px] uppercase tracking-[0.3em]">Bitcoin</span></div>
-              <div className="brand-title text-lg leading-none">Margin Master</div>
-            </div>
-          </button>
-          <nav className="order-3 flex w-full gap-1 overflow-x-auto md:order-none md:w-auto md:flex-1 md:justify-center">
-            {TABS.map(([t, l]) => (
-              <button key={t} onClick={() => setTab(t)}
-                className={`whitespace-nowrap rounded-full px-3 py-1.5 text-sm transition ${tab === t ? "bg-gold text-black font-semibold" : "text-muted-foreground hover:text-gold"}`}>
-                {l}{t === "positions" && data.open.length > 0 ? ` · ${data.open.length}` : ""}
-              </button>
-            ))}
-          </nav>
-          <div className="ml-auto flex items-center gap-3">
-            <div className="text-right leading-tight">
-              <div className="text-sm font-semibold tabular-nums text-foreground">{price(last)}</div>
-              <div className={`text-[10px] ${connected ? "text-emerald-400" : "text-rose-400"}`}>● {connected ? "поток на связи" : "нет связи"} · {time(data.status?.scanner.lastCandleCloseAt)}</div>
-            </div>
-            <Segmented<Mode> value={mode} options={[["live", "Канал"], ["shadow", "Тень"]]} onChange={(m) => { setMode(m); setFilter(NO_FILTER); }} />
-            <Segmented<number> value={days} options={[[0, "Всё"], [30, "30 д"], [7, "7 д"]]} onChange={setDays} />
-          </div>
-        </div>
-      </header>
+  const nav = NAV.filter((n) => !n.owner || owner);
+  const current = NAV.find((n) => n.tab === tab) ?? NAV[1]!;
+  const navItem = (n: (typeof NAV)[number], big = false) => {
+    const Icon = n.icon;
+    const active = tab === n.tab;
+    return (
+      <button key={n.tab} onClick={() => setTab(n.tab)}
+        className={`flex w-full items-start gap-3 rounded-lg border px-3 ${big ? "py-3" : "py-2.5"} text-left text-sm transition ${active ? "border-gold/50 bg-gold/10 text-gold" : "border-transparent text-muted-foreground hover:bg-white/[0.03] hover:text-foreground"}`}>
+        <Icon className={`mt-0.5 h-4 w-4 shrink-0 ${active ? "text-gold" : ""}`} />
+        <span className="flex flex-1 flex-col">
+          <span className="flex items-center justify-between gap-2 font-medium">{n.label}
+            {n.tab === "positions" && data.open.length > 0 && <span className="rounded-full bg-gold px-1.5 text-[10px] font-bold text-black">{data.open.length}</span>}
+          </span>
+          <span className="text-xs font-normal opacity-60">{n.sub}</span>
+        </span>
+      </button>
+    );
+  };
+  const periodMatters = tab === "overview" || tab === "history" || tab === "patterns";
 
-      <main className="mx-auto max-w-7xl space-y-4 p-4">
-        {error && <p className="rounded-lg border border-rose-500/40 bg-rose-500/5 p-3 text-sm text-rose-300">Нет связи с API: {error}</p>}
-        {mode === "shadow" && <p className="rounded-lg border border-gold/30 bg-gold/5 p-2 text-center text-xs text-gold">Режим «Тень»: сигналы, которые пишутся и считаются, но не публикуются в канал.</p>}
-        {tab === "overview" && <Overview data={data} days={days} mode={mode} go={go} />}
-        {tab === "positions" && <Positions data={data} label={label} />}
-        {tab === "history" && <History data={data} days={days} label={label} filter={filter} setFilter={setFilter} />}
-        {tab === "patterns" && <Patterns data={data} days={days} mode={mode} label={label} go={go} />}
-        {tab === "service" && <Service data={raw} label={label} />}
-        <footer className="pt-6 text-center text-[10px] uppercase tracking-[0.35em] text-gold/50">Honey badger don't care · время Дубай</footer>
+  return (
+    <div className="flex h-[100dvh] w-full overflow-hidden">
+      <aside className="hidden w-64 shrink-0 flex-col border-r border-gold/20 bg-black/70 md:flex">
+        <button onClick={() => setTab("overview")} className="flex h-20 items-center gap-3 border-b border-gold/20 px-4">
+          <img src={asset("brand/avatar.webp")} alt="" className="h-11 w-11 rounded-full border border-gold/60 object-cover" />
+          <div className="text-left leading-tight">
+            <div className="flex items-center gap-1 text-gold"><Crown className="h-3 w-4" /><span className="text-[10px] uppercase tracking-[0.3em]">Bitcoin</span></div>
+            <div className="brand-title text-xl leading-none">Margin Master</div>
+          </div>
+        </button>
+        <nav className="flex-1 space-y-1 overflow-y-auto p-3">{nav.map((n) => navItem(n))}</nav>
+        <div className="space-y-1.5 border-t border-gold/20 p-4 text-[11px] text-muted-foreground">
+          <div className="flex justify-between"><span>BTC-USDT</span><span className="tabular-nums text-foreground">{price(last)}</span></div>
+          <div className="flex justify-between"><span>Поток цены</span><span className={connected ? "text-emerald-400" : "text-rose-400"}>● {connected ? "на связи" : "нет связи"}</span></div>
+          <div className="flex justify-between"><span>Последняя свеча</span><span>{time(data.status?.scanner.lastCandleCloseAt)}</span></div>
+          <p className="pt-2 text-center text-[10px] uppercase tracking-[0.3em] text-gold/60">Discipline · Leverage · Freedom</p>
+        </div>
+      </aside>
+
+      <main className="flex h-full min-w-0 flex-1 flex-col overflow-hidden">
+        <header className="flex shrink-0 flex-wrap items-center gap-3 border-b border-gold/20 bg-black/60 px-4 py-2 md:px-6">
+          <img src={asset("brand/avatar.webp")} alt="" className="h-8 w-8 rounded-full border border-gold/60 object-cover md:hidden" />
+          <div className="min-w-0 flex-1">
+            <h1 className="truncate text-base font-semibold md:text-xl">{current.label}</h1>
+            <p className="hidden text-xs text-muted-foreground md:block">{current.sub}</p>
+          </div>
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="text-sm font-semibold tabular-nums md:hidden">{price(last)}</span>
+            {tab !== "subscribers" && tab !== "service" && (
+              <Segmented<Mode> value={mode} options={[["live", "Канал"], ["shadow", "Тень"]]} onChange={(m) => { setMode(m); setFilter(NO_FILTER); }} />
+            )}
+            {periodMatters && <Segmented<number> value={days} options={[[0, "Всё"], [30, "30 д"], [7, "7 д"]]} onChange={setDays} />}
+          </div>
+        </header>
+        <div id="content" className="flex-1 space-y-4 overflow-auto p-4 pb-24 md:p-6 md:pb-6">
+          {error && <p className="rounded-lg border border-rose-500/40 bg-rose-500/5 p-3 text-sm text-rose-300">Нет связи с API: {error}</p>}
+          {mode === "shadow" && tab !== "subscribers" && tab !== "service" && <p className="rounded-lg border border-gold/30 bg-gold/5 p-2 text-center text-xs text-gold">Режим «Тень»: сигналы, которые пишутся и считаются, но не публикуются в канал.</p>}
+          {tab === "overview" && <Overview data={data} days={days} mode={mode} go={go} />}
+          {tab === "positions" && <Positions data={data} label={label} />}
+          {tab === "history" && <History data={data} days={days} label={label} filter={filter} setFilter={setFilter} />}
+          {tab === "patterns" && <Patterns data={data} days={days} mode={mode} go={go} />}
+          {tab === "subscribers" && (owner ? <Subscribers /> : <p className="text-sm text-muted-foreground">Раздел только для владельца: открой приложение из Telegram-бота.</p>)}
+          {tab === "service" && <Service data={raw} label={label} />}
+          <footer className="pt-6 text-center text-[10px] uppercase tracking-[0.35em] text-gold/50">Honey badger don't care · время Дубай</footer>
+        </div>
       </main>
+
+      {/* Phones: bottom bar + «Ещё» (as in Nihilist). */}
+      {menu && (
+        <div className="fixed inset-0 z-40 bg-black/70 md:hidden" onClick={() => setMenu(false)}>
+          <div className="gold-card absolute inset-x-3 bottom-20 space-y-1 p-2" onClick={(e) => e.stopPropagation()}>{nav.map((n) => navItem(n, true))}</div>
+        </div>
+      )}
+      <nav className="fixed inset-x-0 bottom-0 z-50 grid h-16 grid-cols-4 border-t border-gold/20 bg-black/95 backdrop-blur md:hidden">
+        {NAV.filter((n) => n.tab === "positions" || n.tab === "overview" || n.tab === "history").map((n) => {
+          const Icon = n.icon;
+          return (
+            <button key={n.tab} onClick={() => setTab(n.tab)} className={`flex flex-col items-center justify-center gap-1 text-[11px] ${tab === n.tab ? "text-gold" : "text-muted-foreground"}`}>
+              <Icon className="h-5 w-5" />{n.tab === "positions" ? `Позиции${data.open.length ? ` · ${data.open.length}` : ""}` : n.tab === "history" ? "История" : n.label}
+            </button>
+          );
+        })}
+        <button onClick={() => setMenu((v) => !v)} className={`flex flex-col items-center justify-center gap-1 text-[11px] ${menu ? "text-gold" : "text-muted-foreground"}`}>
+          {menu ? <X className="h-5 w-5" /> : <MoreHorizontal className="h-5 w-5" />}Ещё
+        </button>
+      </nav>
     </div>
   );
 }

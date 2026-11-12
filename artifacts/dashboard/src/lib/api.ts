@@ -78,8 +78,17 @@ export function setPin(pin: string): void {
 }
 export class PinRequired extends Error {}
 
+/** Telegram MiniApp initData (signed by Telegram): the server recognises the owner by it. Empty outside Telegram. */
+function initData(): string {
+  try { return (window as unknown as { Telegram?: { WebApp?: { initData?: string } } }).Telegram?.WebApp?.initData ?? ""; } catch { return ""; }
+}
+
 export async function getJson<T>(path: string): Promise<T> {
-  const res = await fetch(path, { headers: memoryPin ? { "x-dashboard-pin": memoryPin } : {} });
+  const headers: Record<string, string> = {};
+  if (memoryPin) headers["x-dashboard-pin"] = memoryPin;
+  const tg = initData();
+  if (tg) headers["x-telegram-init-data"] = tg;
+  const res = await fetch(path, { headers });
   if (res.status === 401) throw new PinRequired("pin");
   if (res.status === 429) throw new Error("Слишком много неверных PIN — подождите 15 минут");
   if (!res.ok) throw new Error(`${path}: HTTP ${res.status}`);
@@ -100,6 +109,12 @@ export const usd = (v: number | null | undefined) => {
   return `${v < 0 ? "−" : ""}$${t}`;
 };
 export const mult = (v: number | null | undefined) => (v == null ? "—" : `${v.toFixed(2)}×`);
+export type Subscriber = {
+  chatId: string; name: string | null; username: string | null; active: boolean;
+  subscribedAt: string; updatedAt: string; sent: number; failed: number; lastSentAt: string | null;
+};
+export type Subscribers = { rows: Subscriber[]; totals: { all: number; active: number; inactive: number; newToday: number }; namesPending: number };
+
 export const REASON: Record<string, string> = { take_profit: "Цели", stop: "Стоп", breakeven: "Безубыток", timeout: "Время" };
 
 /** Duration as "3 ч 20 мин" / "2 д 5 ч". */
