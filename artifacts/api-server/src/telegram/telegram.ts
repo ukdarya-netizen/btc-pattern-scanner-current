@@ -2,6 +2,7 @@ import { db, btcSignalEventsTable, btcSignalsTable, btcTelegramDeliveriesTable, 
 import { and, asc, eq, isNull, lt, lte } from "drizzle-orm";
 import { ownerEmail, recipientSql } from "../lib/users";
 import { PROFILES, type ProfileKey } from "../config/profiles";
+import { PATTERNS } from "../engine/patterns";
 import type { Metrics } from "../engine/snapshot";
 import { logger } from "../lib/logger";
 import { sendMessage, sendSignalPhoto, SIGNAL_CHANNEL, splitSignalCaption, TelegramError } from "./transport";
@@ -19,16 +20,6 @@ function fmt(price: number): string {
 function pct(value: number): string {
   return `${value >= 0 ? "+" : ""}${value.toFixed(2)}%`;
 }
-function dirLabel(direction: string): string {
-  return direction === "long" ? "ЛОНГ" : "ШОРТ";
-}
-
-const CLOSE_TEXT: Record<string, string> = {
-  take_profit: "Все цели достигнуты",
-  stop: "Стоп-лосс",
-  breakeven: "Закрыто в безубыток",
-  timeout: "Закрыто по времени удержания",
-};
 
 type SignalRow = typeof btcSignalsTable.$inferSelect;
 type EventRow = typeof btcSignalEventsTable.$inferSelect;
@@ -99,51 +90,131 @@ export function methodLines(detail: Record<string, any> | null): string[] {
   return [];
 }
 
-/** Plain text only (no HTML/Markdown), as the channel posts are copied as-is. */
+// ── Message layout (owner 2026-11-12: "формат из других двух ботов") ───────────────────────────────────
+// Taken from CAB and Nihilist: a header with what happened and the side (POSITION UPDATE / POSITION CLOSED),
+// "entry → price (move) | time in position", the current stop and the next step, the position peak and the
+// result on the close, hashtags at the end (ticker, pattern, side, style, event). The result is the clean price
+// move — no leverage, no fees (owner). Leverage and liquidation stay in the signal only (BTC-specific).
+// Plain text only (no HTML / Markdown): channel posts are copied as-is.
+
+const sideRu = (direction: string) => (direction === "long" ? "ЛОНГ" : "ШОРТ");
+const signed = (signal: SignalRow, price: number) =>
+  ((price - signal.entryPrice) / signal.entryPrice) * 100 * (signal.direction === "long" ? 1 : -1);
+const STYLE_RU: Record<string, string> = { scalp: "скальп", intraday: "интрадей", swing: "свинг" };
+/** Style by the timeframe the pattern is evaluated on (as the dashboard). */
+export function styleOf(tf: string): "scalp" | "intraday" | "swing" {
+  return tf === "15m" || tf === "5m" ? "scalp" : tf === "30m" || tf === "1h" ? "intraday" : "swing";
+}
+function patternTf(signal: SignalRow): string {
+  return PATTERNS.find((p) => p.key === signal.patternKey)?.evalTf ?? PROFILES[signal.profile as ProfileKey]?.timeframe ?? "4h";
+}
+/** Time in position, e.g. "2д 5ч", "3ч 20м", "45м" (as CAB). */
+export function inPosition(from: Date | string, to: Date | string): string {
+  const mins = Math.max(0, Math.round((new Date(to).getTime() - new Date(from).getTime()) / 60_000));
+  const d = Math.floor(mins / 1440), h = Math.floor((mins % 1440) / 60), m = mins % 60;
+  return d > 0 ? `${d}д ${h}ч` : h > 0 ? `${h}ч ${m}м` : `${m}м`;
+}
+function tags(signal: SignalRow, event: string | null): string {
+  const tf = patternTf(signal);
+  return [`#BTC`, `#${signal.patternKey}`, `#${signal.direction}`, `#${styleOf(tf)}`, event ? `#${event}` : null].filter(Boolean).join(" ");
+}
+type Target = { price: number; fraction: number; hitAt: string | null };
+const targetsOf = (signal: SignalRow) => (signal.targets as Target[]) ?? [];
+function nextTargetLine(signal: SignalRow, afterIndex: number): string | null {
+  const ts = targetsOf(signal);
+  const i = ts.findIndex((t, k) => k > afterIndex && !t.hitAt);
+  return i < 0 ? null : `⏳ Дальше: цель ${i + 1} — ${fmt(ts[i]!.price)} (${pct(signed(signal, ts[i]!.price))})`;
+}
+
 export function formatEvent(signal: SignalRow, event: EventRow, patternLabel: string): string {
   const profile = PROFILES[signal.profile as ProfileKey];
-  const head = `BTC ${dirLabel(signal.direction)} · ${profile.label} x${signal.leverage}`;
+  const side = `BTC ${sideRu(signal.direction)}`;
+  const tf = patternTf(signal);
   const detail = event.detail as Record<string, unknown>;
+  const price = event.price ?? signal.entryPrice;
+  const priceLine = `${fmt(signal.entryPrice)} → ${fmt(price)} (${pct(signed(signal, price))}) | ${inPosition(signal.detectedAt, event.createdAt)}`;
+  const stopNow = `🛡 ${signal.breakevenMoved && Math.abs(signal.stopPrice - signal.entryPrice) < 1e-9 ? "Стоп в безубытке" : "Стоп"}: ${fmt(signal.stopPrice)} (${pct(signed(signal, signal.stopPrice))} от входа)`;
+
   if (event.kind === "opened") {
-    const targets = (signal.targets as Array<{ price: number }>)
-      .map((t, i) => `Цель ${i + 1}: ${fmt(t.price)} (${pct(((t.price - signal.entryPrice) / signal.entryPrice) * 100 * (signal.direction === "long" ? 1 : -1))})`);
-    const stopMove = ((signal.stopPrice - signal.entryPrice) / signal.entryPrice) * 100 * (signal.direction === "long" ? 1 : -1);
+    const ts = targetsOf(signal);
+    const targets = ts.map((t, i) => {
+      const last = i === ts.length - 1;
+      const what = last ? (ts.length > 1 ? "закрыть остаток" : "закрыть позицию")
+        : `закрыть ${Math.round(t.fraction * 100)}%${i === 0 && profile?.breakevenAfterFirstTarget ? ", стоп в безубыток" : ""}`;
+      return `🎯 Цель ${i + 1}: ${fmt(t.price)} (${pct(signed(signal, t.price))}) — ${what}`;
+    });
     return [
-      head,
-      `Паттерн: ${patternLabel}`,
-      `Вход: ${fmt(signal.entryPrice)}`,
-      `Стоп: ${fmt(signal.stopPrice)} (${pct(stopMove)})`,
+      `₿ BITCOIN MARGIN MASTER · ${side}`,
+      `${patternLabel} · ${STYLE_RU[styleOf(tf)]} (${tf})`,
+      ``,
+      `📥 Вход: ${fmt(signal.entryPrice)}`,
+      `🛑 Стоп: ${fmt(signal.stopPrice)} (${pct(signed(signal, signal.stopPrice))})`,
       ...targets,
-      `Ликвидация ≈ ${fmt(signal.liquidationPrice)}`,
+      `⚙️ Плечо x${signal.leverage} · ликвидация ≈ ${fmt(signal.liquidationPrice)}`,
       ...rangeLines((signal.metrics as { pattern?: RangeDetail } | null)?.pattern ?? null),
       ...methodLines((signal.metrics as { pattern?: Record<string, any> } | null)?.pattern ?? null),
       ...metricLines(signal.metrics as Partial<Metrics> | null),
+      ``,
+      tags(signal, null),
     ].join("\n");
   }
   if (event.kind === "target_hit") {
     const index = Number(detail.index ?? 0);
+    const ts = targetsOf(signal);
+    const left = Math.max(0, Math.round((1 - ts.slice(0, index + 1).reduce((a, t) => a + t.fraction, 0)) * 100));
     return [
-      head,
-      `Цель ${index + 1} достигнута: ${fmt(event.price ?? 0)}`,
-      detail.breakevenMoved ? "Стоп перенесён в безубыток" : null,
-    ].filter(Boolean).join("\n");
+      `📊 ОБНОВЛЕНИЕ ПОЗИЦИИ — ${side}`,
+      `🎯 Цель ${index + 1} достигнута`,
+      priceLine,
+      ``,
+      `✂️ Закрыто ${Math.round((ts[index]?.fraction ?? 0) * 100)}% · в позиции ${left}%`,
+      detail.breakevenMoved ? `🛡 Стоп в безубыток: ${fmt(signal.entryPrice)}` : stopNow,
+      nextTargetLine(signal, index),
+      ``,
+      tags(signal, `target${index + 1}`),
+    ].filter((l) => l !== null).join("\n");
   }
   if (event.kind === "position_update") {
+    const move = Number(detail.movePct ?? 0);
     return [
-      head,
-      "Обновление позиции",
-      `Цена: ${fmt(event.price ?? 0)}`,
-      `Движение от входа: ${pct(Number(detail.movePct ?? 0))}`,
-    ].join("\n");
+      `📊 ОБНОВЛЕНИЕ ПОЗИЦИИ — ${side}`,
+      move >= 0 ? `🚀 ${pct(move)}` : `🔻 ${pct(move)}`,
+      priceLine,
+      ``,
+      stopNow,
+      nextTargetLine(signal, -1),
+      ``,
+      tags(signal, null),
+    ].filter((l) => l !== null).join("\n");
   }
-  const pnlPrice = Number(detail.pnlPricePct ?? 0);
-  const pnlMargin = Number(detail.pnlMarginPct ?? 0);
+  const reason = String(detail.reason);
+  const title = reason === "take_profit" ? "🟢 ПРОФИТ: все цели достигнуты"
+    : reason === "breakeven" ? "🔵 БЕЗУБЫТОК: стоп в точке входа"
+      : reason === "timeout" ? "⏱ ЗАКРЫТО ПО ВРЕМЕНИ УДЕРЖАНИЯ"
+        : "🔴 СТОП-ЛОСС";
+  const tag = reason === "take_profit" ? "profit" : reason === "breakeven" ? "breakeven" : reason === "timeout" ? "expired" : "stop_loss";
+  const ts = targetsOf(signal);
+  const hit = ts.filter((t) => t.hitAt).length;
+  const result = Number(detail.pnlPricePct ?? 0);
   return [
-    head,
-    `${CLOSE_TEXT[String(detail.reason)] ?? "Позиция закрыта"}: ${fmt(event.price ?? 0)}`,
-    `Результат: ${pct(pnlPrice)} цены · ${pct(pnlMargin)} к марже с учётом комиссий`,
+    `🏁 ПОЗИЦИЯ ЗАКРЫТА — ${side}`,
+    title,
+    priceLine,
+    ``,
+    `🎯 Взято целей: ${hit} из ${ts.length}`,
+    `📈 Пик позиции: ${pct(signal.mfePct)}`,
+    `💰 Итог: ${pct(result)} — чистое движение цены, без плеча и комиссий`,
+    ``,
+    tags(signal, tag),
   ].join("\n");
 }
+
+// ── Delivery age (Nihilist, owner 2026-11-10): a new signal older than 15 minutes is not sent — the entry has
+// passed (after a restart or a queue stall); position updates and closes still go up to 6 hours late. ──
+export const MAX_SIGNAL_AGE_MS = 15 * 60_000;
+export const MAX_UPDATE_AGE_MS = 6 * 3_600_000;
+export const isStale = (kind: string, createdAt: Date, now = Date.now()) =>
+  now - createdAt.getTime() > (kind === "opened" ? MAX_SIGNAL_AGE_MS : MAX_UPDATE_AGE_MS);
 
 let delivering = false;
 
@@ -159,6 +230,13 @@ async function deliverBatch(patternLabel: (key: string) => string): Promise<void
     if (!signal.live) {
       await db.update(btcSignalEventsTable).set({ telegramSentAt: new Date() })
         .where(eq(btcSignalEventsTable.id, event.id));
+      continue;
+    }
+    if (isStale(event.kind, event.createdAt)) {
+      // Never sent: marked done so it does not block the queue; the dashboard still has it.
+      await db.update(btcSignalEventsTable).set({ telegramAttempts: MAX_ATTEMPTS })
+        .where(eq(btcSignalEventsTable.id, event.id));
+      logger.warn({ eventId: event.id, kind: event.kind }, "Telegram: stale event not sent");
       continue;
     }
     // Owner 2026-11-12 (as CAB / Nihilist): signals go to registered, approved users with an active subscription.
