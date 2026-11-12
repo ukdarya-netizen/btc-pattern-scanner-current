@@ -81,7 +81,7 @@ export async function startEngine(): Promise<void> {
   candleSync();
   setInterval(candleSync, 60_000);
   // Automatic Telegram delivery: signal lifecycle events and (owner 2026-11-12, as CAB / Nihilist) the scheduled
-  // reports — daily 22:00, weekly Sunday 10:00, monthly the 1st 11:00 (Dubai); never restart / diagnostics messages.
+  // reports — morning market 09:00, daily 22:00, weekly Sunday 10:00, monthly the 1st 11:00 (Dubai); never restart / diagnostics messages.
   setInterval(() => void deliverNext(labelOf).catch((err) => logger.warn({ err }, "telegram pass failed")), 3_000);
   setInterval(() => void runReports(labelOf).catch((err) => logger.warn({ err }, "reports pass failed")), 60_000);
   // Subscription notices (as CAB): 3 hours before the end and at the end to the subscriber, a summary to the owner.

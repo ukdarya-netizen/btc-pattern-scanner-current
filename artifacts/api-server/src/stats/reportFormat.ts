@@ -120,3 +120,39 @@ export function formatReport(s: Schedule, rows: ReportRow[], label: (key: string
   lines.push("", "Результат — чистое движение цены: без плеча и комиссий.");
   return lines.join("\n");
 }
+
+// ── Morning market report (owner 2026-11-12): every day 09:00 Dubai — sentiment (Fear / Greed), liquidations
+// over 24 h, price and its change over 24 h. Market data only, no trades. ──
+export type MorningSchedule = { at: number; key: string; title: string; eventId: number };
+
+export function morningSchedule(now: number): MorningSchedule {
+  let d = Math.floor((now + TZ_MS) / DAY);
+  if (d * DAY - TZ_MS + 9 * 3_600_000 > now) d -= 1;
+  const at = d * DAY - TZ_MS + 9 * 3_600_000;
+  return { at, key: `morning:${dmy(d * DAY - TZ_MS)}`, title: `BTC утром ${dmy(d * DAY - TZ_MS)}`, eventId: -(400_000_000 + d) };
+}
+
+export type MorningData = {
+  price: number | null; change24hPct: number | null;
+  liqLongUsd: number | null; liqShortUsd: number | null;
+  fearGreed: { value: number; prev: number | null; label: string } | null;
+};
+
+const money = (v: number | null) => {
+  if (v == null) return "—";
+  const a = Math.abs(v);
+  return a >= 1e9 ? `$${(a / 1e9).toFixed(2)}B` : a >= 1e6 ? `$${(a / 1e6).toFixed(1)}M` : `$${(a / 1e3).toFixed(0)}K`;
+};
+
+export function formatMorning(s: MorningSchedule, m: MorningData): string {
+  const fg = m.fearGreed;
+  const liq = m.liqLongUsd == null && m.liqShortUsd == null ? null : (m.liqLongUsd ?? 0) + (m.liqShortUsd ?? 0);
+  return [
+    `☀️ Bitcoin Margin Master — ${s.title}`,
+    "",
+    `Сентимент: ${fg ? `${fg.value} — ${fg.label}${fg.prev == null ? "" : ` (вчера ${fg.prev})`}` : "—"}`,
+    `Ликвидации за сутки: ${money(liq)} · лонги ${money(m.liqLongUsd)} · шорты ${money(m.liqShortUsd)}`,
+    `Цена: ${m.price == null ? "—" : `$${m.price.toFixed(1)}`}`,
+    `Изменение цены за сутки: ${m.change24hPct == null ? "—" : pct(m.change24hPct)}`,
+  ].join("\n");
+}

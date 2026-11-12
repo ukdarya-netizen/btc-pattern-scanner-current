@@ -95,7 +95,7 @@ export function methodLines(detail: Record<string, any> | null): string[] {
 // Taken from CAB and Nihilist: a header with what happened and the side (POSITION UPDATE / POSITION CLOSED),
 // "entry → price (move) | time in position", the current stop and the next step, the position peak and the
 // result on the close, hashtags at the end (ticker, pattern, side, style, event). The result is the clean price
-// move — no leverage, no fees (owner). Leverage and liquidation stay in the signal only (BTC-specific).
+// move — no leverage, no fees (owner). Owner 2026-11-12: no leverage or liquidation price in any message.
 // Plain text only (no HTML / Markdown): channel posts are copied as-is.
 
 const sideRu = (direction: string) => (direction === "long" ? "ЛОНГ" : "ШОРТ");
@@ -127,10 +127,48 @@ function nextTargetLine(signal: SignalRow, afterIndex: number): string | null {
   return i < 0 ? null : `⏳ Дальше: цель ${i + 1} — ${fmt(ts[i]!.price)} (${pct(signed(signal, ts[i]!.price))})`;
 }
 
+/** Owner 2026-11-12: the signal says which trading system, which pattern and which timeframe it is. */
+export function systemLines(signal: Pick<SignalRow, "patternKey" | "detectedAt" | "expiresAt">, patternLabel: string): string[] {
+  const key = signal.patternKey;
+  const tf = PATTERNS.find((p) => p.key === key)?.evalTf;
+  const bare = patternLabel.replace(/ · (4h|1D)$/, "").replace(/ · (скальп|интрадей|свинг)/, "").replace(/ · (лонг|шорт)$/, "");
+  let system: string, pattern: string, frame: string;
+  const range = /^(h4|d1)_(breakout|deviation)_/.exec(key);
+  const smc = /^smc_(4h|1d)_(\w+?)_(long|short)$/.exec(key);
+  if (range) {
+    system = "Диапазон (рейндж)";
+    pattern = bare;
+    frame = range[1] === "h4" ? "4h" : "1D";
+  } else if (smc) {
+    system = "Smart Money";
+    pattern = `ордер-блок ${smc[1] === "1d" ? "1D" : "4h"} + слом структуры (CHoCH) ${smc[2]}`;
+    frame = `${smc[2]} вход · ${smc[1] === "1d" ? "1D" : "4h"} старший`;
+  } else if (key.startsWith("lc_")) {
+    system = "Каскад ликвидаций";
+    pattern = bare;
+    frame = tf ?? "15m";
+  } else if (key.startsWith("neon_")) {
+    system = "ABNeon уровни";
+    pattern = bare;
+    frame = tf ?? "4h";
+  } else {
+    system = "—";
+    pattern = bare;
+    frame = tf ?? "4h";
+  }
+  const styleTf = smc ? smc[2]! : range ? (range[1] === "h4" ? "4h" : "1d") : frame;
+  const hold = signal.expiresAt ? inPosition(signal.detectedAt, signal.expiresAt).replace(/^(\d+д) 0ч$/, "$1") : null;
+  return [
+    `Система: ${system}`,
+    `Паттерн: ${pattern}`,
+    `Таймфрейм: ${frame} · ${STYLE_RU[styleOf(styleTf)]}`,
+    ...(hold ? [`Макс. удержание: ${hold}`] : []),
+  ];
+}
+
 export function formatEvent(signal: SignalRow, event: EventRow, patternLabel: string): string {
   const profile = PROFILES[signal.profile as ProfileKey];
   const side = `BTC ${sideRu(signal.direction)}`;
-  const tf = patternTf(signal);
   const detail = event.detail as Record<string, unknown>;
   const price = event.price ?? signal.entryPrice;
   const priceLine = `${fmt(signal.entryPrice)} → ${fmt(price)} (${pct(signed(signal, price))}) | ${inPosition(signal.detectedAt, event.createdAt)}`;
@@ -146,12 +184,11 @@ export function formatEvent(signal: SignalRow, event: EventRow, patternLabel: st
     });
     return [
       `₿ BITCOIN MARGIN MASTER · ${side}`,
-      `${patternLabel} · ${STYLE_RU[styleOf(tf)]} (${tf})`,
+      ...systemLines(signal, patternLabel),
       ``,
       `📥 Вход: ${fmt(signal.entryPrice)}`,
       `🛑 Стоп: ${fmt(signal.stopPrice)} (${pct(signed(signal, signal.stopPrice))})`,
       ...targets,
-      `⚙️ Плечо x${signal.leverage} · ликвидация ≈ ${fmt(signal.liquidationPrice)}`,
       ...rangeLines((signal.metrics as { pattern?: RangeDetail } | null)?.pattern ?? null),
       ...methodLines((signal.metrics as { pattern?: Record<string, any> } | null)?.pattern ?? null),
       ...metricLines(signal.metrics as Partial<Metrics> | null),

@@ -1,23 +1,24 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { formatEvent, inPosition, isStale } from "./telegram";
+import { formatEvent, inPosition, isStale, systemLines } from "./telegram";
 
 const opened = new Date("2026-11-12T08:00:00Z");
 const signal: any = {
-  id: 1, patternKey: "range_breakout_h4_long", direction: "long", profile: "h4", leverage: 20, live: true,
+  id: 1, patternKey: "h4_breakout_long", direction: "long", profile: "h4", leverage: 20, live: true,
   entryPrice: 96000, initialStopPrice: 94080, stopPrice: 94080, liquidationPrice: 91600,
   targets: [{ price: 97920, fraction: 0.5, hitAt: null }, { price: 99840, fraction: 0.5, hitAt: null }],
-  breakevenMoved: false, mfePct: 0, maePct: 0, detectedAt: opened, metrics: {},
+  breakevenMoved: false, mfePct: 0, maePct: 0, detectedAt: opened, expiresAt: new Date(opened.getTime() + 10 * 86_400_000), metrics: {},
 };
 const ev = (kind: string, price: number, detail: Record<string, unknown>, hours: number): any =>
   ({ id: 1, signalId: 1, kind, price, detail, createdAt: new Date(opened.getTime() + hours * 3_600_000) });
 
-test("opened: header, style, entry, stop, targets with what to do, leverage, hashtags; plain text", () => {
-  const t = formatEvent(signal, ev("opened", 96000, {}, 0), "Пробой рейнджа 4H");
-  assert.match(t, /^₿ BITCOIN MARGIN MASTER · BTC ЛОНГ\nПробой рейнджа 4H · свинг \(4h\)/);
+test("opened: system, pattern, timeframe, entry, stop, targets with what to do, no leverage, hashtags; plain text", () => {
+  const t = formatEvent(signal, ev("opened", 96000, {}, 0), "Пробой диапазона вверх · 4h");
+  assert.match(t, /^₿ BITCOIN MARGIN MASTER · BTC ЛОНГ\nСистема: Диапазон \(рейндж\)\nПаттерн: Пробой диапазона вверх\nТаймфрейм: 4h · свинг\nМакс\. удержание: 10д\n/);
+  assert.doesNotMatch(t, /Плечо|x20|ликвидация ≈/);
   assert.match(t, /🎯 Цель 1: 97920\.0 \(\+2\.00%\) — закрыть 50%, стоп в безубыток/);
   assert.match(t, /🎯 Цель 2: 99840\.0 \(\+4\.00%\) — закрыть остаток/);
-  assert.match(t, /#BTC #range_breakout_h4_long #long #swing$/);
+  assert.match(t, /#BTC #h4_breakout_long #long #swing$/);
   assert.doesNotMatch(t, /<[a-z]/i);
 });
 
@@ -44,4 +45,11 @@ test("delivery age: a signal after 15 minutes is stale, an update only after 6 h
   assert.equal(isStale("closed", new Date(now - 5 * 3_600_000), now), false);
   assert.equal(isStale("closed", new Date(now - 7 * 3_600_000), now), true);
   assert.equal(inPosition("2026-11-12T00:00:00Z", "2026-11-12T00:45:00Z"), "45м");
+});
+
+test("system lines: Smart Money and liquidation cascade", () => {
+  const smc = systemLines({ patternKey: "smc_4h_30m_short", detectedAt: opened, expiresAt: null } as any, "Smart Money: ордер-блок 4h + слом 30m · шорт");
+  assert.deepEqual(smc, ["Система: Smart Money", "Паттерн: ордер-блок 4h + слом структуры (CHoCH) 30m", "Таймфрейм: 30m вход · 4h старший · интрадей"]);
+  const lc = systemLines({ patternKey: "lc_long", detectedAt: opened, expiresAt: null } as any, "Каскад ликвидаций лонгов → отскок");
+  assert.deepEqual(lc, ["Система: Каскад ликвидаций", "Паттерн: Каскад ликвидаций лонгов → отскок", "Таймфрейм: 15m · скальп"]);
 });
