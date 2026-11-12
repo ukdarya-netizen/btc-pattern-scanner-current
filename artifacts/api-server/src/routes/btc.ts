@@ -58,7 +58,14 @@ router.get("/btc/signals", async (req, res) => {
     .where(where.length ? and(...where) : undefined)
     .orderBy(desc(btcSignalsTable.id))
     .limit(clampLimit(req.query.limit));
-  res.json({ rows: owner ? rows : rows.map((r) => ({ ...r, metrics: null })) });
+  // The trajectory points stay out of the list (heavy); /btc/signals/:id/path has them.
+  const light = (r: typeof rows[number]) => {
+    const m = r.metrics as Record<string, unknown> | null;
+    if (!m || !("trajectory" in m)) return r;
+    const { trajectory: _t, ...rest } = m;
+    return { ...r, metrics: rest };
+  };
+  res.json({ rows: owner ? rows.map(light) : rows.map((r) => ({ ...r, metrics: null })) });
 });
 
 router.get("/btc/decisions", ownerOnly, async (req, res) => {

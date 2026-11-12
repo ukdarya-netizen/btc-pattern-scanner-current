@@ -53,3 +53,18 @@ test("system lines: Smart Money and liquidation cascade", () => {
   const lc = systemLines({ patternKey: "lc_long", detectedAt: opened, expiresAt: null } as any, "Каскад ликвидаций лонгов → отскок");
   assert.deepEqual(lc, ["Система: Каскад ликвидаций", "Паттерн: Каскад ликвидаций лонгов → отскок", "Таймфрейм: 15m · скальп"]);
 });
+
+test("entry metrics as CAB: OI, CVD, takers, volume, liquidations, funding BingX + CoinGlass, WI, crowd, OB", async () => {
+  const { metricLines, fundingLine } = await import("./telegram");
+  const t = metricLines({
+    price: 96000, priceChangePct: { "1h": 0.4, "4h": -1, "24h": 2 } as any, oiChangePct: { "15m": 0.1, "30m": 0.2, "1h": 0.3, "4h": 1, "24h": 2 } as any,
+    spotCvdUsd: { "15m": 1e6 } as any, futCvdUsd: {} as any, futTakerNetPct: { "1h": 3 } as any, spotTakerNetPct: {} as any,
+    futVolumeMult: { "1h": 1.5 } as any, spotVolumeMult: {} as any, liqLongUsd: { "1h": 1e6, "24h": 1e7 } as any, liqShortUsd: { "1h": 0, "24h": 0 } as any,
+    fundingRatePct: 0.0051, fundingBingxPct: 0.01, whaleIndex: 12, whaleIndex4h: 3, longShortRatio: 1.5, orderbookBidAskRatio: 0.6,
+  }).join("\n");
+  assert.match(t, /OI: 15m \+0\.10% · 30m \+0\.20% · 1h \+0\.30% · 4h \+1\.00% · 24h \+2\.00%/);
+  assert.match(t, /Ликвидации 1h: лонги \$1\.0M · шорты \$0K · 24h: лонги \$10\.0M · шорты \$0K · 1h\/24h 10\.0%/);
+  assert.match(t, /⚖️ Фандинг \(8ч\): BingX \+0\.0100% · CoinGlass OI-взвеш\. \+0\.0051%/);
+  assert.match(t, /📊 WI \+12\.0🟢 \(4h \+3\.0\) · Толпа 60% лонг \(Binance\) · OB 0\.60x🔴/);
+  assert.equal(fundingLine(0.12, null), "⚠️ Фандинг (8ч): BingX +0.1200% — лонги перегреты");
+});

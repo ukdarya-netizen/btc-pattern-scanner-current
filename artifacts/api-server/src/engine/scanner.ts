@@ -8,13 +8,14 @@ import {
   stopPriceFor,
   targetPricesFor,
 } from "../lib/tradeMath";
-import { getClosedCandles, INTERVAL_MS, type Interval } from "../market/bingx";
+import { getClosedCandles, getFundingRate, INTERVAL_MS, type Interval } from "../market/bingx";
 import { getBtcFlow } from "../market/coinglass";
 import { getMarketContext } from "../market/context";
 import { trackSignal } from "../tracker/tracker";
 import { PATTERNS, type Pattern, type PatternResult } from "./patterns";
 import { HISTORY_BARS } from "./rangePatterns";
 import { levelsAtEntry } from "./levels";
+import { recordTrajectory } from "../tracker/trajectory";
 import { computeMetrics, type Metrics, type Snapshot } from "./snapshot";
 import { entryStudy } from "./entryStudy";
 import { aggVolumeStudy } from "../market/aggVolumeStudy";
@@ -55,14 +56,18 @@ async function buildSnapshot(now: number, longHistory: boolean, neon = false): P
     longHistory ? getClosedCandles("1d", HISTORY_BARS, now) : Promise.resolve([]),
   ]);
   // 200 bars of 15m: the liquidation cascade needs a 24 h baseline before a spike up to 12 h old.
-  const flow = await getBtcFlow(200, now);
+  const [flow, funding] = await Promise.all([getBtcFlow(200, now), getFundingRate()]);
   const candles = { "1m": [], "5m": c5, "15m": c15, "1h": c1h, "4h": c4h, "1d": c1d };
   scannerStatus.missingFlow = Object.entries(flow).filter(([, v]) => v === null).map(([k]) => k);
   // Owner 2026-11-12: ABNeon / Stealth need Lucy's VSA volume (futures + spot) on 15m / 1h / 4h; at most 10 s.
   const lucy = neon
     ? await Promise.race([getLucyVolume(now), new Promise<null>((res) => setTimeout(() => res(null), 10_000))]).catch(() => null)
     : null;
-  return { at: now, candles, flow, metrics: computeMetrics(candles, flow, getMarketContext(), now), lucy };
+  const metrics = {
+    ...computeMetrics(candles, flow, getMarketContext(), now),
+    fundingBingxPct: funding?.ratePct ?? null, nextFundingAt: funding?.nextFundingAt ?? null,
+  };
+  return { at: now, candles, flow, metrics, lucy };
 }
 
 /** Candle series whose closed bar triggers a pattern (30m bars are built from 15m). */
@@ -180,6 +185,8 @@ export async function runCycle(currentPrice: () => Promise<number>, now = Date.n
       metrics: snapshot.metrics,
       missing: scannerStatus.missingFlow,
     }).onConflictDoNothing();
+    // Owner 2026-11-12: trajectory points of every signal (15m … 72h, then daily, and the close) from these metrics.
+    await recordTrajectory(snapshot.metrics, now).catch((err) => logger.warn({ err }, "trajectory pass failed"));
     for (const pattern of duePatterns) {
       let decision: "fired" | "rejected" | "suppressed" = "rejected";
       let reasons: string[] = [];

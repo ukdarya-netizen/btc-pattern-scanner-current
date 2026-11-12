@@ -40,7 +40,11 @@ export type Metrics = {
   /** Last 1h liquidations ÷ average hour of the preceding 24h. */
   liqLongSpike1h: number | null;
   liqShortSpike1h: number | null;
+  /** CoinGlass OI-weighted funding rate, % (all exchanges). */
   fundingRatePct: number | null;
+  /** Owner 2026-11-12 (as CAB): BingX BTC-USDT funding rate, % per 8 h, and its next settlement (ms). */
+  fundingBingxPct?: number | null;
+  nextFundingAt?: number | null;
   longShortRatio: number | null;
   longShortChangePct: ByTf<"1h" | "4h">;
   orderbookBidAskRatio: number | null;

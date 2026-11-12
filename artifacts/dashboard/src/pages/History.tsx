@@ -3,6 +3,7 @@ import { REASON, STYLE_LABEL, type Signal, dir, duration, heldMs, num, price, si
 import { type Data, type Filter, NO_FILTER, type Period, applyFilter, inPeriod, styleOf, summarize } from "../lib/data";
 import { Card, type Col, Pill, SortTable } from "../components/ui";
 import { SignalDetail } from "../components/SignalDetail";
+import { METRIC_COLS } from "../components/metricCols";
 
 const sel = "rounded-full border border-gold/30 bg-black/60 px-3 py-1 text-xs text-foreground focus:border-gold focus:outline-none";
 
@@ -33,6 +34,8 @@ export function History({ data, period, label, filter, setFilter }: { data: Data
     { head: "Макс. в плюс", cell: (s) => signed(s.mfePct), sort: (s) => s.mfePct },
     { head: "Макс. в минус", cell: (s) => signed(s.maePct), sort: (s) => s.maePct },
     { head: "В сделке", cell: (s) => duration(heldMs(s)), sort: (s) => heldMs(s) },
+    // Entry metrics as CAB (owner only: users get none).
+    ...(rows.some((s) => s.metrics) ? METRIC_COLS : []),
   ];
   return (
     <div className="space-y-4">

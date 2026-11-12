@@ -43,6 +43,7 @@ export type Metrics = {
   futTakerNetPct: ByTf; spotTakerNetPct: ByTf; futCvdUsd: ByTf; spotCvdUsd: ByTf;
   spotCvdBullish: Record<string, boolean | null>; liqLongUsd: ByTf; liqShortUsd: ByTf;
   liqLongSpike1h: number | null; liqShortSpike1h: number | null; fundingRatePct: number | null;
+  fundingBingxPct?: number | null; nextFundingAt?: number | null;
   longShortRatio: number | null; longShortChangePct: ByTf; orderbookBidAskRatio: number | null;
   orderbookImbalancePct: number | null; whaleIndex: number | null; whaleIndexChange4h: number | null;
   whaleIndex4h?: number | null;

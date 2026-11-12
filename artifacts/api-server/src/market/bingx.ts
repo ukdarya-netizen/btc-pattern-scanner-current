@@ -86,6 +86,23 @@ export async function getLastPrice(): Promise<number> {
   return price;
 }
 
+/**
+ * Owner 2026-11-12 (as CAB): BingX BTC-USDT funding rate, % per 8 h (raw × 100), and the next settlement.
+ * Public premiumIndex. Null on failure (never throws).
+ */
+export async function getFundingRate(): Promise<{ ratePct: number; nextFundingAt: number | null } | null> {
+  try {
+    const data = (await get("/openApi/swap/v2/quote/premiumIndex", { symbol: BTC_SYMBOL })) as Record<string, unknown> | Array<Record<string, unknown>>;
+    const row = Array.isArray(data) ? data[0] : data;
+    const rate = Number(row?.lastFundingRate);
+    if (!Number.isFinite(rate)) return null;
+    const next = Number(row?.nextFundingTime);
+    return { ratePct: Number((rate * 100).toFixed(6)), nextFundingAt: Number.isFinite(next) && next > 0 ? next : null };
+  } catch {
+    return null;
+  }
+}
+
 export type PriceTick = { price: number; at: number };
 
 function decode(data: unknown): string | null {

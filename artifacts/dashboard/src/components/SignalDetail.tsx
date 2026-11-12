@@ -1,8 +1,11 @@
 import { useEffect, useState } from "react";
 import { CartesianGrid, Line, LineChart, ReferenceLine, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
-import { type PathPoint, type Signal, REASON, dir, duration, getJson, heldMs, price, signed, time } from "../lib/api";
+import { type Metrics, type PathPoint, type Signal, REASON, dir, duration, getJson, heldMs, num, price, signed, time, usd } from "../lib/api";
 import { MetricsGrid } from "./MetricsGrid";
 import { Card, Pill } from "./ui";
+
+type TrajPoint = { label: string; at: string; elapsedMs: number; price: number; pctFromEntry: number; peakPct: number; worstPct: number; status: string; market: Partial<Metrics> };
+const ORDER = (l: string) => (l === "close" ? 1e9 : l.endsWith("m") ? parseInt(l) : parseInt(l) * 60);
 
 const pctOf = (s: Signal, level: number) => ((s.direction === "long" ? 1 : -1) * (level - s.entryPrice) / s.entryPrice) * 100;
 
@@ -10,11 +13,17 @@ const pctOf = (s: Signal, level: number) => ((s.direction === "long" ? 1 : -1) *
 export function SignalDetail({ s, label, onClose }: { s: Signal; label: string; onClose: () => void }) {
   const [points, setPoints] = useState<PathPoint[] | null>(null);
   const [err, setErr] = useState<string | null>(null);
+  const [traj, setTraj] = useState<TrajPoint[]>([]);
   useEffect(() => {
     let alive = true;
-    setPoints(null); setErr(null);
-    getJson<{ points: PathPoint[] }>(`/api/btc/signals/${s.id}/path`)
-      .then((r) => { if (alive) setPoints(r.points); })
+    setPoints(null); setErr(null); setTraj([]);
+    getJson<{ points: PathPoint[]; signal: Signal }>(`/api/btc/signals/${s.id}/path`)
+      .then((r) => {
+        if (!alive) return;
+        setPoints(r.points);
+        const t = (r.signal?.metrics as { trajectory?: Record<string, TrajPoint> } | null)?.trajectory ?? {};
+        setTraj(Object.values(t).sort((a, b) => ORDER(a.label) - ORDER(b.label)));
+      })
       .catch((e) => { if (alive) setErr(e instanceof Error ? e.message : String(e)); });
     return () => { alive = false; };
   }, [s.id]);
@@ -63,6 +72,29 @@ export function SignalDetail({ s, label, onClose }: { s: Signal; label: string; 
         )}
       </div>
       <p className="mb-3 mt-1 text-xs text-muted-foreground">Движение от входа в сторону сделки по 5-минутным снимкам: серым — 6 ч до входа, золотом — в сделке, пунктиром — 72 ч после закрытия.</p>
+      {traj.length > 0 && (
+        <div className="mb-4 overflow-x-auto">
+          <div className="mb-1 text-xs uppercase tracking-wider text-muted-foreground">Снимки сигнала (15m … 72h, далее раз в сутки, и на закрытии)</div>
+          <table className="w-full text-xs tabular-nums">
+            <thead><tr className="text-left text-muted-foreground">{["Точка", "Время", "Движение", "Пик", "Худшее", "OI 1h", "CVD спот 1h", "Тейкер фьюч 1h", "Fund% BingX", "WI", "Liq L/S 1h"].map((h) => <th key={h} className="whitespace-nowrap px-2 py-1 font-medium">{h}</th>)}</tr></thead>
+            <tbody>{traj.map((p) => (
+              <tr key={p.label} className="border-t border-border/60">
+                <td className="px-2 py-1">{p.label === "close" ? "закрытие" : p.label}</td>
+                <td className="px-2 py-1">{time(p.at)}</td>
+                <td className="px-2 py-1">{signed(p.pctFromEntry)}</td>
+                <td className="px-2 py-1">{signed(p.peakPct)}</td>
+                <td className="px-2 py-1">{signed(p.worstPct)}</td>
+                <td className="px-2 py-1">{signed(p.market.oiChangePct?.["1h"])}</td>
+                <td className="px-2 py-1">{usd(p.market.spotCvdUsd?.["1h"])}</td>
+                <td className="px-2 py-1">{signed(p.market.futTakerNetPct?.["1h"])}</td>
+                <td className="px-2 py-1">{num(p.market.fundingBingxPct, 4)}</td>
+                <td className="px-2 py-1">{num(p.market.whaleIndex, 1)}</td>
+                <td className="px-2 py-1">{usd(p.market.liqLongUsd?.["1h"])} / {usd(p.market.liqShortUsd?.["1h"])}</td>
+              </tr>
+            ))}</tbody>
+          </table>
+        </div>
+      )}
       {s.metrics ? <MetricsGrid m={s.metrics} /> : <p className="text-sm text-muted-foreground">Метрики на входе не сохранены.</p>}
     </Card>
     </div>

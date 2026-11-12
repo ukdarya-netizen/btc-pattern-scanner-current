@@ -24,7 +24,8 @@ export function MetricsGrid({ m }: { m: Metrics }) {
   const single: Array<[string, ReactNode]> = [
     ["Цена", price(m.price)],
     ["OI (все биржи)", usd(m.oiUsd)],
-    ["Фандинг (OI-взвеш.)", m.fundingRatePct == null ? "—" : `${m.fundingRatePct.toFixed(4)}%`],
+    ["Фандинг BingX (8ч)", m.fundingBingxPct == null ? "—" : `${m.fundingBingxPct.toFixed(4)}%`],
+    ["Фандинг CoinGlass (OI-взвеш.)", m.fundingRatePct == null ? "—" : `${m.fundingRatePct.toFixed(4)}%`],
     ["Long/Short (Binance)", m.longShortRatio == null ? "—" : `${m.longShortRatio.toFixed(2)} · 1h ${signed(m.longShortChangePct?.["1h"])} · 4h ${signed(m.longShortChangePct?.["4h"])}`],
     ["Стакан ±1% bid/ask", m.orderbookBidAskRatio == null ? "—" : `${m.orderbookBidAskRatio.toFixed(2)} (${signed(m.orderbookImbalancePct, 1)})`],
     ["Whale Index", m.whaleIndex == null ? "—" : `${m.whaleIndex.toFixed(2)} · 4h ${m.whaleIndexChange4h == null ? "—" : (m.whaleIndexChange4h >= 0 ? "+" : "") + m.whaleIndexChange4h.toFixed(2)}`],

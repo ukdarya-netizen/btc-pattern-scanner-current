@@ -3,6 +3,7 @@ import { REASON, STYLE_LABEL, type Signal, dir, distPct, duration, heldMs, liveM
 import { type Data, styleOf } from "../lib/data";
 import { Card, type Col, Pill, SortTable, Tile } from "../components/ui";
 import { SignalDetail } from "../components/SignalDetail";
+import { METRIC_COLS } from "../components/metricCols";
 
 /** Open trades: clean move now, distance to the stop and to the next target, time in the trade; every column sorts. */
 export function Positions({ data, label }: { data: Data; label: (k: string) => string }) {
@@ -30,6 +31,8 @@ export function Positions({ data, label }: { data: Data; label: (k: string) => s
     { head: "До цели", cell: (s) => { const v = toTarget(s); return <span className="text-emerald-300/90">{v == null ? "—" : `${v.toFixed(2)}%`}</span>; }, sort: (s) => toTarget(s) },
     { head: "Цели", cell: (s) => `${s.targets.filter((t) => t.hitAt).length} / ${s.targets.length}`, sort: (s) => s.targets.filter((t) => t.hitAt).length },
     { head: "В сделке", cell: (s) => duration(heldMs(s)), sort: (s) => heldMs(s) },
+    // Entry metrics as CAB (owner only: users get none).
+    ...(data.open.some((s) => s.metrics) ? METRIC_COLS : []),
   ];
   return (
     <div className="space-y-4">
