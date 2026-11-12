@@ -24,6 +24,11 @@ const liqRatio = (x: Partial<Metrics>) => {
 };
 const crowd = (x: Partial<Metrics>) => (x.longShortRatio == null ? null : (x.longShortRatio / (1 + x.longShortRatio)) * 100);
 
+const ind = (x: Partial<Metrics>, tf: string, k: string) => x.indicators?.[tf]?.[k] ?? null;
+const numCol = (head: string, title: string, get: (x: Partial<Metrics>) => number | null, d = 1): Col<Signal> => ({
+  head, title, cell: (s) => num(get(m(s)), d), sort: (s) => get(m(s)),
+});
+
 export const METRIC_COLS: Col<Signal>[] = [
   pctCol("OI 15m", "OI Δ15m % (CoinGlass, все биржи) на входе", (x) => x.oiChangePct?.["15m"]),
   pctCol("OI 30m", "OI Δ30m % на входе", (x) => x.oiChangePct?.["30m"]),
@@ -50,5 +55,18 @@ export const METRIC_COLS: Col<Signal>[] = [
   usdCol("L.Liq 1h", "Ликвидации лонгов за 1h", (x) => x.liqLongUsd?.["1h"]),
   usdCol("S.Liq 1h", "Ликвидации шортов за 1h", (x) => x.liqShortUsd?.["1h"]),
   usdCol("Liq 24h", "Все ликвидации за 24h", (x) => (x.liqLongUsd ? (x.liqLongUsd["24h"] ?? 0) + (x.liqShortUsd?.["24h"] ?? 0) : null)),
+  numCol("RSI 15m", "RSI 14 на 15m (BingX)", (x) => ind(x, "15m", "rsi14")),
+  numCol("RSI 1h", "RSI 14 на 1h", (x) => ind(x, "1h", "rsi14")),
+  numCol("RSI 4h", "RSI 14 на 4h", (x) => ind(x, "4h", "rsi14")),
+  numCol("RSI 1D", "RSI 14 на 1D", (x) => ind(x, "1d", "rsi14")),
+  numCol("StochRSI 1h", "Stochastic RSI K на 1h", (x) => ind(x, "1h", "stochRsiK")),
+  { head: "MACD 1h", title: "Гистограмма MACD 12/26/9 на 1h", cell: (s) => { const v = ind(m(s), "1h", "macdHist"); return <span className={tone(v)}>{num(v, 1)}</span>; }, sort: (s) => ind(m(s), "1h", "macdHist") },
+  { head: "MACD 4h", title: "Гистограмма MACD на 4h", cell: (s) => { const v = ind(m(s), "4h", "macdHist"); return <span className={tone(v)}>{num(v, 1)}</span>; }, sort: (s) => ind(m(s), "4h", "macdHist") },
+  numCol("ADX 4h", "ADX 14 на 4h — сила тренда", (x) => ind(x, "4h", "adx14")),
+  numCol("BB %B 1h", "Положение цены в Боллинджере 20/2 на 1h (0 — нижняя, 1 — верхняя)", (x) => ind(x, "1h", "bbPctB"), 2),
+  pctCol("EMA50 1h", "Цена от EMA 50 на 1h, %", (x) => ind(x, "1h", "distEma50Pct")),
+  pctCol("EMA200 4h", "Цена от EMA 200 на 4h, %", (x) => ind(x, "4h", "distEma200Pct")),
+  pctCol("MA200 1D", "Цена от MA 200 на 1D, %", (x) => ind(x, "1d", "distSma200Pct")),
+  numCol("MFI фьюч 1h", "MFI 14 на агрегированном фьюч объёме, 1h", (x) => x.moneyFlow?.fut_1h?.mfi14 ?? null),
   { head: "LiqR", title: "Ликвидации 1h / 24h, %", cell: (s) => { const v = liqRatio(m(s)); return v == null ? "—" : `${v.toFixed(1)}%`; }, sort: (s) => liqRatio(m(s)) },
 ];

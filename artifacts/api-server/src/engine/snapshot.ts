@@ -3,6 +3,7 @@ import type { FlowBar, FlowSeries } from "../market/coinglass";
 import type { MarketContext } from "../market/context";
 import type { LucyVolume } from "../market/lucyVolume";
 import { moneyFlowMetrics } from "../market/moneyFlow";
+import { computeIndicators, type Indicators } from "./indicators";
 
 export type Candles = Record<Interval, Candle[]>;
 
@@ -55,6 +56,8 @@ export type Metrics = {
   whaleIndex4h: number | null;
   /** Liquidation heatmap, Hyperliquid whales, exchange balances, dominance (+ Coinbase premium, ETF, basis, options). */
   context: MarketContext | null;
+  /** Owner 2026-11-12: RSI, MACD, EMA / SMA, Bollinger, Stochastic RSI, ADX on 15m / 1h / 4h / 1D (engine/indicators.ts). */
+  indicators?: Indicators;
   /** Owner 2026-11-09: MFI and Chaikin on aggregated futures / spot volume, 15m / 1H / 4H (market/moneyFlow.ts). */
   moneyFlow?: Record<string, Record<string, number | null> | null>;
   /** Owner 2026-11-09: trading session at the bar (UTC): Asia 00–08, London 07–16, New York 13–21; weekend. */
@@ -228,6 +231,7 @@ export function computeMetrics(candles: Candles, flow: FlowSeries, context: Mark
     whaleIndex4h: round(flow.whaleIndex4h?.[flow.whaleIndex4h.length - 1]?.value ?? null),
     context,
     moneyFlow: moneyFlowMetrics(candles["15m"], flow, now),
+    indicators: computeIndicators(candles),
     session: sessionAt(c5.length ? c5[c5.length - 1]!.time + 5 * 60_000 : now),
   };
 }

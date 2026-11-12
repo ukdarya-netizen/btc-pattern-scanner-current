@@ -52,8 +52,9 @@ async function buildSnapshot(now: number, longHistory: boolean, neon = false): P
     getClosedCandles("5m", 300, now),
     getClosedCandles("15m", longHistory ? 840 : 300, now),
     getClosedCandles("1h", longHistory ? 420 : 300, now),
-    getClosedCandles("4h", longHistory ? HISTORY_BARS : 120, now),
-    longHistory ? getClosedCandles("1d", HISTORY_BARS, now) : Promise.resolve([]),
+    // Owner 2026-11-12: EMA / SMA 200 on 4h and 1D in every cycle (indicators), so at least 250 bars.
+    getClosedCandles("4h", longHistory ? HISTORY_BARS : 250, now),
+    getClosedCandles("1d", longHistory ? HISTORY_BARS : 250, now),
   ]);
   // 200 bars of 15m: the liquidation cascade needs a 24 h baseline before a spike up to 12 h old.
   const [flow, funding] = await Promise.all([getBtcFlow(200, now), getFundingRate()]);

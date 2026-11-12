@@ -47,6 +47,10 @@ export type Metrics = {
   longShortRatio: number | null; longShortChangePct: ByTf; orderbookBidAskRatio: number | null;
   orderbookImbalancePct: number | null; whaleIndex: number | null; whaleIndexChange4h: number | null;
   whaleIndex4h?: number | null;
+  /** RSI, MACD, EMA / SMA, Bollinger, Stochastic RSI, ADX by timeframe (owner 2026-11-12). */
+  indicators?: Record<string, Record<string, number | null> | null>;
+  /** MFI / Chaikin on aggregated futures and spot volume: fut_15m … spot_4h. */
+  moneyFlow?: Record<string, Record<string, number | null> | null>;
   context?: {
     heatmap: { below: Record<string, number>; above: Record<string, number>; topBelow: Array<{ price: number; distancePct: number; valueUsd: number }>; topAbove: Array<{ price: number; distancePct: number; valueUsd: number }>; aboveBelowRatio5pct: number | null } | null;
     hyperliquidWhales: { longCount: number; shortCount: number; longUsd: number; shortUsd: number; netUsd: number; avgLeverage: number | null; opened1hLongUsd: number; opened1hShortUsd: number } | null;

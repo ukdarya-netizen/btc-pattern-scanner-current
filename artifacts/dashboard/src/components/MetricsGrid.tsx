@@ -4,6 +4,45 @@ import { Table } from "./ui";
 
 const TFS = ["5m", "15m", "30m", "1h", "3h", "4h", "24h"];
 
+const IND_TFS: Array<[string, string]> = [["15m", "15m"], ["1h", "1h"], ["4h", "4h"], ["1d", "1D"]];
+const n2 = (d: number) => (v: number | null) => (v == null ? "—" : v.toFixed(d));
+const pc = (v: number | null) => <span className={tone(v)}>{signed(v)}</span>;
+const IND_ROWS: Array<[string, string, (v: number | null) => ReactNode]> = [
+  ["RSI 14", "rsi14", (v) => <span className={v == null ? "" : v >= 70 ? "text-rose-400" : v <= 30 ? "text-emerald-400" : ""}>{n2(1)(v)}</span>],
+  ["Stoch RSI K", "stochRsiK", n2(1)],
+  ["Stoch RSI D", "stochRsiD", n2(1)],
+  ["MACD (12/26)", "macd", n2(1)],
+  ["MACD сигнал (9)", "macdSignal", n2(1)],
+  ["MACD гистограмма", "macdHist", (v) => <span className={tone(v)}>{n2(1)(v)}</span>],
+  ["ADX 14", "adx14", n2(1)],
+  ["+DI", "plusDi", n2(1)],
+  ["−DI", "minusDi", n2(1)],
+  ["EMA 9", "ema9", (v) => price(v)],
+  ["EMA 21", "ema21", (v) => price(v)],
+  ["EMA 50", "ema50", (v) => price(v)],
+  ["EMA 200", "ema200", (v) => price(v)],
+  ["Цена от EMA 21", "distEma21Pct", pc],
+  ["Цена от EMA 50", "distEma50Pct", pc],
+  ["Цена от EMA 200", "distEma200Pct", pc],
+  ["MA 20", "sma20", (v) => price(v)],
+  ["MA 50", "sma50", (v) => price(v)],
+  ["MA 200", "sma200", (v) => price(v)],
+  ["Цена от MA 50", "distSma50Pct", pc],
+  ["Цена от MA 200", "distSma200Pct", pc],
+  ["Боллинджер верх (20, 2σ)", "bbUpper", (v) => price(v)],
+  ["Боллинджер низ", "bbLower", (v) => price(v)],
+  ["Боллинджер %B", "bbPctB", n2(2)],
+  ["Ширина Боллинджера", "bbWidthPct", (v) => (v == null ? "—" : `${v.toFixed(2)}%`)],
+];
+const MF_KEYS = ["fut_15m", "fut_1h", "fut_4h", "spot_15m", "spot_1h", "spot_4h"];
+const MF_ROWS: Array<[string, string, (v: number | null) => ReactNode]> = [
+  ["MFI 14", "mfi14", n2(1)],
+  ["Наклон MFI (12 баров)", "mfi_slope12", (v) => <span className={tone(v)}>{n2(1)(v)}</span>],
+  ["CMF 20", "cmf20", (v) => <span className={tone(v)}>{n2(3)(v)}</span>],
+  ["Наклон CMF (12)", "cmf_slope12", (v) => <span className={tone(v)}>{n2(3)(v)}</span>],
+  ["Осциллятор Чайкина", "cho", (v) => <span className={tone(v)}>{v == null ? "—" : usd(v)}</span>],
+];
+
 /** Every metric the patterns see: single readings and the per-timeframe table. */
 export function MetricsGrid({ m }: { m: Metrics }) {
   const rows: Array<[string, ByTf | undefined, (v: number | null) => ReactNode]> = [
@@ -51,6 +90,20 @@ export function MetricsGrid({ m }: { m: Metrics }) {
       </div>
       <Table head={["Метрика", ...TFS]}
         rows={rows.map(([label, values, render]) => [label, ...TFS.map((tf) => (values && tf in values ? render(values[tf] ?? null) : ""))])} />
+      {m.indicators && (
+        <>
+          <div className="text-xs uppercase tracking-wider text-muted-foreground">Индикаторы (BingX BTC-USDT, закрытые свечи)</div>
+          <Table head={["Индикатор", ...IND_TFS.map(([, l]) => l)]}
+            rows={IND_ROWS.map(([label, key, render]) => [label, ...IND_TFS.map(([tf]) => { const v = m.indicators?.[tf]?.[key]; return v === undefined ? "" : render(v ?? null); })])} />
+        </>
+      )}
+      {m.moneyFlow && (
+        <>
+          <div className="text-xs uppercase tracking-wider text-muted-foreground">Денежный поток (агрегированный объём CoinGlass)</div>
+          <Table head={["Индикатор", "Фьюч 15m", "Фьюч 1h", "Фьюч 4h", "Спот 15m", "Спот 1h", "Спот 4h"]}
+            rows={MF_ROWS.map(([label, key, render]) => [label, ...MF_KEYS.map((k) => render(m.moneyFlow?.[k]?.[key] ?? null))])} />
+        </>
+      )}
     </div>
   );
 }

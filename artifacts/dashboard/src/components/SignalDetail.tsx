@@ -76,7 +76,7 @@ export function SignalDetail({ s, label, onClose }: { s: Signal; label: string; 
         <div className="mb-4 overflow-x-auto">
           <div className="mb-1 text-xs uppercase tracking-wider text-muted-foreground">Снимки сигнала (15m … 72h, далее раз в сутки, и на закрытии)</div>
           <table className="w-full text-xs tabular-nums">
-            <thead><tr className="text-left text-muted-foreground">{["Точка", "Время", "Движение", "Пик", "Худшее", "OI 1h", "CVD спот 1h", "Тейкер фьюч 1h", "Fund% BingX", "WI", "Liq L/S 1h"].map((h) => <th key={h} className="whitespace-nowrap px-2 py-1 font-medium">{h}</th>)}</tr></thead>
+            <thead><tr className="text-left text-muted-foreground">{["Точка", "Время", "Движение", "Пик", "Худшее", "OI 1h", "CVD спот 1h", "Тейкер фьюч 1h", "Fund% BingX", "WI", "RSI 1h", "MACD 1h", "Liq L/S 1h"].map((h) => <th key={h} className="whitespace-nowrap px-2 py-1 font-medium">{h}</th>)}</tr></thead>
             <tbody>{traj.map((p) => (
               <tr key={p.label} className="border-t border-border/60">
                 <td className="px-2 py-1">{p.label === "close" ? "закрытие" : p.label}</td>
@@ -89,6 +89,8 @@ export function SignalDetail({ s, label, onClose }: { s: Signal; label: string; 
                 <td className="px-2 py-1">{signed(p.market.futTakerNetPct?.["1h"])}</td>
                 <td className="px-2 py-1">{num(p.market.fundingBingxPct, 4)}</td>
                 <td className="px-2 py-1">{num(p.market.whaleIndex, 1)}</td>
+                <td className="px-2 py-1">{num(p.market.indicators?.["1h"]?.rsi14 ?? null, 1)}</td>
+                <td className="px-2 py-1">{num(p.market.indicators?.["1h"]?.macdHist ?? null, 1)}</td>
                 <td className="px-2 py-1">{usd(p.market.liqLongUsd?.["1h"])} / {usd(p.market.liqShortUsd?.["1h"])}</td>
               </tr>
             ))}</tbody>
