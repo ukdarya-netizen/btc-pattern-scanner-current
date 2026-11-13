@@ -4,7 +4,6 @@ import { type Data, styleOf } from "../lib/data";
 import { Card, type Col, Pill, SortTable, Tile } from "../components/ui";
 import { SignalDetail } from "../components/SignalDetail";
 import { METRIC_COLS, EntryLine } from "../components/metricCols";
-import { MarketPanel } from "../components/MarketPanel";
 
 /** Open trades: clean move now, distance to the stop and to the next target, time in the trade; every column sorts. */
 export function Positions({ data, label }: { data: Data; label: (k: string) => string }) {
@@ -37,7 +36,6 @@ export function Positions({ data, label }: { data: Data; label: (k: string) => s
   ];
   return (
     <div className="space-y-4">
-      <MarketPanel full />
       <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
         <Tile label="Открыто" value={data.open.length} sub={`лонгов ${data.open.filter((s) => s.direction === "long").length} · шортов ${data.open.filter((s) => s.direction === "short").length}`} />
         <Tile label="Движение сейчас, сумма" value={signed(sum, 2)} tone={tone(sum)} sub="по всем открытым" />

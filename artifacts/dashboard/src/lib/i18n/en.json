@@ -192,7 +192,6 @@
  "Индикатор": "Indicator",
  "Индикатор Auto Range находит диапазон, где цена ходила внутри.": "The Auto Range indicator finds a range where price moved inside.",
  "Индикаторы (BingX BTC-USDT, закрытые свечи)": "Indicators (BingX BTC-USDT, closed candles)",
- "Индикаторы на 15m / 1h / 4h / 1D по закрытым свечам BingX, формулы TradingView: RSI 14, Stochastic RSI 14/14/3/3, MACD 12/26/9, ADX 14 с +DI / −DI, EMA 9 / 21 / 50 / 200, MA 20 / 50 / 200, Боллинджер 20 / 2σ. Плюс MFI и Чайкин на агрегированном объёме CoinGlass. Видны в карточке сигнала под графиком и на «Сервисе», главные — столбцами в «Позициях» и «Истории»; входят в каждый снимок сигнала.": "Indicators on 15m / 1h / 4h / 1D from BingX closed candles, TradingView formulas: RSI 14, Stochastic RSI 14/14/3/3, MACD 12/26/9, ADX 14 with +DI / −DI, EMA 9 / 21 / 50 / 200, MA 20 / 50 / 200, Bollinger 20 / 2σ. Plus MFI and Chaikin on CoinGlass aggregated volume. Shown in the signal card under the chart and on «Service», the main ones as columns in «Positions» and «History»; part of every signal snapshot.",
  "Интрадей": "Intraday",
  "История": "History",
  "История сделок": "Trade history",
@@ -588,8 +587,6 @@
  "▲ по возрастанию": "▲ ascending",
  "▼ по убыванию": "▼ descending",
  "✓ активна": "✓ active",
- "Рынок и решения": "Market and decisions",
- "метрики · решения паттернов": "metrics · pattern decisions",
  "сервер · сканер · сервисы · Telegram": "server · scanner · services · Telegram",
  "Доминация BTC и S&P 500 · 90 дней": "BTC dominance and S&P 500 · 90 days",
  "Нет данных доминации.": "No dominance data.",
@@ -602,5 +599,14 @@
  "База данных": "Database",
  "всё работает": "all working",
  "Проверяю…": "Checking…",
- "CoinGlass: лимит ключа (общий с CAB и Нигилистом)": "CoinGlass: key limit (shared with CAB and Nihilist)"
+ "CoinGlass: лимит ключа (общий с CAB и Нигилистом)": "CoinGlass: key limit (shared with CAB and Nihilist)",
+ "Индикаторы на 15m / 1h / 4h / 1D по закрытым свечам BingX, формулы TradingView: RSI 14, Stochastic RSI 14/14/3/3, MACD 12/26/9, ADX 14 с +DI / −DI, EMA 9 / 21 / 50 / 200, MA 20 / 50 / 200, Боллинджер 20 / 2σ. Плюс MFI и Чайкин на агрегированном объёме CoinGlass. Видны в карточке сигнала под графиком и во вкладке «Рынок», главные — столбцами в «Позициях» и «Истории»; входят в каждый снимок сигнала.": "Indicators on 15m / 1h / 4h / 1D from BingX closed candles, TradingView formulas: RSI 14, Stochastic RSI 14/14/3/3, MACD 12/26/9, ADX 14 with +DI / −DI, EMA 9 / 21 / 50 / 200, MA 20 / 50 / 200, Bollinger 20 / 2σ. Plus MFI and Chaikin on CoinGlass aggregated volume. Shown in the signal card under the chart and on the «Market» tab, the main ones as columns in «Positions» and «History»; part of every signal snapshot.",
+ "Рынок": "Market",
+ "дельта · OI · фандинг · доминация · S&P 500": "delta · OI · funding · dominance · S&P 500",
+ "Решения": "Decisions",
+ "решения паттернов · цель или стоп": "pattern decisions · target or stop",
+ "Доминация BTC · 90 дней": "BTC dominance · 90 days",
+ "S&P 500 · 90 дней": "S&P 500 · 90 days",
+ "Нет данных S&P 500.": "No S&P 500 data.",
+ "Счётчики CoinGlass и сервисов — с последнего перезапуска. Метрики рынка — во вкладке «Рынок», журнал решений — во вкладке «Решения».": "CoinGlass and service counters since the last restart. Market metrics on the «Market» tab, the decisions journal on «Decisions»."
 }

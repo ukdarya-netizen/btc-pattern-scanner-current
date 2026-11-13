@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Activity, BookOpen, Gauge, HeartPulse, History as HistoryIcon, Layers, LogOut, MoreHorizontal, Target, Users, X } from "lucide-react";
+import { Activity, BookOpen, Gauge, LineChart as LineChartIcon, HeartPulse, History as HistoryIcon, Layers, LogOut, MoreHorizontal, Target, Users, X } from "lucide-react";
 import { AuthError, type Decision, type Metrics, type OutcomeGroup, type Session, type Signal, type Status, asset, currentSession, getJson, post, price, saveSession, time } from "./lib/api";
 import { Login, Register, ResetPassword } from "./pages/Auth";
 import { type Data, type Filter, type Mode, NO_FILTER, type Period, type Tab, periodOptions } from "./lib/data";
@@ -8,7 +8,8 @@ import { Overview } from "./pages/Overview";
 import { Positions } from "./pages/Positions";
 import { History } from "./pages/History";
 import { Patterns } from "./pages/Patterns";
-import { Service } from "./pages/Service";
+import { Decisions } from "./pages/Decisions";
+import { Market } from "./pages/Market";
 import { Health } from "./pages/Health";
 import { Subscribers } from "./pages/Subscribers";
 import { Reference } from "./pages/Reference";
@@ -20,11 +21,12 @@ const NAV: Array<{ tab: Tab; label: string; sub: string; icon: typeof Target; ow
   { tab: "overview", label: "Обзор", sub: "общая статистика", icon: Activity },
   { tab: "history", label: "История сигналов", sub: "закрытые сделки", icon: HistoryIcon },
   { tab: "patterns", label: "Паттерны", sub: "результат каждого", icon: Layers },
+  // Owner 2026-11-13: everything about the market on one tab, for everyone.
+  { tab: "market", label: "Рынок", sub: "дельта · OI · фандинг · доминация · S&P 500", icon: LineChartIcon },
   { tab: "reference", label: "Справочник", sub: "паттерны · ведение сделки", icon: BookOpen },
   { tab: "subscribers", label: "Подписчики", sub: "дашборд + Telegram-бот", icon: Users, owner: true },
   { tab: "health", label: "Bot Health", sub: "сервер · сканер · сервисы · Telegram", icon: HeartPulse, owner: true },
-  // Owner 2026-11-13: the market and the decisions apart from the bot's health.
-  { tab: "service", label: "Рынок и решения", sub: "метрики · решения паттернов", icon: Gauge, owner: true },
+  { tab: "decisions", label: "Решения", sub: "решения паттернов · цель или стоп", icon: Gauge, owner: true },
 ];
 const TABS = NAV.map((n) => [n.tab, n.label] as const);
 const tabFromHash = (): Tab => {
@@ -181,7 +183,7 @@ export default function App() {
           <div className="flex flex-wrap items-center gap-2">
             <span className="text-sm font-semibold tabular-nums md:hidden">{price(last)}</span>
             <LanguageToggle />
-            {owner && tab !== "subscribers" && tab !== "service" && tab !== "health" && tab !== "reference" && (
+            {owner && tab !== "subscribers" && tab !== "market" && tab !== "decisions" && tab !== "health" && tab !== "reference" && (
               <Segmented<Mode> value={mode} options={[["live", "Канал"], ["shadow", "Тень"]]} onChange={(m) => { setMode(m); setFilter(NO_FILTER); }} />
             )}
             {periodMatters && (
@@ -194,14 +196,15 @@ export default function App() {
         </header>
         <div id="content" className="flex-1 space-y-4 overflow-auto p-4 pb-24 md:p-6 md:pb-6">
           {error && <p className="rounded-lg border border-rose-500/40 bg-rose-500/5 p-3 text-sm text-rose-300">Нет связи с API: {error}</p>}
-          {owner && mode === "shadow" && tab !== "subscribers" && tab !== "service" && tab !== "health" && tab !== "reference" && <p className="rounded-lg border border-gold/30 bg-gold/5 p-2 text-center text-xs text-gold">Режим «Тень»: сигналы, которые пишутся и считаются, но не публикуются в канал.</p>}
+          {owner && mode === "shadow" && tab !== "subscribers" && tab !== "market" && tab !== "decisions" && tab !== "health" && tab !== "reference" && <p className="rounded-lg border border-gold/30 bg-gold/5 p-2 text-center text-xs text-gold">Режим «Тень»: сигналы, которые пишутся и считаются, но не публикуются в канал.</p>}
           {tab === "overview" && <Overview data={data} period={period} setPeriod={setPeriod} mode={mode} go={go} />}
           {tab === "positions" && <Positions data={data} label={label} />}
           {tab === "history" && <History data={data} period={period} label={label} filter={filter} setFilter={setFilter} />}
           {tab === "patterns" && <Patterns data={data} period={period} mode={mode} go={go} />}
           {tab === "reference" && <Reference data={data} />}
           {tab === "subscribers" && owner && <Subscribers />}
-          {tab === "service" && owner && <Service data={raw} label={label} />}
+          {tab === "market" && <Market data={raw} owner={owner} />}
+          {tab === "decisions" && owner && <Decisions data={raw} label={label} />}
           {tab === "health" && owner && <Health />}
           <footer className="pt-6 text-center text-[10px] uppercase tracking-[0.35em] text-gold/50">Honey badger don't care · время Дубай</footer>
         </div>

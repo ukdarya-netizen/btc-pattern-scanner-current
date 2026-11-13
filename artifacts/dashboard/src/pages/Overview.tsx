@@ -4,7 +4,6 @@ import { useState } from "react";
 import { ChevronLeft, ChevronRight } from "lucide-react";
 import { type Data, type Filter, type Mode, NO_FILTER, type Period, type Tab, dubaiDayKey, dubaiMonth, inPeriod, monthName, res, styleOf, summarize } from "../lib/data";
 import { Card, type Col, Crown, SortTable, Table, Tile } from "../components/ui";
-import { MarketPanel } from "../components/MarketPanel";
 
 const GOLD = "#f2b10f";
 const AXIS = { stroke: "#8a7d63", fontSize: 11 };
@@ -114,7 +113,6 @@ export function Overview({ data, period, setPeriod, mode, go }: { data: Data; pe
 
   return (
     <div className="space-y-4">
-      <MarketPanel />
       <section className="hero relative overflow-hidden rounded-2xl border border-gold/30">
         <img src={asset("brand/hero.webp")} alt="" className="absolute inset-0 h-full w-full object-cover object-[center_72%]" />
         <div className="absolute inset-0 bg-gradient-to-r from-black via-black/70 to-transparent" />

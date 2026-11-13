@@ -16,7 +16,7 @@ export type Reason = "" | "take_profit" | "stop" | "breakeven" | "timeout";
 export type Filter = { pattern: string; direction: string; style: "" | Style; result: "all" | "win" | "loss" | "flat"; reason: Reason };
 export const NO_FILTER: Filter = { pattern: "", direction: "", style: "", result: "all", reason: "" };
 
-export type Tab = "positions" | "overview" | "history" | "patterns" | "reference" | "subscribers" | "service" | "health";
+export type Tab = "positions" | "overview" | "history" | "patterns" | "market" | "reference" | "subscribers" | "decisions" | "health";
 
 /** Result of a trade: the clean price move, no leverage, no fees (owner 2026-11-12). */
 export const res = (s: Signal) => s.pnlPricePct ?? 0;

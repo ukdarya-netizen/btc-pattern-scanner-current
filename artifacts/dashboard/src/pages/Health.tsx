@@ -5,7 +5,7 @@ import { Card, Pill } from "../components/ui";
 /**
  * Bot Health (owner 2026-11-13): the bot's own health on its own tab — process, price stream, scanner cycle,
  * external APIs, CoinGlass budget, database, Telegram queue, reports. Market metrics and decisions are on
- * «Рынок и решения». Refreshed every 30 s.
+ * «Рынок» and the decisions on «Решения». Refreshed every 30 s.
  */
 type Api = { ok: boolean; downForMin: number; consecutiveFailures: number; lastError: string | null; lastSuccessAt: string | null };
 type Health = {
@@ -99,7 +99,7 @@ export function Health() {
         </Row>
         <Row label="Отчёты" ok={null}>{h.reports.length ? h.reports.map((r) => `${r.periodKey} · ${time(r.sentAt)}`).join(" · ") : "ещё не было"}</Row>
       </Card>
-      <p className="text-xs text-muted-foreground">Счётчики CoinGlass и сервисов — с последнего перезапуска. Метрики рынка и журнал решений — во вкладке «Рынок и решения».</p>
+      <p className="text-xs text-muted-foreground">Счётчики CoinGlass и сервисов — с последнего перезапуска. Метрики рынка — во вкладке «Рынок», журнал решений — во вкладке «Решения».</p>
     </div>
   );
 }

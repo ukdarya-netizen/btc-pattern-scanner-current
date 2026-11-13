@@ -1,18 +1,13 @@
 import { dir, num, price, time } from "../lib/api";
 import type { Data } from "../lib/data";
 import { Card, Pill, Table } from "../components/ui";
-import { MetricsGrid } from "../components/MetricsGrid";
 
 const DEC: Record<string, string> = { fired: "сигнал", rejected: "отклонён", suppressed: "подавлен" };
 
-/** «Рынок и решения» (owner 2026-11-13, apart from Bot Health): the market as the patterns see it and the decisions journal. */
-export function Service({ data, label }: { data: Data; label: (k: string) => string }) {
-  const st = data.status;
+/** «Решения» (owner 2026-11-13: its own tab; the market lives on «Рынок»): pattern decisions and their outcomes. */
+export function Decisions({ data, label }: { data: Data; label: (k: string) => string }) {
   return (
     <div className="space-y-4">
-      <Card title={`Рынок BTC · свеча ${time(data.market?.candleCloseAt)}`}>
-        {data.market?.metrics ? <MetricsGrid m={data.market.metrics} /> : <p className="text-sm text-muted-foreground">Метрики появятся после первого цикла.</p>}
-      </Card>
       <Card title="Решения паттернов за 7 дней · что раньше: цель 1 или стоп">
         <Table
           head={["Паттерн", "Напр.", "Решение", "Причина", "Всего", "Цель раньше", "Стоп раньше", "% целей", "Ждём"]}

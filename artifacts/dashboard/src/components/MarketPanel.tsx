@@ -94,12 +94,15 @@ export function MarketPanel({ full = false }: { full?: boolean }) {
   const rows = d.hours.map((h) => ({ ...h, label: hh(h.t) }));
   const fgRows = d.fearGreedHistory.map((p) => ({ label: new Date(p.t).toLocaleDateString("ru-RU", { day: "2-digit", month: "2-digit" }), v: p.v, price: p.p ?? null }));
   const usdTick = (v: number) => usd(v);
-  // Owner 2026-11-13: BTC dominance and S&P 500 on one chart, by day (UTC); BTC price as on every chart.
+  // Owner 2026-11-13: BTC dominance and S&P 500 by day (UTC), each on its own chart with the BTC price.
   const dayKey = (t: number) => new Date(t).toISOString().slice(0, 10);
-  const spxByDay = new Map((d.spxHistory ?? []).map((p) => [dayKey(p.t), p.close]));
-  const domRows = (d.dominanceHistory ?? []).slice(-90).map((p) => ({
-    label: new Date(p.t).toLocaleDateString("ru-RU", { day: "2-digit", month: "2-digit" }), dom: p.d, spx: spxByDay.get(dayKey(p.t)) ?? null, price: p.price,
-  }));
+    const dayLabel = (t: number) => new Date(t).toLocaleDateString("ru-RU", { day: "2-digit", month: "2-digit" });
+  const domRows = (d.dominanceHistory ?? []).slice(-90).map((p) => ({ label: dayLabel(p.t), dom: p.d, price: p.price }));
+  // BTC price of the day for the S&P chart: from the dominance read (CoinGlass gives the BTC price with it).
+  const btcByDay = new Map((d.dominanceHistory ?? []).map((p) => [dayKey(p.t), p.price]));
+  const spxRows = (d.spxHistory ?? []).filter((p) => p.t >= Date.now() - 90 * 86_400_000)
+    .map((p) => ({ label: dayLabel(p.t), spx: p.close, price: btcByDay.get(dayKey(p.t)) ?? null }));
+
 
   return (
     <Card title={<>Рынок BTC · {d.candleCloseAt ? hh(d.candleCloseAt) : "—"}</>}>
@@ -181,11 +184,18 @@ export function MarketPanel({ full = false }: { full?: boolean }) {
             <ResponsiveContainer><ComposedChart data={rows}><CartesianGrid stroke="#2a2214" vertical={false} /><XAxis dataKey="label" {...AXIS} minTickGap={40} /><YAxis yAxisId="wi" {...AXIS} width={40} /><YAxis yAxisId="rsi" orientation="right" {...AXIS} width={30} domain={[0, 100]} /><Tooltip {...TIP} formatter={withBtc((v) => num(v, 1))} /><ReferenceLine yAxisId="wi" y={0} stroke={MUTED} /><Legend wrapperStyle={{ fontSize: 11 }} />
               <Line yAxisId="wi" dataKey="whaleIndex" name="Whale Index" stroke={GOLD} dot={false} connectNulls /><Line yAxisId="rsi" dataKey="rsi1h" name="RSI 1h" stroke={SKY} dot={false} connectNulls />{btcAxis(true)}{btcLine}</ComposedChart></ResponsiveContainer>
           </Chart>
-          <Chart title="Доминация BTC и S&P 500 · 90 дней">
+          {/* Owner 2026-11-13: dominance and S&P 500 on separate charts, the BTC line on both. */}
+          <Chart title="Доминация BTC · 90 дней">
             {domRows.length ? (
-              <ResponsiveContainer><ComposedChart data={domRows}><CartesianGrid stroke="#2a2214" vertical={false} /><XAxis dataKey="label" {...AXIS} minTickGap={30} /><YAxis yAxisId="dom" {...AXIS} width={44} domain={["auto", "auto"]} tickFormatter={(v: number) => `${v.toFixed(1)}%`} /><YAxis yAxisId="spx" orientation="right" {...AXIS} width={50} domain={["auto", "auto"]} tickFormatter={(v: number) => v.toFixed(0)} /><Tooltip {...TIP} formatter={(v: number, n: string) => (n === BTC ? price(v) : n === "S&P 500" ? v.toFixed(0) : `${v.toFixed(2)}%`)} /><Legend wrapperStyle={{ fontSize: 11 }} />
-                <Line yAxisId="dom" dataKey="dom" name="Доминация BTC" stroke={GOLD} dot={false} strokeWidth={2} connectNulls /><Line yAxisId="spx" dataKey="spx" name="S&P 500" stroke={SKY} dot={false} connectNulls />{btcAxis(true)}{btcLine}</ComposedChart></ResponsiveContainer>
+              <ResponsiveContainer><ComposedChart data={domRows}><CartesianGrid stroke="#2a2214" vertical={false} /><XAxis dataKey="label" {...AXIS} minTickGap={30} /><YAxis {...AXIS} width={44} domain={["auto", "auto"]} tickFormatter={(v: number) => `${v.toFixed(1)}%`} /><Tooltip {...TIP} formatter={withBtc((v) => `${v.toFixed(2)}%`)} />
+                <Line dataKey="dom" name="Доминация BTC" stroke={GOLD} dot={false} strokeWidth={2} connectNulls />{btcAxis()}{btcLine}</ComposedChart></ResponsiveContainer>
             ) : <p className="text-sm text-muted-foreground">Нет данных доминации.</p>}
+          </Chart>
+          <Chart title="S&P 500 · 90 дней">
+            {spxRows.length ? (
+              <ResponsiveContainer><ComposedChart data={spxRows}><CartesianGrid stroke="#2a2214" vertical={false} /><XAxis dataKey="label" {...AXIS} minTickGap={30} /><YAxis {...AXIS} width={50} domain={["auto", "auto"]} tickFormatter={(v: number) => v.toFixed(0)} /><Tooltip {...TIP} formatter={withBtc((v) => v.toFixed(0))} />
+                <Line dataKey="spx" name="S&P 500" stroke={SKY} dot={false} strokeWidth={2} connectNulls />{btcAxis()}{btcLine}</ComposedChart></ResponsiveContainer>
+            ) : <p className="text-sm text-muted-foreground">Нет данных S&P 500.</p>}
           </Chart>
           <Chart title="Fear / Greed · 30 дней">
             <ResponsiveContainer><ComposedChart data={fgRows}><CartesianGrid stroke="#2a2214" vertical={false} /><XAxis dataKey="label" {...AXIS} minTickGap={30} /><YAxis {...AXIS} width={30} domain={[0, 100]} /><Tooltip {...TIP} formatter={withBtc((v) => String(v))} /><ReferenceLine y={50} stroke={MUTED} strokeDasharray="3 3" /><Area dataKey="v" name="Индекс" stroke={GOLD} fill={GOLD} fillOpacity={0.15} />{btcAxis()}{btcLine}</ComposedChart></ResponsiveContainer>
