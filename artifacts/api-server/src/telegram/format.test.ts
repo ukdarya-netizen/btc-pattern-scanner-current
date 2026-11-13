@@ -69,11 +69,15 @@ test("entry metrics as CAB: OI, CVD, takers, volume, liquidations, funding BingX
     futVolumeMult: { "1h": 1.5 } as any, spotVolumeMult: {} as any, liqLongUsd: { "1h": 1e6, "24h": 1e7 } as any, liqShortUsd: { "1h": 0, "24h": 0 } as any,
     fundingRatePct: 0.0051, fundingBingxPct: 0.01, whaleIndex: 12, whaleIndex4h: 3, longShortRatio: 1.5, orderbookBidAskRatio: 0.6,
   }).join("\n");
-  assert.match(t, /OI: 15m \+0\.10% · 30m \+0\.20% · 1h \+0\.30% · 4h \+1\.00% · 24h \+2\.00%/);
-  assert.match(t, /Ликвидации 1h: лонги \$1\.0M · шорты \$0K · 24h: лонги \$10\.0M · шорты \$0K · 1h\/24h 10\.0%/);
-  assert.match(t, /⚖️ Фандинг \(8ч\): BingX \+0\.0100% · CoinGlass OI-взвеш\. \+0\.0051%/);
+  assert.match(t, /OI: 15m \+0\.10%🟡 · 30m \+0\.20%🟡 · 1h \+0\.30%🟢 · 4h \+1\.00%🟢 · 24h \+2\.00%🟢/);
+  assert.match(t, /Цена: 1h \+0\.40%🟢 · 4h -1\.00%🔴/);
+  assert.match(t, /CVD спот: 15m \$1\.0M🟢/);
+  assert.match(t, /Тейкер фьюч: 15m —/);
+  assert.match(t, /Объём к среднему: фьюч 15m — · 1h 1\.50x🟢/);
+  assert.match(t, /Ликвидации 1h: лонги \$1\.0M🔴 · шорты \$0K · 24h: лонги \$10\.0M · шорты \$0K · 1h\/24h 10\.0%/);
+  assert.match(t, /⚖️ Фандинг \(8ч\): BingX \+0\.0100%🟡 · CoinGlass OI-взвеш\. \+0\.0051%/);
   assert.match(t, /📊 WI \+12\.0🟢 \(4h \+3\.0\) · Толпа 60% лонг \(Binance\) · OB 0\.60x🔴/);
-  assert.equal(fundingLine(0.12, null), "⚠️ Фандинг (8ч): BingX +0.1200% — лонги перегреты");
+  assert.equal(fundingLine(0.12, null), "⚠️ Фандинг (8ч): BingX +0.1200%🔴 — лонги перегреты");
 });
 
 test("position updates carry the market now (OI, CVD, takers, funding …); without fresh metrics no block", async () => {

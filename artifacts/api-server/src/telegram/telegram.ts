@@ -35,11 +35,21 @@ const usd = (v: number | null | undefined) => {
 const p2 = (v: number | null | undefined) => (v == null ? "—" : pct(v));
 const x = (v: number | null | undefined) => (v == null ? "—" : `${v.toFixed(2)}x`);
 
+/**
+ * Owner 2026-11-13: colour marks so the metrics read at a glance, as CAB (mark after the value):
+ * 🟢 up / buying · 🔴 down / selling · 🟡 about zero. Thresholds: price and OI ±0.3%, CVD ±$1M, takers ±3%.
+ * Volume vs average: 🔥 ≥ 2x · 🟢 ≥ 1.3x · 🟡 below. Liquidations: 🔴 longs washed out, 🟢 shorts, ≥ $1M an hour.
+ * For OI green means OI is growing (positions opened), not a bullish reading.
+ */
+const mark = (v: number | null | undefined, band: number) => (v == null ? "" : v >= band ? "🟢" : v <= -band ? "🔴" : "🟡");
+const volMark = (v: number | null | undefined) => (v == null ? "" : v >= 2 ? "🔥" : v >= 1.3 ? "🟢" : "🟡");
+
 /** Funding line as CAB: BingX 8 h rate with the same reading thresholds (typical neutral ≈ ±0.01%). */
 export function fundingLine(bingx: number | null | undefined, cgOiWeighted: number | null | undefined): string {
   const cg = cgOiWeighted == null ? "" : ` · CoinGlass OI-взвеш. ${cgOiWeighted >= 0 ? "+" : ""}${cgOiWeighted.toFixed(4)}%`;
   if (bingx == null) return `⚖️ Фандинг (8ч): BingX —${cg}`;
-  const v = `${bingx >= 0 ? "+" : ""}${bingx.toFixed(4)}%`;
+  // Colour as CAB: shorts paying (≤ −0.01%) 🟢, longs paying ≥ 0.02% 🔴, between 🟡 (owner 2026-11-13).
+  const v = `${bingx >= 0 ? "+" : ""}${bingx.toFixed(4)}%${bingx <= -0.01 ? "🟢" : bingx >= 0.02 ? "🔴" : "🟡"}`;
   const [icon, note] = bingx <= -0.05 ? ["💰", " — шорты в ловушке, сквиз-давление"]
     : bingx <= -0.01 ? ["💰", " — шорты платят"]
       : bingx >= 0.1 ? ["⚠️", " — лонги перегреты"]
@@ -53,26 +63,28 @@ export const NOW_TITLE = "📊 Рынок сейчас (CoinGlass, все бир
 /** Owner 2026-11-12: every entry metric as CAB — price, OI, CVD, takers, volume, liquidations, funding, WI, crowd, OB. */
 export function metricLines(m: Partial<Metrics> | null, title = "📊 Рынок на входе (CoinGlass, все биржи)"): string[] {
   if (!m || !m.oiChangePct) return [];
-  const tf = <K extends string>(o: Partial<Record<K, number | null>> | undefined, keys: K[], f: (v: number | null | undefined) => string) =>
-    keys.map((k) => `${k} ${f(o?.[k])}`).join(" · ");
+  const tf = <K extends string>(o: Partial<Record<K, number | null>> | undefined, keys: K[], f: (v: number | null | undefined) => string, m: (v: number | null | undefined) => string = () => "") =>
+    keys.map((k) => `${k} ${f(o?.[k])}${m(o?.[k])}`).join(" · ");
+  const pm = (v: number | null | undefined) => mark(v, 0.3), cm = (v: number | null | undefined) => mark(v, 1e6), tm = (v: number | null | undefined) => mark(v, 3);
+  const liqL = (v: number | null | undefined) => (v != null && v >= 1e6 ? "🔴" : ""), liqS = (v: number | null | undefined) => (v != null && v >= 1e6 ? "🟢" : "");
   const liq1h = (m.liqLongUsd?.["1h"] ?? 0) + (m.liqShortUsd?.["1h"] ?? 0);
   const liq24h = (m.liqLongUsd?.["24h"] ?? 0) + (m.liqShortUsd?.["24h"] ?? 0);
   const wi = m.whaleIndex;
-  const wiPart = wi == null ? null : `WI ${wi >= 0 ? "+" : ""}${wi.toFixed(1)}${wi >= 10 ? "🟢" : wi <= -10 ? "🔴" : "⚪"}${m.whaleIndex4h == null ? "" : ` (4h ${m.whaleIndex4h >= 0 ? "+" : ""}${m.whaleIndex4h.toFixed(1)})`}`;
+  const wiPart = wi == null ? null : `WI ${wi >= 0 ? "+" : ""}${wi.toFixed(1)}${wi >= 10 ? "🟢" : wi <= -10 ? "🔴" : "🟡"}${m.whaleIndex4h == null ? "" : ` (4h ${m.whaleIndex4h >= 0 ? "+" : ""}${m.whaleIndex4h.toFixed(1)})`}`;
   const crowd = m.longShortRatio == null ? null : `Толпа ${((m.longShortRatio / (1 + m.longShortRatio)) * 100).toFixed(0)}% лонг (Binance)`;
-  const ob = m.orderbookBidAskRatio == null ? null : `OB ${m.orderbookBidAskRatio.toFixed(2)}x${m.orderbookBidAskRatio >= 1.5 ? "🟢" : m.orderbookBidAskRatio <= 0.7 ? "🔴" : "⚪"}`;
+  const ob = m.orderbookBidAskRatio == null ? null : `OB ${m.orderbookBidAskRatio.toFixed(2)}x${m.orderbookBidAskRatio >= 1.5 ? "🟢" : m.orderbookBidAskRatio <= 0.7 ? "🔴" : "🟡"}`;
   const compact = [wiPart, crowd, ob].filter(Boolean);
   return [
     "",
     title,
-    `Цена: ${tf(m.priceChangePct, ["1h", "4h", "24h"], p2)}`,
-    `OI: ${tf(m.oiChangePct, ["15m", "30m", "1h", "4h", "24h"], p2)}`,
-    `CVD спот: ${tf(m.spotCvdUsd, ["15m", "30m", "1h", "4h"], usd)}`,
-    `CVD фьюч: ${tf(m.futCvdUsd, ["15m", "30m", "1h", "4h"], usd)}`,
-    `Тейкер фьюч: ${tf(m.futTakerNetPct, ["15m", "1h", "4h"], p2)}`,
-    `Тейкер спот: ${tf(m.spotTakerNetPct, ["15m", "1h", "4h"], p2)}`,
-    `Объём к среднему: фьюч ${tf(m.futVolumeMult, ["15m", "1h"], x)} · спот ${tf(m.spotVolumeMult, ["15m", "1h"], x)}`,
-    `Ликвидации 1h: лонги ${usd(m.liqLongUsd?.["1h"])} · шорты ${usd(m.liqShortUsd?.["1h"])} · 24h: лонги ${usd(m.liqLongUsd?.["24h"])} · шорты ${usd(m.liqShortUsd?.["24h"])}${liq24h > 0 ? ` · 1h/24h ${((liq1h / liq24h) * 100).toFixed(1)}%` : ""}`,
+    `Цена: ${tf(m.priceChangePct, ["1h", "4h", "24h"], p2, pm)}`,
+    `OI: ${tf(m.oiChangePct, ["15m", "30m", "1h", "4h", "24h"], p2, pm)}`,
+    `CVD спот: ${tf(m.spotCvdUsd, ["15m", "30m", "1h", "4h"], usd, cm)}`,
+    `CVD фьюч: ${tf(m.futCvdUsd, ["15m", "30m", "1h", "4h"], usd, cm)}`,
+    `Тейкер фьюч: ${tf(m.futTakerNetPct, ["15m", "1h", "4h"], p2, tm)}`,
+    `Тейкер спот: ${tf(m.spotTakerNetPct, ["15m", "1h", "4h"], p2, tm)}`,
+    `Объём к среднему: фьюч ${tf(m.futVolumeMult, ["15m", "1h"], x, volMark)} · спот ${tf(m.spotVolumeMult, ["15m", "1h"], x, volMark)}`,
+    `Ликвидации 1h: лонги ${usd(m.liqLongUsd?.["1h"])}${liqL(m.liqLongUsd?.["1h"])} · шорты ${usd(m.liqShortUsd?.["1h"])}${liqS(m.liqShortUsd?.["1h"])} · 24h: лонги ${usd(m.liqLongUsd?.["24h"])} · шорты ${usd(m.liqShortUsd?.["24h"])}${liq24h > 0 ? ` · 1h/24h ${((liq1h / liq24h) * 100).toFixed(1)}%` : ""}`,
     fundingLine(m.fundingBingxPct, m.fundingRatePct),
     ...(compact.length ? [`📊 ${compact.join(" · ")}`] : []),
     ...(m.context?.heatmap ? [`Кластеры ликвидаций: выше ${m.context.heatmap.topAbove[0] ? `${fmt(m.context.heatmap.topAbove[0].price)} (${pct(m.context.heatmap.topAbove[0].distancePct)})` : "—"} · ниже ${m.context.heatmap.topBelow[0] ? `${fmt(m.context.heatmap.topBelow[0].price)} (${pct(m.context.heatmap.topBelow[0].distancePct)})` : "—"}`] : []),
