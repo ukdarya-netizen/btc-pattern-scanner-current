@@ -12,6 +12,7 @@ import { healthSnapshot } from "../lib/apiHealth";
 import { candleCoverage, decisionOutcomes } from "../analysis/candleStore";
 import { coinglassGovernorStats } from "../market/coinglass";
 import { isOwnerReq, ownerOnly } from "../lib/users";
+import { historyCsv } from "../analysis/historyStudy";
 
 const router = Router();
 const clampLimit = (raw: unknown, max = 500) => Math.min(Math.max(Number(raw) || 100, 1), max);
@@ -71,6 +72,20 @@ router.get("/btc/health", ownerOnly, async (_req, res) => {
     openSignals: openSignalCount(),
     patterns: { total: PATTERNS.length, live: PATTERNS.filter((p) => p.live).length },
   });
+});
+
+/** BTC history (CoinGlass, 1h up to 2 years + 4h) for the market-phase study — owner only (owner 2026-11-13). */
+router.get("/btc/history-study", ownerOnly, async (_req, res) => {
+  try {
+    const { csv, rows } = await historyCsv();
+    if (!rows) { res.status(503).json({ error: "Нет данных CoinGlass (dev или CoinGlass не ответил)" }); return; }
+    res.setHeader("Content-Type", "application/gzip");
+    res.setHeader("Content-Disposition", 'attachment; filename="btc-history.csv.gz"');
+    res.send(csv);
+  } catch (err) {
+    logger.error({ err }, "history study failed");
+    res.status(500).json({ error: "history_failed" });
+  }
 });
 
 router.get("/btc/stats", ownerOnly, async (req, res) => {

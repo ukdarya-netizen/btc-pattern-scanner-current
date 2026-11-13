@@ -104,6 +104,14 @@ async function request<T>(method: string, path: string, body?: unknown): Promise
   return data as T;
 }
 export const getJson = <T>(path: string) => request<T>("GET", path);
+/** Owner downloads (a file from an owner-only route, with the session token). */
+export async function download(path: string, filename: string): Promise<void> {
+  const res = await fetch(path, { headers: session?.token ? { Authorization: `Bearer ${session.token}` } : {} });
+  if (!res.ok) { const d = await res.json().catch(() => ({})) as { error?: string }; throw new ApiError(d.error ?? `HTTP ${res.status}`, String(res.status)); }
+  const url = URL.createObjectURL(await res.blob());
+  const a = document.createElement("a"); a.href = url; a.download = filename; document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 10_000);
+}
 export const post = <T>(path: string, body: unknown) => request<T>("POST", path, body);
 export const patch = <T>(path: string, body: unknown) => request<T>("PATCH", path, body);
 export const del = <T>(path: string) => request<T>("DELETE", path);

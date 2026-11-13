@@ -1,5 +1,5 @@
 import { useEffect, useState, type ReactNode } from "react";
-import { getJson, time } from "../lib/api";
+import { download, getJson, time } from "../lib/api";
 import { Card, Pill } from "../components/ui";
 
 /**
@@ -99,7 +99,25 @@ export function Health() {
         </Row>
         <Row label="Отчёты" ok={null}>{h.reports.length ? h.reports.map((r) => `${r.periodKey} · ${time(r.sentAt)}`).join(" · ") : "ещё не было"}</Row>
       </Card>
+      <Card title="Данные для анализа">
+        <HistoryButton />
+      </Card>
       <p className="text-xs text-muted-foreground">Счётчики CoinGlass и сервисов — с последнего перезапуска. Метрики рынка — во вкладке «Рынок», журнал решений — во вкладке «Решения».</p>
+    </div>
+  );
+}
+
+/** Owner 2026-11-13: BTC history from CoinGlass (1h up to 2 years + 4h) for the market-phase study. */
+function HistoryButton() {
+  const [state, setState] = useState<string | null>(null);
+  const go = () => {
+    setState("Собираю историю BTC (около минуты)…");
+    download("/api/btc/history-study", "btc-history.csv.gz").then(() => setState("Готово: btc-history.csv.gz")).catch((e) => setState(`Ошибка: ${e instanceof Error ? e.message : String(e)}`));
+  };
+  return (
+    <div className="flex flex-wrap items-center gap-3 text-sm">
+      <button onClick={go} className="rounded-lg border border-gold/40 px-3 py-1.5 text-gold hover:bg-gold/10">Скачать историю BTC (CoinGlass, 1h за 2 года + 4h)</button>
+      {state && <span className="text-muted-foreground">{state}</span>}
     </div>
   );
 }

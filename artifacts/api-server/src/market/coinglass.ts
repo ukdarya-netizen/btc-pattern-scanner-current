@@ -99,7 +99,7 @@ export function coinglassGovernorStats() {
   return { ...stats, cooldownMs: Math.max(0, cooldownUntil - Date.now()), minGapMs: MIN_GAP_MS };
 }
 
-async function cgList(path: string, params: Record<string, string | number>): Promise<Array<Record<string, unknown>> | null> {
+export async function cgList(path: string, params: Record<string, string | number>): Promise<Array<Record<string, unknown>> | null> {
   const data = await cgGet(path, params);
   return Array.isArray(data) ? (data as Array<Record<string, unknown>>) : null;
 }
