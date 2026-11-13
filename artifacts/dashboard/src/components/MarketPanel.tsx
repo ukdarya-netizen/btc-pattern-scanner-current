@@ -19,6 +19,8 @@ type Market = {
   candleCloseAt: string | null; metrics: Metrics | null;
   fearGreed: { value: number; prev: number | null; label: string } | null;
   fearGreedHistory: Array<{ t: number; v: number; p?: number | null }>;
+  dominanceHistory?: Array<{ t: number; d: number; price: number | null }>;
+  spxHistory?: Array<{ t: number; close: number }>;
   hours: Hour[];
 };
 
@@ -92,6 +94,12 @@ export function MarketPanel({ full = false }: { full?: boolean }) {
   const rows = d.hours.map((h) => ({ ...h, label: hh(h.t) }));
   const fgRows = d.fearGreedHistory.map((p) => ({ label: new Date(p.t).toLocaleDateString("ru-RU", { day: "2-digit", month: "2-digit" }), v: p.v, price: p.p ?? null }));
   const usdTick = (v: number) => usd(v);
+  // Owner 2026-11-13: BTC dominance and S&P 500 on one chart, by day (UTC); BTC price as on every chart.
+  const dayKey = (t: number) => new Date(t).toISOString().slice(0, 10);
+  const spxByDay = new Map((d.spxHistory ?? []).map((p) => [dayKey(p.t), p.close]));
+  const domRows = (d.dominanceHistory ?? []).slice(-90).map((p) => ({
+    label: new Date(p.t).toLocaleDateString("ru-RU", { day: "2-digit", month: "2-digit" }), dom: p.d, spx: spxByDay.get(dayKey(p.t)) ?? null, price: p.price,
+  }));
 
   return (
     <Card title={<>Рынок BTC · {d.candleCloseAt ? hh(d.candleCloseAt) : "—"}</>}>
@@ -173,12 +181,18 @@ export function MarketPanel({ full = false }: { full?: boolean }) {
             <ResponsiveContainer><ComposedChart data={rows}><CartesianGrid stroke="#2a2214" vertical={false} /><XAxis dataKey="label" {...AXIS} minTickGap={40} /><YAxis yAxisId="wi" {...AXIS} width={40} /><YAxis yAxisId="rsi" orientation="right" {...AXIS} width={30} domain={[0, 100]} /><Tooltip {...TIP} formatter={withBtc((v) => num(v, 1))} /><ReferenceLine yAxisId="wi" y={0} stroke={MUTED} /><Legend wrapperStyle={{ fontSize: 11 }} />
               <Line yAxisId="wi" dataKey="whaleIndex" name="Whale Index" stroke={GOLD} dot={false} connectNulls /><Line yAxisId="rsi" dataKey="rsi1h" name="RSI 1h" stroke={SKY} dot={false} connectNulls />{btcAxis(true)}{btcLine}</ComposedChart></ResponsiveContainer>
           </Chart>
+          <Chart title="Доминация BTC и S&P 500 · 90 дней">
+            {domRows.length ? (
+              <ResponsiveContainer><ComposedChart data={domRows}><CartesianGrid stroke="#2a2214" vertical={false} /><XAxis dataKey="label" {...AXIS} minTickGap={30} /><YAxis yAxisId="dom" {...AXIS} width={44} domain={["auto", "auto"]} tickFormatter={(v: number) => `${v.toFixed(1)}%`} /><YAxis yAxisId="spx" orientation="right" {...AXIS} width={50} domain={["auto", "auto"]} tickFormatter={(v: number) => v.toFixed(0)} /><Tooltip {...TIP} formatter={(v: number, n: string) => (n === BTC ? price(v) : n === "S&P 500" ? v.toFixed(0) : `${v.toFixed(2)}%`)} /><Legend wrapperStyle={{ fontSize: 11 }} />
+                <Line yAxisId="dom" dataKey="dom" name="Доминация BTC" stroke={GOLD} dot={false} strokeWidth={2} connectNulls /><Line yAxisId="spx" dataKey="spx" name="S&P 500" stroke={SKY} dot={false} connectNulls />{btcAxis(true)}{btcLine}</ComposedChart></ResponsiveContainer>
+            ) : <p className="text-sm text-muted-foreground">Нет данных доминации.</p>}
+          </Chart>
           <Chart title="Fear / Greed · 30 дней">
             <ResponsiveContainer><ComposedChart data={fgRows}><CartesianGrid stroke="#2a2214" vertical={false} /><XAxis dataKey="label" {...AXIS} minTickGap={30} /><YAxis {...AXIS} width={30} domain={[0, 100]} /><Tooltip {...TIP} formatter={withBtc((v) => String(v))} /><ReferenceLine y={50} stroke={MUTED} strokeDasharray="3 3" /><Area dataKey="v" name="Индекс" stroke={GOLD} fill={GOLD} fillOpacity={0.15} />{btcAxis()}{btcLine}</ComposedChart></ResponsiveContainer>
           </Chart>
         </div>
       )}
-      {full && <p className="mt-2 text-xs text-muted-foreground">Ликвидации, OI, CVD, тейкеры, Whale Index — CoinGlass, сумма по всем биржам; цена и RSI — BingX. Точка на графике — час (Дубай). Светлая линия на каждом графике — цена BTC (правая шкала). Фандинг BingX пишется с 12.11, раньше точек нет.</p>}
+      {full && <p className="mt-2 text-xs text-muted-foreground">Ликвидации, OI, CVD, тейкеры, Whale Index — CoinGlass, сумма по всем биржам; цена и RSI — BingX. Точка на графике — час (Дубай). Светлая линия на каждом графике — цена BTC (правая шкала). Доминация — CoinGlass, S&P 500 — Yahoo Finance (по дням, без выходных). Фандинг BingX пишется с 12.11, раньше точек нет.</p>}
     </Card>
   );
 }

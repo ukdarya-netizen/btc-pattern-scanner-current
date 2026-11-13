@@ -9,6 +9,8 @@ import { pool, db, btcMarketSnapshotsTable } from "@workspace/db";
 import { desc } from "drizzle-orm";
 import { scannerStatus } from "../engine/scanner";
 import { fearGreedCached } from "../market/fearGreed";
+import { dominanceHistory } from "../market/context";
+import { spxHistory } from "../market/spx";
 import type { Metrics } from "../engine/snapshot";
 import { logger } from "../lib/logger";
 
@@ -30,7 +32,7 @@ router.get("/btc/market", async (_req, res) => {
       m = (row?.metrics as Metrics | undefined) ?? null;
       at = row?.candleCloseAt.toISOString() ?? null;
     }
-    const [fg, hours] = await Promise.all([
+    const [fg, hours, spx] = await Promise.all([
       fearGreedCached().catch(() => ({ latest: null, history: [] })),
       pool.query<MarketHourPoint>(`
         SELECT candle_close_at AS t, price,
@@ -48,8 +50,11 @@ router.get("/btc/market", async (_req, res) => {
         FROM btc_market_snapshots
         WHERE candle_close_at > now() - interval '48 hours' AND extract(minute FROM candle_close_at) = 0
         ORDER BY candle_close_at`),
+      spxHistory().catch(() => []),
     ]);
-    res.json({ candleCloseAt: at, metrics: m, fearGreed: fg.latest, fearGreedHistory: fg.history, hours: hours.rows });
+    // Owner 2026-11-13: BTC dominance and S&P 500 by day (one chart), last 120 days.
+    res.json({ candleCloseAt: at, metrics: m, fearGreed: fg.latest, fearGreedHistory: fg.history, hours: hours.rows,
+      dominanceHistory: dominanceHistory(), spxHistory: spx });
   } catch (err) {
     logger.error({ err }, "market panel failed");
     res.status(500).json({ error: "market_failed" });

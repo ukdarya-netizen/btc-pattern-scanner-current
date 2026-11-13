@@ -587,5 +587,20 @@
  "— стоп сработал до первой цели.": "— the stop hit before the first target.",
  "▲ по возрастанию": "▲ ascending",
  "▼ по убыванию": "▼ descending",
- "✓ активна": "✓ active"
+ "✓ активна": "✓ active",
+ "Рынок и решения": "Market and decisions",
+ "метрики · решения паттернов": "metrics · pattern decisions",
+ "сервер · сканер · сервисы · Telegram": "server · scanner · services · Telegram",
+ "Доминация BTC и S&P 500 · 90 дней": "BTC dominance and S&P 500 · 90 days",
+ "Нет данных доминации.": "No dominance data.",
+ "Внешние сервисы": "External services",
+ "Очередь отправки": "Send queue",
+ "Отчёты": "Reports",
+ "Процесс": "Process",
+ "Поток цены BingX": "BingX price stream",
+ "Сканер (цикл 5m)": "Scanner (5m cycle)",
+ "База данных": "Database",
+ "всё работает": "all working",
+ "Проверяю…": "Checking…",
+ "CoinGlass: лимит ключа (общий с CAB и Нигилистом)": "CoinGlass: key limit (shared with CAB and Nihilist)"
 }

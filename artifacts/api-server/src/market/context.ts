@@ -180,6 +180,13 @@ async function loadExchangeBalance(): Promise<ExchangeBalance | null> {
 }
 
 // ── BTC dominance ───────────────────────────────────────────────────────────
+export type DominancePoint = { t: number; d: number; price: number | null };
+let domHistory: DominancePoint[] = [];
+/** BTC.D points of the last CoinGlass read (oldest first), the last `days` days. */
+export function dominanceHistory(days = 120, now = Date.now()): DominancePoint[] {
+  getMarketContext(); // refreshes the dominance read when due (30 min)
+  return domHistory.filter((p) => p.t >= now - days * 86_400_000);
+}
 export type Dominance = { fetchedAt: string; source: "coinglass" | "coingecko"; dominancePct: number; change24hPct: number | null };
 
 async function loadDominance(): Promise<Dominance | null> {
@@ -189,11 +196,13 @@ async function loadDominance(): Promise<Dominance | null> {
       .map((p) => {
         const raw = num(p.timestamp ?? p.time);
         const t = raw === null ? null : raw < 10_000_000_000 ? raw * 1000 : raw;
-        return { t, d: num(p.bitcoin_dominance) };
+        return { t, d: num(p.bitcoin_dominance), price: num(p.price) };
       })
-      .filter((p): p is { t: number; d: number } => p.t !== null && p.d !== null && p.d > 0 && p.d <= 100)
+      .filter((p): p is { t: number; d: number; price: number | null } => p.t !== null && p.d !== null && p.d > 0 && p.d <= 100)
       .sort((a, b) => a.t - b.t);
     const last = points[points.length - 1];
+    // Owner 2026-11-13: BTC.D history for the dashboard chart (with S&P 500) — kept here, not in every snapshot.
+    domHistory = points.map((p) => ({ t: p.t, d: Number(p.d.toFixed(3)), price: p.price !== null && p.price > 0 ? p.price : null }));
     if (last) {
       const dayAgo = [...points].reverse().find((p) => p.t <= last.t - 23 * 60 * MIN);
       return {

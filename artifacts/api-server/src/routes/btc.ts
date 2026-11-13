@@ -1,5 +1,5 @@
 import { Router } from "express";
-import { db, btcDecisionsTable, btcMarketSnapshotsTable, btcSignalsTable } from "@workspace/db";
+import { db, pool, btcDecisionsTable, btcMarketSnapshotsTable, btcSignalsTable } from "@workspace/db";
 import { and, desc, eq, gte, lte } from "drizzle-orm";
 import { PROFILES } from "../config/profiles";
 import { PATTERNS } from "../engine/patterns";
@@ -28,6 +28,48 @@ router.get("/btc/status", (req, res) => {
     // Users see the channel only (as CAB / Nihilist): shadow patterns are the owner's.
     patterns: PATTERNS.filter((p) => owner || p.live).map((p) => ({ key: p.key, label: p.label, direction: p.direction, profile: p.profile, live: p.live, tf: p.evalTf ?? PROFILES[p.profile].timeframe })),
     profiles: PROFILES,
+  });
+});
+
+/**
+ * Bot Health (owner 2026-11-13: the bot's own health on its own tab, apart from the market metrics):
+ * process, price stream, scanner cycle, external APIs, CoinGlass budget, database, Telegram delivery queue, reports.
+ */
+router.get("/btc/health", ownerOnly, async (_req, res) => {
+  const t0 = Date.now();
+  let dbPingMs: number | null = null;
+  let telegram: Record<string, unknown> = {};
+  let reports: Array<Record<string, unknown>> = [];
+  try {
+    await pool.query("SELECT 1");
+    dbPingMs = Date.now() - t0;
+    const q = await pool.query(`
+      SELECT status, count(*)::int AS n, min(next_attempt_at) AS oldest, max(sent_at) AS last_sent, max(attempts)::int AS max_attempts
+      FROM btc_telegram_deliveries WHERE id > (SELECT coalesce(max(id), 0) - 2000 FROM btc_telegram_deliveries)
+      GROUP BY status`);
+    telegram = Object.fromEntries(q.rows.map((r) => [r.status, { n: r.n, oldest: r.oldest, lastSent: r.last_sent, maxAttempts: r.max_attempts }]));
+    reports = (await pool.query(`SELECT period_key AS "periodKey", sent_at AS "sentAt" FROM btc_reports ORDER BY created_at DESC LIMIT 6`)).rows;
+  } catch (err) {
+    logger.warn({ err }, "health: database check failed");
+  }
+  const mem = process.memoryUsage();
+  const lastCandle = scannerStatus.lastCandleCloseAt ? Date.parse(scannerStatus.lastCandleCloseAt) : null;
+  res.json({
+    at: new Date().toISOString(),
+    process: { uptimeMin: Math.round(process.uptime() / 60), rssMb: Math.round(mem.rss / 1048576), heapMb: Math.round(mem.heapUsed / 1048576) },
+    stream: engineHealth(),
+    scanner: {
+      lastCandleCloseAt: scannerStatus.lastCandleCloseAt, lastCycleAt: scannerStatus.lastCycleAt,
+      minutesSinceCandle: lastCandle ? Math.round((Date.now() - lastCandle) / 60_000) : null,
+      lastDurationMs: scannerStatus.lastDurationMs, lastError: scannerStatus.lastError, missingFlow: scannerStatus.missingFlow,
+    },
+    apis: healthSnapshot(),
+    coinglass: coinglassGovernorStats(),
+    db: { ok: dbPingMs !== null, pingMs: dbPingMs },
+    telegram,
+    reports,
+    openSignals: openSignalCount(),
+    patterns: { total: PATTERNS.length, live: PATTERNS.filter((p) => p.live).length },
   });
 });
 
