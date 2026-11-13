@@ -55,6 +55,7 @@ const PHRASES: Array<[string | RegExp, string]> = [
   ["реакция: хвост", "reaction: wick"],
   // ── market block
   ["📊 Рынок на входе (CoinGlass, все биржи)", "📊 Market at entry (CoinGlass, all exchanges)"],
+  ["📊 Рынок сейчас (CoinGlass, все биржи)", "📊 Market now (CoinGlass, all exchanges)"],
   ["Цена:", "Price:"],
   ["CVD спот:", "Spot CVD:"],
   ["CVD фьюч:", "Futures CVD:"],

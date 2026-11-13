@@ -47,8 +47,11 @@ export function fundingLine(bingx: number | null | undefined, cgOiWeighted: numb
   return `${icon} Фандинг (8ч): BingX ${v}${note}${cg}`;
 }
 
+/** Owner 2026-11-13: position updates show the same block «now» (scanner's last 5m cycle). */
+export const NOW_TITLE = "📊 Рынок сейчас (CoinGlass, все биржи)";
+
 /** Owner 2026-11-12: every entry metric as CAB — price, OI, CVD, takers, volume, liquidations, funding, WI, crowd, OB. */
-export function metricLines(m: Partial<Metrics> | null): string[] {
+export function metricLines(m: Partial<Metrics> | null, title = "📊 Рынок на входе (CoinGlass, все биржи)"): string[] {
   if (!m || !m.oiChangePct) return [];
   const tf = <K extends string>(o: Partial<Record<K, number | null>> | undefined, keys: K[], f: (v: number | null | undefined) => string) =>
     keys.map((k) => `${k} ${f(o?.[k])}`).join(" · ");
@@ -61,7 +64,7 @@ export function metricLines(m: Partial<Metrics> | null): string[] {
   const compact = [wiPart, crowd, ob].filter(Boolean);
   return [
     "",
-    "📊 Рынок на входе (CoinGlass, все биржи)",
+    title,
     `Цена: ${tf(m.priceChangePct, ["1h", "4h", "24h"], p2)}`,
     `OI: ${tf(m.oiChangePct, ["15m", "30m", "1h", "4h", "24h"], p2)}`,
     `CVD спот: ${tf(m.spotCvdUsd, ["15m", "30m", "1h", "4h"], usd)}`,
@@ -235,6 +238,7 @@ export function formatEvent(signal: SignalRow, event: EventRow, patternLabel: st
       `✂️ Закрыто ${Math.round((ts[index]?.fraction ?? 0) * 100)}% · в позиции ${left}%`,
       detail.breakevenMoved ? `🛡 Стоп в безубыток: ${fmt(signal.entryPrice)}` : stopNow,
       nextTargetLine(signal, index),
+      ...metricLines(detail.metrics as Partial<Metrics> | null, NOW_TITLE),
       ``,
       tags(signal, `target${index + 1}`),
     ].filter((l) => l !== null).join("\n");
@@ -248,6 +252,7 @@ export function formatEvent(signal: SignalRow, event: EventRow, patternLabel: st
       ``,
       stopNow,
       nextTargetLine(signal, -1),
+      ...metricLines(detail.metrics as Partial<Metrics> | null, NOW_TITLE),
       ``,
       tags(signal, null),
     ].filter((l) => l !== null).join("\n");

@@ -16,6 +16,7 @@ import { PATTERNS, type Pattern, type PatternResult } from "./patterns";
 import { HISTORY_BARS } from "./rangePatterns";
 import { levelsAtEntry } from "./levels";
 import { recordTrajectory } from "../tracker/trajectory";
+import { setLiveMetrics } from "./liveMetrics";
 import { computeMetrics, type Metrics, type Snapshot } from "./snapshot";
 import { entryStudy } from "./entryStudy";
 import { aggVolumeStudy } from "../market/aggVolumeStudy";
@@ -180,6 +181,7 @@ export async function runCycle(currentPrice: () => Promise<number>, now = Date.n
     }
     lastClose5m = candleCloseAt;
     scannerStatus.lastMetrics = snapshot.metrics;
+    setLiveMetrics(snapshot.metrics, now);
     await db.insert(btcMarketSnapshotsTable).values({
       candleCloseAt: new Date(candleCloseAt),
       price: snapshot.metrics.price,

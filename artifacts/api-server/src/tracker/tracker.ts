@@ -3,6 +3,7 @@ import { and, desc, eq } from "drizzle-orm";
 import { PROFILES, type Direction, type ProfileKey } from "../config/profiles";
 import { marginPnlPct, movePct } from "../lib/tradeMath";
 import { logger } from "../lib/logger";
+import { liveMetrics } from "../engine/liveMetrics";
 import { getCandlesRange, type PriceTick } from "../market/bingx";
 import {
   applyCandle,
@@ -135,7 +136,7 @@ async function persist(t: Tracked, events: PositionEvent[], progress?: ProgressU
         kind: event.kind,
         price: event.price,
         detail: event.kind === "target_hit"
-          ? { index: event.index, breakevenMoved: s.breakevenMoved, at: event.at }
+          ? { index: event.index, breakevenMoved: s.breakevenMoved, at: event.at, metrics: liveMetrics() }
           : {
             reason: event.reason, at: event.at,
             pnlPricePct: s.realizedPricePct,
@@ -150,7 +151,8 @@ async function persist(t: Tracked, events: PositionEvent[], progress?: ProgressU
         eventKey: `${t.id}:position_update:${progress.sequence}`,
         kind: "position_update",
         price: progress.price,
-        detail: { sequence: progress.sequence, movePct: progress.movePct, at: progress.at },
+        // Owner 2026-11-13: the market right now (last 5m cycle, ≤15 min old) in every position update.
+        detail: { sequence: progress.sequence, movePct: progress.movePct, at: progress.at, metrics: liveMetrics() },
       }).onConflictDoNothing();
     }
   });

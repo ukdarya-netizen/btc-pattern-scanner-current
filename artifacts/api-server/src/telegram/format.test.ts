@@ -68,3 +68,26 @@ test("entry metrics as CAB: OI, CVD, takers, volume, liquidations, funding BingX
   assert.match(t, /📊 WI \+12\.0🟢 \(4h \+3\.0\) · Толпа 60% лонг \(Binance\) · OB 0\.60x🔴/);
   assert.equal(fundingLine(0.12, null), "⚠️ Фандинг (8ч): BingX +0.1200% — лонги перегреты");
 });
+
+test("position updates carry the market now (OI, CVD, takers, funding …); without fresh metrics no block", async () => {
+  const { bilingual } = await import("./bilingual");
+  const { setLiveMetrics, liveMetrics, LIVE_METRICS_FRESH_MS } = await import("../engine/liveMetrics");
+  const m: any = {
+    price: 97000, priceChangePct: { "1h": 0.4 }, oiChangePct: { "15m": 0.1, "1h": 0.3 }, spotCvdUsd: { "15m": 1e6 }, futCvdUsd: {},
+    futTakerNetPct: { "1h": 3 }, spotTakerNetPct: {}, futVolumeMult: {}, spotVolumeMult: {}, liqLongUsd: {}, liqShortUsd: {},
+    fundingRatePct: 0.0051, fundingBingxPct: 0.01,
+  };
+  for (const [kind, detail] of [["position_update", { sequence: 1, movePct: 1.04 }], ["target_hit", { index: 0, breakevenMoved: true }]] as const) {
+    const t = formatEvent(signal, ev(kind, 97000, { ...detail, metrics: m }, 3), "Пробой рейнджа 4H");
+    assert.match(t, /📊 Рынок сейчас \(CoinGlass, все биржи\)\nЦена: 1h \+0\.40%/);
+    assert.match(t, /OI: 15m \+0\.10%/);
+    assert.match(t, /Фандинг \(8ч\): BingX \+0\.0100%/);
+    assert.ok(t.indexOf("Рынок сейчас") < t.lastIndexOf("#"), "metrics before the hashtags");
+    assert.match(bilingual(t), /📊 Market now \(CoinGlass, all exchanges\)/);
+    const bare = formatEvent(signal, ev(kind, 97000, { ...detail }, 3), "Пробой рейнджа 4H");
+    assert.doesNotMatch(bare, /Рынок сейчас/);
+  }
+  setLiveMetrics(m, 1_000_000);
+  assert.equal(liveMetrics(1_000_000 + LIVE_METRICS_FRESH_MS), m);
+  assert.equal(liveMetrics(1_000_001 + LIVE_METRICS_FRESH_MS), null);
+});
