@@ -67,8 +67,8 @@ test("ABNeon bounce 1h long: test of the support, first green reaction, Lucy not
   assert.equal(evaluateBreakout(s, "1h", "long").fires, false);
 });
 
-test("12 shadow patterns registered, none live, unique keys", () => {
+test("12 patterns registered, all live (owner 2026-11-13), unique keys", () => {
   assert.equal(NEON_PATTERNS.length, 12);
-  assert.ok(NEON_PATTERNS.every((p) => !p.live && p.profile === "h4"));
+  assert.ok(NEON_PATTERNS.every((p) => p.live && p.profile === "h4"));
   assert.equal(new Set(PATTERNS.map((p) => p.key)).size, PATTERNS.length);
 });

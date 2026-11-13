@@ -1,6 +1,6 @@
 /**
- * ABNeon and Stealth for BTC (owner 2026-11-12: "все паттерны из CAB, адаптировать под биток"; shadow first —
- * recorded and tracked, not published). The levels are CAB's ABNeon 4H zones (neonZones.ts, the owner's indicator).
+ * ABNeon and Stealth for BTC (owner 2026-11-12: "все паттерны из CAB, адаптировать под биток"; owner 2026-11-13: published
+ * to the channel like every other pattern — she wants to see how they work). The levels are CAB's ABNeon 4H zones (neonZones.ts, the owner's indicator).
  * Volume is Lucy's VSA (owner's indicator: 20-bar Welkin, grey under the 120-bar average; CoinGlass aggregated
  * futures + spot) on the trading timeframe. Every distance is sized by BTC's own ATR, not by altcoin percentages
  * (BTC moves 3–5× less than an altcoin): the touch band, the sweep allowance and the stop buffer.
@@ -128,14 +128,14 @@ export const NEON_PATTERNS: Pattern[] = NEON_TFS.flatMap((tf) => (["long", "shor
   {
     key: `neon_bounce_${tf}_${direction}`,
     label: `ABNeon отскок · ${STYLE[tf]} · ${side(direction)}`,
-    direction, profile: "h4", live: false,
+    direction, profile: "h4", live: true, // owner 2026-11-13: to the channel — she wants to see how they work
     ...(tf === "4h" ? {} : { evalTf: tf }),
     evaluate: (s) => evaluateBounce(s, tf, direction),
   },
   {
     key: `neon_breakout_${tf}_${direction}`,
     label: `Stealth пробой уровня · ${STYLE[tf]} · ${side(direction)}`,
-    direction, profile: "h4", live: false,
+    direction, profile: "h4", live: true, // owner 2026-11-13: to the channel — she wants to see how they work
     ...(tf === "4h" ? {} : { evalTf: tf }),
     evaluate: (s) => evaluateBreakout(s, tf, direction),
   },

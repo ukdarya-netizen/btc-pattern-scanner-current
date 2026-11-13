@@ -279,6 +279,18 @@ export function formatEvent(signal: SignalRow, event: EventRow, patternLabel: st
   ].join("\n");
 }
 
+/** Select the matching illustration for a persisted signal event. */
+export function eventImage(kind: string, detail: Record<string, unknown> | null): SignalImage | null {
+  if (kind === "opened") return "new-signal";
+  if (kind === "target_hit") return "take-profit";
+  if (kind === "position_update") return "position-update";
+  if (kind === "closed") {
+    if (detail?.reason === "take_profit") return "take-profit";
+    if (detail?.reason === "stop") return "stop-loss";
+  }
+  return null;
+}
+
 // ── Delivery age (Nihilist, owner 2026-11-10): a new signal older than 15 minutes is not sent — the entry has
 // passed (after a restart or a queue stall); position updates and closes still go up to 6 hours late. ──
 export const MAX_SIGNAL_AGE_MS = 15 * 60_000;
@@ -317,10 +329,12 @@ async function deliverBatch(patternLabel: (key: string) => string): Promise<void
     // Owner 2026-11-13: Russian and English in one message.
     const body = bilingual(formatEvent(signal, event, patternLabel(signal.patternKey)));
     const eventDetail = event.detail as Record<string, unknown>;
-    const text = event.kind === "opened" ? `${NEW_SIGNAL}${body}`
-      : event.kind === "target_hit" ? `${TAKE_PROFIT}${body}`
-      : event.kind === "position_update" ? `${POSITION_UPDATE}${body}`
-      : event.kind === "closed" && eventDetail.reason === "stop" ? `${STOP_LOSS}${body}` : body;
+    const selectedImage = eventImage(event.kind, eventDetail);
+    const marker = selectedImage === "new-signal" ? NEW_SIGNAL
+      : selectedImage === "take-profit" ? TAKE_PROFIT
+        : selectedImage === "stop-loss" ? STOP_LOSS
+          : selectedImage === "position-update" ? POSITION_UPDATE : null;
+    const text = marker ? `${marker}${body}` : body;
     await db.insert(btcTelegramDeliveriesTable).values([
       { eventId: event.id, chatId: SIGNAL_CHANNEL, channel: true, text },
       ...subscribers.map((s) => ({ eventId: event.id, chatId: s.chatId, channel: false, text })),
@@ -371,10 +385,7 @@ async function deliverBatch(patternLabel: (key: string) => string): Promise<void
         } else if (delivery.eventId > 0) {
           const [event] = await db.select({ kind: btcSignalEventsTable.kind, detail: btcSignalEventsTable.detail })
             .from(btcSignalEventsTable).where(eq(btcSignalEventsTable.id, delivery.eventId));
-          if (event?.kind === "opened") image = "new-signal";
-          else if (event?.kind === "target_hit") image = "take-profit";
-          else if (event?.kind === "position_update") image = "position-update";
-          else if (event?.kind === "closed" && (event.detail as Record<string, unknown> | null)?.reason === "stop") image = "stop-loss";
+          image = eventImage(event?.kind ?? "", event?.detail as Record<string, unknown> | null);
         }
         if (image) {
           const { caption, remainder } = splitSignalCaption(body);

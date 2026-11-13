@@ -2,7 +2,7 @@
  * Scheduled reports (owner 2026-11-12, as CAB / Nihilist): daily 22:00, weekly Sunday 10:00, monthly the 1st 11:00
  * (Dubai). Each period is claimed once in btc_reports and goes through the same delivery queue as the signals —
  * to the channel and every subscriber with access — with the report picture. A report missed by a restart goes out
- * late, within 24 h of its time; older ones are skipped. The same text answers /daily, /weekly, /monthly.
+ * late, within 3 h of its time; older ones are skipped. The same text answers /daily, /weekly, /monthly.
  */
 import { db, btcReportsTable, btcSignalsTable, btcTelegramDeliveriesTable, pool } from "@workspace/db";
 import { and, eq, gte, lt } from "drizzle-orm";
@@ -25,7 +25,9 @@ export function parseReportMark(text: string): { kind: ReportKind | null; body: 
 }
 /** Morning market update: sent with the market-update picture. */
 export const MARKET_MARK = "__BTC_MARKET_UPDATE__\n";
-const LATE_MS = 24 * 3_600_000;
+// Owner 2026-11-13: a report later than 3 h is skipped — yesterday's daily arriving the next afternoon (after a
+// restart) read as a duplicate of today's.
+const LATE_MS = 3 * 3_600_000;
 
 async function rowsFor(s: Schedule): Promise<ReportRow[]> {
   return db.select({
