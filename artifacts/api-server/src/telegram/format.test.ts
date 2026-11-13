@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { formatEvent, inPosition, isStale, systemLines } from "./telegram";
+import { eventImage, formatEvent, inPosition, isStale, systemLines } from "./telegram";
 
 const opened = new Date("2026-11-12T08:00:00Z");
 const signal: any = {
@@ -52,6 +52,13 @@ test("system lines: Smart Money and liquidation cascade", () => {
   assert.deepEqual(smc, ["Система: Smart Money", "Паттерн: ордер-блок 4h + слом структуры (CHoCH) 30m", "Таймфрейм: 30m вход · 4h старший · интрадей"]);
   const lc = systemLines({ patternKey: "lc_long", detectedAt: opened, expiresAt: null } as any, "Каскад ликвидаций лонгов → отскок");
   assert.deepEqual(lc, ["Система: Каскад ликвидаций", "Паттерн: Каскад ликвидаций лонгов → отскок", "Таймфрейм: 15m · скальп"]);
+});
+
+test("closed take-profit events use the Take Profit image", () => {
+  assert.equal(eventImage("closed", { reason: "take_profit" }), "take-profit");
+  assert.equal(eventImage("target_hit", { index: 1 }), "take-profit");
+  assert.equal(eventImage("closed", { reason: "stop" }), "stop-loss");
+  assert.equal(eventImage("closed", { reason: "breakeven" }), null);
 });
 
 test("entry metrics as CAB: OI, CVD, takers, volume, liquidations, funding BingX + CoinGlass, WI, crowd, OB", async () => {
