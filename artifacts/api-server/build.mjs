@@ -3,7 +3,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { build as esbuild } from "esbuild";
 import esbuildPluginPino from "esbuild-plugin-pino";
-import { copyFile, rm } from "node:fs/promises";
+import { copyFile, readdir, rm } from "node:fs/promises";
 
 // Plugins (e.g. 'esbuild-plugin-pino') may use `require` to resolve dependencies
 globalThis.require = createRequire(import.meta.url);
@@ -118,28 +118,11 @@ globalThis.__dirname = __bannerPath.dirname(globalThis.__filename);
     `,
     },
   });
-  await copyFile(
-    path.resolve(artifactDir, "src/telegram/new-signal.jpg"),
-    path.resolve(distDir, "new-signal.jpg"),
-  );
-  await copyFile(
-    path.resolve(artifactDir, "src/telegram/take-profit.jpg"),
-    path.resolve(distDir, "take-profit.jpg"),
-  );
-  await copyFile(
-    path.resolve(artifactDir, "src/telegram/stop-loss.jpg"),
-    path.resolve(distDir, "stop-loss.jpg"),
-  );
-  await copyFile(
-    path.resolve(artifactDir, "src/telegram/position-update.jpg"),
-    path.resolve(distDir, "position-update.jpg"),
-  );
-  // Market update picture (owner's own file, jpg or png); the update goes as text if it is missing.
-  for (const ext of ["jpg", "png"]) {
-    await copyFile(
-      path.resolve(artifactDir, `src/telegram/market-update.${ext}`),
-      path.resolve(distDir, `market-update.${ext}`),
-    ).catch(() => {});
+  // Every Telegram picture next to the bundle (owner 2026-11-13): signal pictures, Market update and the report
+  // pictures (report-daily / -weekly / -monthly), whatever of them is in src/telegram; a missing one = text only.
+  const telegramDir = path.resolve(artifactDir, "src/telegram");
+  for (const name of await readdir(telegramDir)) {
+    if (/\.(jpe?g|png)$/i.test(name)) await copyFile(path.resolve(telegramDir, name), path.resolve(distDir, name));
   }
 }
 

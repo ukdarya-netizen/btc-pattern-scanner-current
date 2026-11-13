@@ -6,7 +6,8 @@
 import { cgGet } from "./coinglass";
 
 export type FearGreed = { value: number; prev: number | null; label: string };
-export type FearGreedPoint = { t: number; v: number };
+/** p = BTC price of that day (CoinGlass price_list), for the BTC line over the chart (owner 2026-11-13). */
+export type FearGreedPoint = { t: number; v: number; p?: number | null };
 
 /** Classification bands 0–100 (CoinMarketCap's published bands). */
 export function fearGreedLabel(v: number): string {
@@ -28,13 +29,14 @@ export function parseFearGreed(data: unknown): FearGreed | null {
 
 /** Daily history (oldest first), the last `days` points. */
 export function parseFearGreedHistory(data: unknown, days = 30): FearGreedPoint[] {
-  const obj = (Array.isArray(data) ? data[0] : data) as { data_list?: unknown; time_list?: unknown } | null | undefined;
+  const obj = (Array.isArray(data) ? data[0] : data) as { data_list?: unknown; time_list?: unknown; price_list?: unknown } | null | undefined;
   const values = Array.isArray(obj?.data_list) ? (obj!.data_list as unknown[]).map(Number) : [];
   const times = Array.isArray(obj?.time_list) ? (obj!.time_list as unknown[]).map(Number) : [];
+  const prices = Array.isArray(obj?.price_list) && (obj!.price_list as unknown[]).length === values.length ? (obj!.price_list as unknown[]).map(Number) : null;
   if (times.length !== values.length) return [];
-  return values.map((v, i) => ({ t: times[i]! < 10_000_000_000 ? times[i]! * 1000 : times[i]!, v }))
+  return values.map((v, i) => ({ t: times[i]! < 10_000_000_000 ? times[i]! * 1000 : times[i]!, v, p: prices && Number.isFinite(prices[i]) && prices[i]! > 0 ? prices[i]! : null }))
     .filter((p) => Number.isFinite(p.t) && Number.isFinite(p.v) && p.v >= 0 && p.v <= 100)
-    .sort((a, b) => a.t - b.t).slice(-days).map((p) => ({ t: p.t, v: Math.round(p.v) }));
+    .sort((a, b) => a.t - b.t).slice(-days).map((p) => ({ t: p.t, v: Math.round(p.v), p: p.p }));
 }
 
 // One CoinGlass request per hour at most (the index is updated once a day); the dashboard and the report share it.

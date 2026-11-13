@@ -164,3 +164,18 @@ test("Telegram API errors expose codes and retry delays, never raw descriptions 
     else process.env.TELEGRAM_BOT_TOKEN = originalToken;
   }
 });
+
+test("report pictures (owner 2026-11-13): report kind in the queued text; picture found by the usual names", async () => {
+  const { parseReportMark, reportMark } = await import("../stats/reports");
+  assert.deepEqual(parseReportMark(`${reportMark("daily")}text`), { kind: "daily", body: "text" });
+  assert.deepEqual(parseReportMark("__BTC_REPORT__\nold"), { kind: null, body: "old" });
+  assert.equal(parseReportMark("__BTC_MARKET_UPDATE__\nx"), null);
+  const { writeFile, rm } = await import("node:fs/promises");
+  const { imageFile } = await import("./transport");
+  const p = new URL("./weekly_report.png", import.meta.url);
+  await writeFile(p, Buffer.from([1, 2, 3]));
+  try {
+    assert.equal((await imageFile("report-weekly"))?.name, "weekly_report.png");
+    assert.equal(await imageFile("report-monthly"), null);
+  } finally { await rm(p); }
+});

@@ -38,5 +38,8 @@ test("fear & greed: last two points by time; out-of-range values ignored", () =>
 
 test("fear & greed history: by time, seconds → ms, last N days", () => {
   assert.deepEqual(parseFearGreedHistory([{ data_list: [40, 71, 55], time_list: [1_700_000_000, 1_700_172_800, 1_700_086_400] }], 2),
-    [{ t: 1_700_086_400_000, v: 55 }, { t: 1_700_172_800_000, v: 71 }]);
+    [{ t: 1_700_086_400_000, v: 55, p: null }, { t: 1_700_172_800_000, v: 71, p: null }]);
+  // BTC price of the day (price_list) for the BTC line over the chart (owner 2026-11-13).
+  assert.deepEqual(parseFearGreedHistory([{ data_list: [40, 71], price_list: [90000, 95000], time_list: [1_700_000_000, 1_700_086_400] }], 2),
+    [{ t: 1_700_000_000_000, v: 40, p: 90000 }, { t: 1_700_086_400_000, v: 71, p: 95000 }]);
 });

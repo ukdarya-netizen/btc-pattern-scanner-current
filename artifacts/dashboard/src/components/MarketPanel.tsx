@@ -1,5 +1,5 @@
 import { useEffect, useState, type ReactNode } from "react";
-import { Bar, BarChart, CartesianGrid, Line, LineChart, ReferenceLine, ResponsiveContainer, Tooltip, XAxis, YAxis, Area, AreaChart, Legend } from "recharts";
+import { Bar, CartesianGrid, ComposedChart, Line, LineChart, ReferenceLine, ResponsiveContainer, Tooltip, XAxis, YAxis, Area, Legend } from "recharts";
 import { type Metrics, getJson, num, price, signed, tone, usd } from "../lib/api";
 import { Card } from "./ui";
 import { getLang } from "../lib/i18n";
@@ -18,7 +18,7 @@ type Hour = {
 type Market = {
   candleCloseAt: string | null; metrics: Metrics | null;
   fearGreed: { value: number; prev: number | null; label: string } | null;
-  fearGreedHistory: Array<{ t: number; v: number }>;
+  fearGreedHistory: Array<{ t: number; v: number; p?: number | null }>;
   hours: Hour[];
 };
 
@@ -28,6 +28,12 @@ const TIP = { contentStyle: { background: "#120f0a", border: "1px solid #5a4417"
 const hh = (iso: string) => new Date(iso).toLocaleString("ru-RU", { timeZone: "Asia/Dubai", day: "2-digit", hour: "2-digit", minute: "2-digit" });
 const FG_RU: Record<string, string> = { "Extreme Fear": "Экстремальный страх", Fear: "Страх", Neutral: "Нейтрально", Greed: "Жадность", "Extreme Greed": "Экстремальная жадность" };
 const fgColor = (v: number) => (v < 20 ? "#e11d48" : v < 40 ? "#fb923c" : v < 60 ? "#facc15" : v < 80 ? "#84cc16" : "#22c55e");
+// Owner 2026-11-13: BTC price over every metric chart (thin light line, own right axis) to read each metric against the move.
+const BTC_LINE = "#f5ecd6";
+const BTC = "BTC";
+const withBtc = (f: (v: number) => string) => (v: number, name: string) => (name === BTC ? price(v) : f(v));
+const btcAxis = (hide = false) => <YAxis yAxisId="btc" orientation="right" {...AXIS} width={hide ? 0 : 54} hide={hide} domain={["auto", "auto"]} tickFormatter={(v: number) => price(v)} />;
+const btcLine = <Line yAxisId="btc" dataKey="price" name={BTC} stroke={BTC_LINE} strokeOpacity={0.6} strokeWidth={1.2} dot={false} connectNulls isAnimationActive={false} />;
 const fund = (v: number | null | undefined) => (v == null ? "—" : `${v >= 0 ? "+" : ""}${v.toFixed(4)}%`);
 const fundNote = (v: number | null | undefined) => (v == null ? "" : v <= -0.05 ? "шорты в ловушке" : v <= -0.01 ? "шорты платят" : v >= 0.1 ? "лонги перегреты" : v >= 0.02 ? "лонги платят" : "нейтрально");
 
@@ -84,7 +90,7 @@ export function MarketPanel({ full = false }: { full?: boolean }) {
   const ind = (tf: string, k: string) => m?.indicators?.[tf]?.[k] ?? null;
   const nextFund = m?.nextFundingAt ? Math.max(0, m.nextFundingAt - Date.now()) : null;
   const rows = d.hours.map((h) => ({ ...h, label: hh(h.t) }));
-  const fgRows = d.fearGreedHistory.map((p) => ({ label: new Date(p.t).toLocaleDateString("ru-RU", { day: "2-digit", month: "2-digit" }), v: p.v }));
+  const fgRows = d.fearGreedHistory.map((p) => ({ label: new Date(p.t).toLocaleDateString("ru-RU", { day: "2-digit", month: "2-digit" }), v: p.v, price: p.p ?? null }));
   const usdTick = (v: number) => usd(v);
 
   return (
@@ -145,34 +151,34 @@ export function MarketPanel({ full = false }: { full?: boolean }) {
             <ResponsiveContainer><LineChart data={rows}><CartesianGrid stroke="#2a2214" vertical={false} /><XAxis dataKey="label" {...AXIS} minTickGap={40} /><YAxis {...AXIS} domain={["auto", "auto"]} width={58} tickFormatter={(v: number) => price(v)} /><Tooltip {...TIP} formatter={(v: number) => price(v)} /><Line dataKey="price" name="Цена" stroke={GOLD} dot={false} strokeWidth={2} /></LineChart></ResponsiveContainer>
           </Chart>
           <Chart title="Ликвидации по часам · лонги вниз, шорты вверх">
-            <ResponsiveContainer><BarChart data={rows} stackOffset="sign"><CartesianGrid stroke="#2a2214" vertical={false} /><XAxis dataKey="label" {...AXIS} minTickGap={40} /><YAxis {...AXIS} width={58} tickFormatter={usdTick} /><Tooltip {...TIP} formatter={(v: number) => usd(Math.abs(v))} /><ReferenceLine y={0} stroke={MUTED} />
-              <Bar dataKey="liqShortUsd" name="Шорты" stackId="l" fill={GREEN} /><Bar dataKey={(r: { liqLongUsd: number | null }) => (r.liqLongUsd == null ? null : -r.liqLongUsd)} name="Лонги" stackId="l" fill={RED} /></BarChart></ResponsiveContainer>
+            <ResponsiveContainer><ComposedChart data={rows} stackOffset="sign"><CartesianGrid stroke="#2a2214" vertical={false} /><XAxis dataKey="label" {...AXIS} minTickGap={40} /><YAxis {...AXIS} width={58} tickFormatter={usdTick} /><Tooltip {...TIP} formatter={withBtc((v) => usd(Math.abs(v)))} /><ReferenceLine y={0} stroke={MUTED} />
+              <Bar dataKey="liqShortUsd" name="Шорты" stackId="l" fill={GREEN} /><Bar dataKey={(r: { liqLongUsd: number | null }) => (r.liqLongUsd == null ? null : -r.liqLongUsd)} name="Лонги" stackId="l" fill={RED} />{btcAxis()}{btcLine}</ComposedChart></ResponsiveContainer>
           </Chart>
           <Chart title="Фандинг, % за 8ч">
-            <ResponsiveContainer><LineChart data={rows}><CartesianGrid stroke="#2a2214" vertical={false} /><XAxis dataKey="label" {...AXIS} minTickGap={40} /><YAxis {...AXIS} width={58} domain={[(lo: number) => Math.min(0, lo), (hi: number) => hi * 1.15]} tickFormatter={(v: number) => v.toFixed(4)} /><Tooltip {...TIP} formatter={(v: number) => fund(v)} /><ReferenceLine y={0.01} stroke={MUTED} strokeDasharray="3 3" /><Legend wrapperStyle={{ fontSize: 11 }} />
-              <Line dataKey="fundingBingxPct" name="BingX" stroke={GOLD} dot={false} connectNulls /><Line dataKey="fundingCgPct" name="CoinGlass OI-взвеш." stroke={SKY} dot={false} connectNulls /></LineChart></ResponsiveContainer>
+            <ResponsiveContainer><ComposedChart data={rows}><CartesianGrid stroke="#2a2214" vertical={false} /><XAxis dataKey="label" {...AXIS} minTickGap={40} /><YAxis {...AXIS} width={58} domain={[(lo: number) => Math.min(0, lo), (hi: number) => hi * 1.15]} tickFormatter={(v: number) => v.toFixed(4)} /><Tooltip {...TIP} formatter={withBtc((v) => fund(v))} /><ReferenceLine y={0.01} stroke={MUTED} strokeDasharray="3 3" /><Legend wrapperStyle={{ fontSize: 11 }} />
+              <Line dataKey="fundingBingxPct" name="BingX" stroke={GOLD} dot={false} connectNulls /><Line dataKey="fundingCgPct" name="CoinGlass OI-взвеш." stroke={SKY} dot={false} connectNulls />{btcAxis()}{btcLine}</ComposedChart></ResponsiveContainer>
           </Chart>
           <Chart title="Открытый интерес (все биржи)">
-            <ResponsiveContainer><AreaChart data={rows}><CartesianGrid stroke="#2a2214" vertical={false} /><XAxis dataKey="label" {...AXIS} minTickGap={40} /><YAxis {...AXIS} width={58} domain={["auto", "auto"]} tickFormatter={usdTick} /><Tooltip {...TIP} formatter={(v: number) => usd(v)} /><Area dataKey="oiUsd" name="OI" stroke={GOLD} fill={GOLD} fillOpacity={0.12} /></AreaChart></ResponsiveContainer>
+            <ResponsiveContainer><ComposedChart data={rows}><CartesianGrid stroke="#2a2214" vertical={false} /><XAxis dataKey="label" {...AXIS} minTickGap={40} /><YAxis {...AXIS} width={58} domain={["auto", "auto"]} tickFormatter={usdTick} /><Tooltip {...TIP} formatter={withBtc((v) => usd(v))} /><Area dataKey="oiUsd" name="OI" stroke={GOLD} fill={GOLD} fillOpacity={0.12} />{btcAxis()}{btcLine}</ComposedChart></ResponsiveContainer>
           </Chart>
           <Chart title="CVD по часам: спот и фьюч">
-            <ResponsiveContainer><BarChart data={rows}><CartesianGrid stroke="#2a2214" vertical={false} /><XAxis dataKey="label" {...AXIS} minTickGap={40} /><YAxis {...AXIS} width={58} tickFormatter={usdTick} /><Tooltip {...TIP} formatter={(v: number) => usd(v)} /><ReferenceLine y={0} stroke={MUTED} /><Legend wrapperStyle={{ fontSize: 11 }} />
-              <Bar dataKey="spotCvdUsd" name="Спот" fill={SKY} /><Bar dataKey="futCvdUsd" name="Фьюч" fill={GOLD} /></BarChart></ResponsiveContainer>
+            <ResponsiveContainer><ComposedChart data={rows}><CartesianGrid stroke="#2a2214" vertical={false} /><XAxis dataKey="label" {...AXIS} minTickGap={40} /><YAxis {...AXIS} width={58} tickFormatter={usdTick} /><Tooltip {...TIP} formatter={withBtc((v) => usd(v))} /><ReferenceLine y={0} stroke={MUTED} /><Legend wrapperStyle={{ fontSize: 11 }} />
+              <Bar dataKey="spotCvdUsd" name="Спот" fill={SKY} /><Bar dataKey="futCvdUsd" name="Фьюч" fill={GOLD} />{btcAxis()}{btcLine}</ComposedChart></ResponsiveContainer>
           </Chart>
           <Chart title="Тейкеры net buy по часам, %">
-            <ResponsiveContainer><LineChart data={rows}><CartesianGrid stroke="#2a2214" vertical={false} /><XAxis dataKey="label" {...AXIS} minTickGap={40} /><YAxis {...AXIS} width={40} /><Tooltip {...TIP} formatter={(v: number) => signed(v, 1)} /><ReferenceLine y={0} stroke={MUTED} /><Legend wrapperStyle={{ fontSize: 11 }} />
-              <Line dataKey="futTakerNetPct" name="Фьюч" stroke={GOLD} dot={false} connectNulls /><Line dataKey="spotTakerNetPct" name="Спот" stroke={SKY} dot={false} connectNulls /></LineChart></ResponsiveContainer>
+            <ResponsiveContainer><ComposedChart data={rows}><CartesianGrid stroke="#2a2214" vertical={false} /><XAxis dataKey="label" {...AXIS} minTickGap={40} /><YAxis {...AXIS} width={40} /><Tooltip {...TIP} formatter={withBtc((v) => signed(v, 1))} /><ReferenceLine y={0} stroke={MUTED} /><Legend wrapperStyle={{ fontSize: 11 }} />
+              <Line dataKey="futTakerNetPct" name="Фьюч" stroke={GOLD} dot={false} connectNulls /><Line dataKey="spotTakerNetPct" name="Спот" stroke={SKY} dot={false} connectNulls />{btcAxis()}{btcLine}</ComposedChart></ResponsiveContainer>
           </Chart>
           <Chart title="Whale Index и RSI 1h">
-            <ResponsiveContainer><LineChart data={rows}><CartesianGrid stroke="#2a2214" vertical={false} /><XAxis dataKey="label" {...AXIS} minTickGap={40} /><YAxis yAxisId="wi" {...AXIS} width={40} /><YAxis yAxisId="rsi" orientation="right" {...AXIS} width={30} domain={[0, 100]} /><Tooltip {...TIP} formatter={(v: number) => num(v, 1)} /><ReferenceLine yAxisId="wi" y={0} stroke={MUTED} /><Legend wrapperStyle={{ fontSize: 11 }} />
-              <Line yAxisId="wi" dataKey="whaleIndex" name="Whale Index" stroke={GOLD} dot={false} connectNulls /><Line yAxisId="rsi" dataKey="rsi1h" name="RSI 1h" stroke={SKY} dot={false} connectNulls /></LineChart></ResponsiveContainer>
+            <ResponsiveContainer><ComposedChart data={rows}><CartesianGrid stroke="#2a2214" vertical={false} /><XAxis dataKey="label" {...AXIS} minTickGap={40} /><YAxis yAxisId="wi" {...AXIS} width={40} /><YAxis yAxisId="rsi" orientation="right" {...AXIS} width={30} domain={[0, 100]} /><Tooltip {...TIP} formatter={withBtc((v) => num(v, 1))} /><ReferenceLine yAxisId="wi" y={0} stroke={MUTED} /><Legend wrapperStyle={{ fontSize: 11 }} />
+              <Line yAxisId="wi" dataKey="whaleIndex" name="Whale Index" stroke={GOLD} dot={false} connectNulls /><Line yAxisId="rsi" dataKey="rsi1h" name="RSI 1h" stroke={SKY} dot={false} connectNulls />{btcAxis(true)}{btcLine}</ComposedChart></ResponsiveContainer>
           </Chart>
           <Chart title="Fear / Greed · 30 дней">
-            <ResponsiveContainer><AreaChart data={fgRows}><CartesianGrid stroke="#2a2214" vertical={false} /><XAxis dataKey="label" {...AXIS} minTickGap={30} /><YAxis {...AXIS} width={30} domain={[0, 100]} /><Tooltip {...TIP} /><ReferenceLine y={50} stroke={MUTED} strokeDasharray="3 3" /><Area dataKey="v" name="Индекс" stroke={GOLD} fill={GOLD} fillOpacity={0.15} /></AreaChart></ResponsiveContainer>
+            <ResponsiveContainer><ComposedChart data={fgRows}><CartesianGrid stroke="#2a2214" vertical={false} /><XAxis dataKey="label" {...AXIS} minTickGap={30} /><YAxis {...AXIS} width={30} domain={[0, 100]} /><Tooltip {...TIP} formatter={withBtc((v) => String(v))} /><ReferenceLine y={50} stroke={MUTED} strokeDasharray="3 3" /><Area dataKey="v" name="Индекс" stroke={GOLD} fill={GOLD} fillOpacity={0.15} />{btcAxis()}{btcLine}</ComposedChart></ResponsiveContainer>
           </Chart>
         </div>
       )}
-      {full && <p className="mt-2 text-xs text-muted-foreground">Ликвидации, OI, CVD, тейкеры, Whale Index — CoinGlass, сумма по всем биржам; цена и RSI — BingX. Точка на графике — час (Дубай). Фандинг BingX пишется с 12.11, раньше точек нет.</p>}
+      {full && <p className="mt-2 text-xs text-muted-foreground">Ликвидации, OI, CVD, тейкеры, Whale Index — CoinGlass, сумма по всем биржам; цена и RSI — BingX. Точка на графике — час (Дубай). Светлая линия на каждом графике — цена BTC (правая шкала). Фандинг BingX пишется с 12.11, раньше точек нет.</p>}
     </Card>
   );
 }

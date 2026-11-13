@@ -4,7 +4,6 @@
  */
 import { useEffect, useState, type FormEvent, type ReactNode } from "react";
 import { CheckCircle2, Eye, EyeOff, Loader2 } from "lucide-react";
-import { Crown } from "../components/ui";
 import { asset, post, saveSession, type Session } from "../lib/api";
 import { LanguageToggle } from "../components/LanguageToggle";
 
@@ -31,8 +30,7 @@ function Shell({ title, sub, children }: { title: string; sub: string; children:
       <div className="relative w-full max-w-sm space-y-5">
         <div className="text-center">
           <img src={asset("brand/avatar.webp")} alt="" className="mx-auto h-20 w-20 rounded-full border border-gold/60 object-cover" />
-          <div className="mt-3 flex items-center justify-center gap-2 text-gold"><Crown className="h-4 w-6" /><span className="text-xs uppercase tracking-[0.3em]">Bitcoin</span></div>
-          <h1 className="brand-title text-4xl leading-none">Margin Master</h1>
+          <h1 className="mt-3"><img src={asset("brand/wordmark.webp")} alt="Bitcoin Margin Master" className="mx-auto h-36 w-auto object-contain" /></h1>
         </div>
         <div className="gold-card p-6 backdrop-blur">
           <h2 className="text-xl font-semibold">{title}</h2>

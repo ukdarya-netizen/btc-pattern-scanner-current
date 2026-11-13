@@ -3,7 +3,7 @@ import { Activity, BookOpen, HeartPulse, History as HistoryIcon, Layers, LogOut,
 import { AuthError, type Decision, type Metrics, type OutcomeGroup, type Session, type Signal, type Status, asset, currentSession, getJson, post, price, saveSession, time } from "./lib/api";
 import { Login, Register, ResetPassword } from "./pages/Auth";
 import { type Data, type Filter, type Mode, NO_FILTER, type Period, type Tab, periodOptions } from "./lib/data";
-import { Crown, Segmented } from "./components/ui";
+import { Segmented } from "./components/ui";
 import { Overview } from "./pages/Overview";
 import { Positions } from "./pages/Positions";
 import { History } from "./pages/History";
@@ -153,10 +153,8 @@ export default function App() {
       <aside className="hidden w-64 shrink-0 flex-col border-r border-gold/20 bg-black/70 md:flex">
         <button onClick={() => setTab("overview")} className="flex h-20 items-center gap-3 border-b border-gold/20 px-4">
           <img src={asset("brand/avatar.webp")} alt="" className="h-11 w-11 rounded-full border border-gold/60 object-cover" />
-          <div className="text-left leading-tight">
-            <div className="flex items-center gap-1 text-gold"><Crown className="h-3 w-4" /><span className="text-[10px] uppercase tracking-[0.3em]">Bitcoin</span></div>
-            <div className="brand-title text-xl leading-none">Margin Master</div>
-          </div>
+          {/* Owner 2026-11-13: the wordmark is the one from her artwork (brush gold + white), not a web font. */}
+          <img src={asset("brand/wordmark.webp")} alt="Bitcoin Margin Master" className="h-14 w-auto max-w-[150px] object-contain" />
         </button>
         <nav className="flex-1 space-y-1 overflow-y-auto p-3">{nav.map((n) => navItem(n))}</nav>
         <button onClick={() => logout()} title={sess.email} className="mx-3 mb-2 flex items-center gap-2 px-3 py-2 text-left text-xs text-muted-foreground hover:text-foreground">

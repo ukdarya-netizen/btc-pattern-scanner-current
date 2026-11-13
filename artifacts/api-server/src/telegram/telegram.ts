@@ -6,7 +6,7 @@ import { PATTERNS } from "../engine/patterns";
 import type { Metrics } from "../engine/snapshot";
 import { logger } from "../lib/logger";
 import { imageFile, sendMessage, sendSignalPhoto, SIGNAL_CHANNEL, splitSignalCaption, TelegramError, type SignalImage } from "./transport";
-import { MARKET_MARK, REPORT_MARK } from "../stats/reports";
+import { MARKET_MARK, parseReportMark } from "../stats/reports";
 import { bilingual } from "./bilingual";
 
 const MAX_ATTEMPTS = 8;
@@ -351,8 +351,11 @@ async function deliverBatch(patternLabel: (key: string) => string): Promise<void
           // Market update (owner 2026-11-12): her picture with the text; text only if the picture is not in place.
           body = body.slice(MARKET_MARK.length);
           if (await imageFile("market-update")) image = "market-update";
-        } else if (body.startsWith(REPORT_MARK)) {
-          body = body.slice(REPORT_MARK.length); // reports: text (pictures are the owner's, not changed here)
+        } else if (parseReportMark(body)) {
+          // Reports (owner 2026-11-13): her picture of that report with the text; text only if the picture is not there.
+          const r = parseReportMark(body)!;
+          body = r.body;
+          if (r.kind && await imageFile(`report-${r.kind}`)) image = `report-${r.kind}`;
         } else if (body.startsWith(NEW_SIGNAL)) {
           image = "new-signal";
           body = body.slice(NEW_SIGNAL.length);

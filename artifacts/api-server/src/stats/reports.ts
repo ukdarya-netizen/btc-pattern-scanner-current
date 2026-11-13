@@ -15,6 +15,14 @@ import { ownerEmail, recipientSql } from "../lib/users";
 import { SIGNAL_CHANNEL } from "../telegram/transport";
 
 export const REPORT_MARK = "__BTC_REPORT__\n";
+/** Report delivery text with its kind, so the delivery picks the owner's report picture (owner 2026-11-13). */
+export const reportMark = (kind: ReportKind) => `__BTC_REPORT__:${kind}\n`;
+/** Kind and body of a queued report text; null when it is not a report. Old rows (no kind) → kind null. */
+export function parseReportMark(text: string): { kind: ReportKind | null; body: string } | null {
+  if (text.startsWith(REPORT_MARK)) return { kind: null, body: text.slice(REPORT_MARK.length) };
+  const m = /^__BTC_REPORT__:(daily|weekly|monthly)\n/.exec(text);
+  return m ? { kind: m[1] as ReportKind, body: text.slice(m[0].length) } : null;
+}
 /** Morning market update: sent with the market-update picture. */
 export const MARKET_MARK = "__BTC_MARKET_UPDATE__\n";
 const LATE_MS = 24 * 3_600_000;
@@ -52,8 +60,8 @@ export async function runReports(label: (key: string) => string, now = Date.now(
     );
     const eventId = reportEventId(s);
     await db.insert(btcTelegramDeliveriesTable).values([
-      { eventId, chatId: SIGNAL_CHANNEL, channel: true, text: `${REPORT_MARK}${text}` },
-      ...subs.map((u) => ({ eventId, chatId: u.chatId, channel: false, text: `${REPORT_MARK}${text}` })),
+      { eventId, chatId: SIGNAL_CHANNEL, channel: true, text: `${reportMark(kind)}${text}` },
+      ...subs.map((u) => ({ eventId, chatId: u.chatId, channel: false, text: `${reportMark(kind)}${text}` })),
     ]).onConflictDoNothing();
     logger.info({ period: s.key, recipients: subs.length + 1 }, "BTC report queued");
   }

@@ -50,7 +50,11 @@ async function admit(): Promise<void> {
 }
 
 /** One GET; returns `data` (any shape) or null. Never throws. */
+/** Owner 2026-11-12 / 13: dev makes no CoinGlass requests at all — not only the engine, also dashboard routes. */
+export const cgAllowed = () => process.env.REPLIT_DEPLOYMENT === "1" || process.env.NODE_ENV === "production";
+
 export async function cgGet(path: string, params: Record<string, string | number>): Promise<unknown | null> {
+  if (!cgAllowed()) return null;
   const all = keys();
   if (all.length === 0) {
     recordFailure("coinglass", "COINGLASS_API_KEY не задан");
@@ -143,8 +147,27 @@ const M15 = 15 * 60_000;
 const H1 = 60 * 60_000;
 const H4 = 4 * H1;
 
-/** All flow series, closed bars only. */
+/**
+ * Owner 2026-11-13 (CoinGlass key shared by CAB, Nihilist and BTC): the 15m flow is fetched once per closed 15m bar,
+ * not on every 5m cycle and not on every 15 s retry of a cycle whose candle is late. A fetch that misses the latest
+ * closed bar (CoinGlass lag) or a series is tried again at most once a minute.
+ */
+let flowCache: { boundary: number; limit: number; at: number; complete: boolean; flow: FlowSeries } | null = null;
+const FLOW_RETRY_MS = 60_000;
+
 export async function getBtcFlow(limit = 120, now = Date.now()): Promise<FlowSeries> {
+  const boundary = Math.floor(now / M15) * M15;
+  const c = flowCache;
+  if (c && c.boundary === boundary && c.limit >= limit && (c.complete || now - c.at < FLOW_RETRY_MS)) return c.flow;
+  const flow = await fetchBtcFlow(limit, now);
+  const lastOi = flow.oi?.at(-1)?.time;
+  const complete = Object.values(flow).every((v) => v !== null) && lastOi === boundary - M15;
+  flowCache = { boundary, limit, at: now, complete, flow };
+  return flow;
+}
+export function resetBtcFlowCacheForTests(): void { flowCache = null; }
+
+async function fetchBtcFlow(limit: number, now: number): Promise<FlowSeries> {
   const common = { symbol: "BTC", interval: "15m", limit: limit + 1 };
   const [oi, liq, ft, st, cvd, fr, ls, ob, whale, whale4h] = await Promise.all([
     cgList("/api/futures/open-interest/aggregated-history", common),
