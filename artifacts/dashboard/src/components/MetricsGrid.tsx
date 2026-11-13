@@ -1,3 +1,4 @@
+import { getLang } from "../lib/i18n";
 import type { ReactNode } from "react";
 import { type ByTf, type Metrics, mult, price, signed, tone, usd } from "../lib/api";
 import { Table } from "./ui";
@@ -77,7 +78,7 @@ export function MetricsGrid({ m }: { m: Metrics }) {
     ["Ликвидности выше/ниже (±5%)", ctx?.heatmap?.aboveBelowRatio5pct == null ? "—" : `${ctx.heatmap.aboveBelowRatio5pct.toFixed(2)}×`],
     ["Кластеры выше", ctx?.heatmap ? ctx.heatmap.topAbove.map((c) => `${price(c.price)} (+${c.distancePct.toFixed(2)}%)`).join(", ") || "—" : "—"],
     ["Кластеры ниже", ctx?.heatmap ? ctx.heatmap.topBelow.map((c) => `${price(c.price)} (${c.distancePct.toFixed(2)}%)`).join(", ") || "—" : "—"],
-    ["Спот CVD бычий", ["15m", "30m", "1h", "4h"].map((tf) => `${tf} ${m.spotCvdBullish?.[tf] == null ? "—" : m.spotCvdBullish[tf] ? "да" : "нет"}`).join(" · ")],
+    ["Спот CVD бычий", ["15m", "30m", "1h", "4h"].map((tf) => `${tf} ${m.spotCvdBullish?.[tf] == null ? "—" : m.spotCvdBullish[tf] ? (getLang() === "en" ? "yes" : "да") : (getLang() === "en" ? "no" : "нет")}`).join(" · ")],
   ];
   return (
     <div className="space-y-4">

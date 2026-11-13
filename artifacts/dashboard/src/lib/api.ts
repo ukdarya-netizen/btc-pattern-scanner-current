@@ -1,3 +1,4 @@
+import { getLang } from "./i18n";
 /** API types, PIN-aware fetch and formatters of the Bitcoin Margin Master dashboard. */
 
 export type Pattern = { key: string; label: string; direction: string; profile: string; live: boolean; tf?: string };
@@ -127,10 +128,12 @@ export const REASON: Record<string, string> = { take_profit: "Цели", stop: "
 export function duration(ms: number | null): string {
   if (ms == null || !Number.isFinite(ms) || ms < 0) return "—";
   const m = Math.round(ms / 60_000);
-  if (m < 60) return `${m} мин`;
+  // Durations sit inside longer texts («2 ч 0 мин – 5 ч 10 мин»), so the language is applied here, not by the dictionary.
+  const [mi, hr, dy] = getLang() === "en" ? ["min", "h", "d"] : ["мин", "ч", "д"];
+  if (m < 60) return `${m} ${mi}`;
   const h = Math.floor(m / 60);
-  if (h < 24) return `${h} ч ${m % 60} мин`;
-  return `${Math.floor(h / 24)} д ${h % 24} ч`;
+  if (h < 24) return `${h} ${hr} ${m % 60} ${mi}`;
+  return `${Math.floor(h / 24)} ${dy} ${h % 24} ${hr}`;
 }
 export const heldMs = (s: Signal, now = Date.now()) => (s.closedAt ? Date.parse(s.closedAt) : now) - Date.parse(s.detectedAt);
 

@@ -8,11 +8,12 @@ import { db, btcReportsTable, pool } from "@workspace/db";
 import { logger } from "./logger";
 import { isOwnerEmail, ownerChatId } from "./users";
 import { sendMessage } from "../telegram/transport";
+import { bilingual } from "../telegram/bilingual";
 
 const H = 3_600_000;
 const CONTACT = "@The_Lucy_x";
-export const WARNING_TEXT = ["⏳ Ваша подписка заканчивается примерно через 3 часа", "", "Продлите доступ, чтобы не пропустить сигналы.", `Для продления — ${CONTACT}`].join("\n");
-export const ENDED_TEXT = ["⌛️ Подписка закончилась", "", "Сигналы и Dashboard больше недоступны.", `Для продления — ${CONTACT}`].join("\n");
+export const WARNING_TEXT = bilingual(["⏳ Ваша подписка заканчивается примерно через 3 часа", "", "Продлите доступ, чтобы не пропустить сигналы.", `Для продления — ${CONTACT}`].join("\n"));
+export const ENDED_TEXT = bilingual(["⌛️ Подписка закончилась", "", "Сигналы и Dashboard больше недоступны.", `Для продления — ${CONTACT}`].join("\n"));
 
 /** In the 3-hour warning window: ends in more than 2 h and less than 4 h (as CAB). */
 export const inWarningWindow = (until: Date, now: number) => until.getTime() - now > 2 * H && until.getTime() - now < 4 * H;

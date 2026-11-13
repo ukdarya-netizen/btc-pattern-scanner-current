@@ -11,6 +11,7 @@ import { Patterns } from "./pages/Patterns";
 import { Service } from "./pages/Service";
 import { Subscribers } from "./pages/Subscribers";
 import { Reference } from "./pages/Reference";
+import { LanguageToggle } from "./components/LanguageToggle";
 
 /** Navigation on the left, as in CAB and Nihilist (owner 2026-11-12). «Подписчики» and Bot Health — owner only. */
 const NAV: Array<{ tab: Tab; label: string; sub: string; icon: typeof Target; owner?: boolean }> = [
@@ -178,6 +179,7 @@ export default function App() {
           </div>
           <div className="flex flex-wrap items-center gap-2">
             <span className="text-sm font-semibold tabular-nums md:hidden">{price(last)}</span>
+            <LanguageToggle />
             {owner && tab !== "subscribers" && tab !== "service" && tab !== "reference" && (
               <Segmented<Mode> value={mode} options={[["live", "Канал"], ["shadow", "Тень"]]} onChange={(m) => { setMode(m); setFilter(NO_FILTER); }} />
             )}

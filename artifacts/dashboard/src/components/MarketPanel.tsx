@@ -2,6 +2,7 @@ import { useEffect, useState, type ReactNode } from "react";
 import { Bar, BarChart, CartesianGrid, Line, LineChart, ReferenceLine, ResponsiveContainer, Tooltip, XAxis, YAxis, Area, AreaChart, Legend } from "recharts";
 import { type Metrics, getJson, num, price, signed, tone, usd } from "../lib/api";
 import { Card } from "./ui";
+import { getLang } from "../lib/i18n";
 
 /**
  * Owner 2026-11-12: the market on the dashboard — everything of the morning Market update (Fear / Greed,
@@ -95,7 +96,7 @@ export function MarketPanel({ full = false }: { full?: boolean }) {
           <div>
             <div className="text-[10px] uppercase tracking-[0.16em] text-muted-foreground">Сентимент · Fear / Greed</div>
             <div className="mt-1 text-3xl font-semibold tabular-nums" style={{ color: fg ? fgColor(fg.value) : undefined }}>{fg ? fg.value : "—"}</div>
-            <div className="text-xs text-muted-foreground">{fg ? `${fg.label} · ${FG_RU[fg.label] ?? ""}` : "нет данных CoinGlass"}{fg?.prev != null ? ` · вчера ${fg.prev}` : ""}</div>
+            <div className="text-xs text-muted-foreground">{fg ? (getLang() === "en" ? fg.label : `${fg.label} · ${FG_RU[fg.label] ?? ""}`) : "нет данных CoinGlass"}{fg?.prev != null ? ` · вчера ${fg.prev}` : ""}</div>
           </div>
         </div>
         <Stat label="Цена BTC" sub={<>за сутки <span className={tone(m?.priceChangePct?.["24h"])}>{signed(m?.priceChangePct?.["24h"])}</span> · 1h <span className={tone(m?.priceChangePct?.["1h"])}>{signed(m?.priceChangePct?.["1h"])}</span></>}>

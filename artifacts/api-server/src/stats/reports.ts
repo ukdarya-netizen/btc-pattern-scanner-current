@@ -8,6 +8,7 @@ import { db, btcReportsTable, btcSignalsTable, btcTelegramDeliveriesTable, pool 
 import { and, eq, gte, lt } from "drizzle-orm";
 import { formatMorning, formatReport, latestSchedule, morningSchedule, onDemandSchedule, reportEventId, type ReportKind, type ReportRow, type Schedule } from "./reportFormat";
 import { scannerStatus } from "../engine/scanner";
+import { bilingual } from "../telegram/bilingual";
 import { getFearGreed } from "../market/fearGreed";
 import { logger } from "../lib/logger";
 import { ownerEmail, recipientSql } from "../lib/users";
@@ -34,7 +35,7 @@ async function rowsFor(s: Schedule): Promise<ReportRow[]> {
 /** On demand: today so far / last 7 days / this month so far. */
 export async function onDemandReport(kind: ReportKind, label: (key: string) => string, now = Date.now()): Promise<string> {
   const s = onDemandSchedule(kind, now);
-  return formatReport(s, await rowsFor(s), label);
+  return bilingual(formatReport(s, await rowsFor(s), label));
 }
 
 /** Every minute: a due report of each kind is built once and queued to the channel and the subscribers. */
@@ -42,7 +43,7 @@ export async function runReports(label: (key: string) => string, now = Date.now(
   for (const kind of ["daily", "weekly", "monthly"] as ReportKind[]) {
     const s = latestSchedule(kind, now);
     if (now < s.at || now - s.at > LATE_MS) continue;
-    const text = formatReport(s, await rowsFor(s), label);
+    const text = bilingual(formatReport(s, await rowsFor(s), label));
     const claimed = await db.insert(btcReportsTable).values({ periodKey: s.key, text, sentAt: new Date() })
       .onConflictDoNothing().returning({ key: btcReportsTable.periodKey });
     if (!claimed.length) continue; // already queued
@@ -89,13 +90,13 @@ async function runMorning(now: number): Promise<void> {
   if (!m || now - closeAt > METRICS_FRESH_MS) return; // metrics of a successful cycle within 15 min; else next minute
   const fearGreed = await getFearGreed();
   if (!fearGreed && now - s.at < FEAR_GREED_WAIT_MS) return;
-  const text = formatMorning(s, {
+  const text = bilingual(formatMorning(s, {
     price: Number.isFinite(m.price) ? m.price : null,
     change24hPct: m.priceChangePct?.["24h"] ?? null,
     liqLongUsd: m.liqLongUsd?.["24h"] ?? null,
     liqShortUsd: m.liqShortUsd?.["24h"] ?? null,
     fearGreed,
-  });
+  }));
   const claimed = await db.insert(btcReportsTable).values({ periodKey: s.key, text, sentAt: new Date() })
     .onConflictDoNothing().returning({ key: btcReportsTable.periodKey });
   if (!claimed.length) return;

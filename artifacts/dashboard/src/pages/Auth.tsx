@@ -6,6 +6,7 @@ import { useEffect, useState, type FormEvent, type ReactNode } from "react";
 import { CheckCircle2, Eye, EyeOff, Loader2 } from "lucide-react";
 import { Crown } from "../components/ui";
 import { asset, post, saveSession, type Session } from "../lib/api";
+import { LanguageToggle } from "../components/LanguageToggle";
 
 function useBot(): string | null {
   const [name, setName] = useState<string | null>(null);
@@ -26,6 +27,7 @@ function Shell({ title, sub, children }: { title: string; sub: string; children:
     <div className="relative flex min-h-[100dvh] items-center justify-center overflow-hidden p-4">
       <img src={asset("brand/login.webp")} alt="" className="absolute inset-0 h-full w-full object-cover opacity-50" />
       <div className="absolute inset-0 bg-gradient-to-t from-black via-black/70 to-black/40" />
+      <LanguageToggle className="absolute right-4 top-4 z-10 bg-black/60" />
       <div className="relative w-full max-w-sm space-y-5">
         <div className="text-center">
           <img src={asset("brand/avatar.webp")} alt="" className="mx-auto h-20 w-20 rounded-full border border-gold/60 object-cover" />

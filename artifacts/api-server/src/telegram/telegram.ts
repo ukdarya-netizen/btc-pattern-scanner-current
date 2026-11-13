@@ -7,6 +7,7 @@ import type { Metrics } from "../engine/snapshot";
 import { logger } from "../lib/logger";
 import { imageFile, sendMessage, sendSignalPhoto, SIGNAL_CHANNEL, splitSignalCaption, TelegramError, type SignalImage } from "./transport";
 import { MARKET_MARK, REPORT_MARK } from "../stats/reports";
+import { bilingual } from "./bilingual";
 
 const MAX_ATTEMPTS = 8;
 const NEW_SIGNAL = "__BTC_NEW_SIGNAL__\n";
@@ -308,7 +309,8 @@ async function deliverBatch(patternLabel: (key: string) => string): Promise<void
       `SELECT u.chat_id AS "chatId" FROM btc_users u WHERE ${recipientSql("$2")} AND u.notify_since <= $1`,
       [event.createdAt, ownerEmail()],
     );
-    const body = formatEvent(signal, event, patternLabel(signal.patternKey));
+    // Owner 2026-11-13: Russian and English in one message.
+    const body = bilingual(formatEvent(signal, event, patternLabel(signal.patternKey)));
     const eventDetail = event.detail as Record<string, unknown>;
     const text = event.kind === "opened" ? `${NEW_SIGNAL}${body}`
       : event.kind === "target_hit" ? `${TAKE_PROFIT}${body}`
