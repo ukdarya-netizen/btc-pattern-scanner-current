@@ -160,16 +160,17 @@ export function ChartBody({ d, tf, on = DEFAULT_ON }: { d: ChartData; tf: Tf; on
             <ResponsiveContainer>
               <ComposedChart data={view.rows} syncId="btcmain" margin={{ top: 8, right: 8, bottom: 0, left: 0 }}>
                 <CartesianGrid stroke="#2a2214" vertical={false} />
-                <XAxis dataKey="i" type="number" domain={[-0.5, view.rows.length - 0.5]} {...AXIS} minTickGap={40}
+                <XAxis dataKey="i" type="number" domain={[-0.5, view.rows.length - 0.5]} {...AXIS} minTickGap={30}
+                  ticks={Array.from({ length: 8 }, (_, k) => Math.round(((view.rows.length - 1) * k) / 7))}
                   tickFormatter={(i: number) => { const r = view.rows[Math.round(i)]; return r ? when(r.t, tf) : ""; }} />
                 <YAxis {...AXIS} orientation="right" width={62} domain={view.domain} allowDataOverflow tickFormatter={(v: number) => price(v)} />
-                {/* As her TradingView ABNeon: green under the price (support), red above (resistance), from 300 1D bars back. */}
+                {/* Owner 2026-11-14: the zones across the whole chart (a level is a level on any window), green under the price
+                    (support), red above (resistance); a short label at the right edge, by the price scale. */}
                 {d.zones.map((z, k) => {
                   const col = z.top < view.rows[view.rows.length - 1]!.c ? GREEN : RED;
-                  const x1 = d.zonesFrom != null ? view.idxOf(d.zonesFrom) : 0;
                   return (
-                    <ReferenceArea key={`z${k}`} x1={x1} x2={view.rows.length - 0.5} y1={z.bottom} y2={z.top} fill={col} fillOpacity={0.16} stroke={col} strokeOpacity={0.5} ifOverflow="hidden"
-                      label={{ value: `ABNeon ${price(z.bottom)}–${price(z.top)} (${z.count})`, position: "insideLeft", fill: col, fontSize: 9 }} />
+                    <ReferenceArea key={`z${k}`} x1={-0.5} x2={view.rows.length - 0.5} y1={z.bottom} y2={z.top} fill={col} fillOpacity={0.14} stroke={col} strokeOpacity={0.45} ifOverflow="hidden"
+                      label={{ value: `ABNeon ${price(z.bottom)}–${price(z.top)}`, position: "insideRight", fill: col, fontSize: 9 }} />
                   );
                 })}
                 {d.ranges.flatMap((r) => {
@@ -179,9 +180,9 @@ export function ChartBody({ d, tf, on = DEFAULT_ON }: { d: ChartData; tf: Tf; on
                   const name = `Range ${r.tf === "1d" ? "1D" : "4h"}`;
                   return [
                     <ReferenceLine key={`${r.tf}t`} segment={[{ x: x1, y: r.top }, { x: x2, y: r.top }]} stroke={RANGE_COLOR[r.tf]} strokeWidth={1.6} strokeDasharray={dash} strokeOpacity={op} ifOverflow="hidden"
-                      label={{ value: `${name} верх`, position: "insideTopLeft", fill: RANGE_COLOR[r.tf], fontSize: 10 }} />,
+                      label={{ value: `${name} верх`, position: "insideBottomLeft", fill: RANGE_COLOR[r.tf], fontSize: 10 }} />,
                     <ReferenceLine key={`${r.tf}b`} segment={[{ x: x1, y: r.bottom }, { x: x2, y: r.bottom }]} stroke={RANGE_COLOR[r.tf]} strokeWidth={1.6} strokeDasharray={dash} strokeOpacity={op} ifOverflow="hidden"
-                      label={{ value: `${name} низ`, position: "insideBottomLeft", fill: RANGE_COLOR[r.tf], fontSize: 10 }} />,
+                      label={{ value: `${name} низ`, position: "insideTopLeft", fill: RANGE_COLOR[r.tf], fontSize: 10 }} />,
                   ];
                 })}
                 {on.includes("bb") && <Line dataKey="bbUpper" stroke="#94a3b8" strokeDasharray="2 3" dot={false} connectNulls isAnimationActive={false} />}
