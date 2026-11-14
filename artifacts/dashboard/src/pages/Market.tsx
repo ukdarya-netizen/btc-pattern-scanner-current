@@ -15,7 +15,7 @@ export function Market({ data, owner }: { data: Data; owner: boolean }) {
       <MarketPanel full />
       {owner && (
         <Card title={`Все метрики последней свечи 5m (как их видят паттерны) · ${time(data.market?.candleCloseAt)}`}>
-          {data.market?.metrics ? <MetricsGrid m={data.market.metrics} /> : <p className="text-sm text-muted-foreground">Метрики появятся после первого цикла.</p>}
+          {data.market?.metrics ? <MetricsGrid m={data.market.metrics} indicators={false} /> : <p className="text-sm text-muted-foreground">Метрики появятся после первого цикла.</p>}
         </Card>
       )}
     </div>

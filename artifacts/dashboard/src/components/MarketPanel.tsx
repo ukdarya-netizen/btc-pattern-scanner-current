@@ -180,9 +180,10 @@ export function MarketPanel({ full = false }: { full?: boolean }) {
             <ResponsiveContainer><ComposedChart data={rows}><CartesianGrid stroke="#2a2214" vertical={false} /><XAxis dataKey="label" {...AXIS} minTickGap={40} /><YAxis {...AXIS} width={40} /><Tooltip {...TIP} formatter={withBtc((v) => signed(v, 1))} /><ReferenceLine y={0} stroke={MUTED} /><Legend wrapperStyle={{ fontSize: 11 }} />
               <Line dataKey="futTakerNetPct" name="Фьюч" stroke={GOLD} dot={false} connectNulls /><Line dataKey="spotTakerNetPct" name="Спот" stroke={SKY} dot={false} connectNulls />{btcAxis()}{btcLine}</ComposedChart></ResponsiveContainer>
           </Chart>
-          <Chart title="Whale Index и RSI 1h">
-            <ResponsiveContainer><ComposedChart data={rows}><CartesianGrid stroke="#2a2214" vertical={false} /><XAxis dataKey="label" {...AXIS} minTickGap={40} /><YAxis yAxisId="wi" {...AXIS} width={40} /><YAxis yAxisId="rsi" orientation="right" {...AXIS} width={30} domain={[0, 100]} /><Tooltip {...TIP} formatter={withBtc((v) => num(v, 1))} /><ReferenceLine yAxisId="wi" y={0} stroke={MUTED} /><Legend wrapperStyle={{ fontSize: 11 }} />
-              <Line yAxisId="wi" dataKey="whaleIndex" name="Whale Index" stroke={GOLD} dot={false} connectNulls /><Line yAxisId="rsi" dataKey="rsi1h" name="RSI 1h" stroke={SKY} dot={false} connectNulls />{btcAxis(true)}{btcLine}</ComposedChart></ResponsiveContainer>
+          {/* Owner 2026-11-14: RSI removed from this chart (the indicators are on the main BTC chart). */}
+          <Chart title="Whale Index">
+            <ResponsiveContainer><ComposedChart data={rows}><CartesianGrid stroke="#2a2214" vertical={false} /><XAxis dataKey="label" {...AXIS} minTickGap={40} /><YAxis {...AXIS} width={40} /><Tooltip {...TIP} formatter={withBtc((v) => num(v, 1))} /><ReferenceLine y={0} stroke={MUTED} />
+              <Line dataKey="whaleIndex" name="Whale Index" stroke={GOLD} dot={false} connectNulls />{btcAxis()}{btcLine}</ComposedChart></ResponsiveContainer>
           </Chart>
           {/* Owner 2026-11-13: dominance and S&P 500 on separate charts, the BTC line on both. */}
           <Chart title="Доминация BTC · 90 дней">

@@ -44,8 +44,11 @@ const MF_ROWS: Array<[string, string, (v: number | null) => ReactNode]> = [
   // Owner 2026-11-14: the Chaikin oscillator removed from the table (still recorded in the snapshots for analysis).
 ];
 
-/** Every metric the patterns see: single readings and the per-timeframe table. */
-export function MetricsGrid({ m }: { m: Metrics }) {
+/**
+ * Every metric the patterns see: single readings and the per-timeframe table. Owner 2026-11-14: on «Рынок» without the
+ * indicator lists (they are on the main BTC chart now) — `indicators={false}`; a signal's entry card keeps them.
+ */
+export function MetricsGrid({ m, indicators = true }: { m: Metrics; indicators?: boolean }) {
   const rows: Array<[string, ByTf | undefined, (v: number | null) => ReactNode]> = [
     ["Цена Δ", m.priceChangePct, (v) => <span className={tone(v)}>{signed(v)}</span>],
     ["OI Δ", m.oiChangePct, (v) => <span className={tone(v)}>{signed(v)}</span>],
@@ -91,14 +94,14 @@ export function MetricsGrid({ m }: { m: Metrics }) {
       </div>
       <Table head={["Метрика", ...TFS]}
         rows={rows.map(([label, values, render]) => [label, ...TFS.map((tf) => (values && tf in values ? render(values[tf] ?? null) : ""))])} />
-      {m.indicators && (
+      {indicators && m.indicators && (
         <>
           <div className="text-xs uppercase tracking-wider text-muted-foreground">Индикаторы (BingX BTC-USDT, закрытые свечи)</div>
           <Table head={["Индикатор", ...IND_TFS.map(([, l]) => l)]}
             rows={IND_ROWS.map(([label, key, render]) => [label, ...IND_TFS.map(([tf]) => { const v = m.indicators?.[tf]?.[key]; return v === undefined ? "" : render(v ?? null); })])} />
         </>
       )}
-      {m.moneyFlow && (
+      {indicators && m.moneyFlow && (
         <>
           <div className="text-xs uppercase tracking-wider text-muted-foreground">Денежный поток (агрегированный объём CoinGlass)</div>
           <Table head={["Индикатор", "Фьюч 15m", "Фьюч 1h", "Фьюч 4h", "Спот 15m", "Спот 1h", "Спот 4h"]}
