@@ -1,17 +1,13 @@
 import { Area, AreaChart, Bar, BarChart, CartesianGrid, Cell, ReferenceLine, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
-import { STYLE_LABEL, type Signal, type Style, asset, duration, heldMs, liveMove, num, price, signed, tone } from "../lib/api";
+import { REASON, STYLE_LABEL, type Signal, type Style, asset, dir, duration, heldMs, liveMove, num, price, signed, time, tone } from "../lib/api";
 import { useState } from "react";
 import { ChevronLeft, ChevronRight } from "lucide-react";
 import { type Data, type Filter, type Mode, NO_FILTER, type Period, type Tab, dubaiDayKey, dubaiMonth, inPeriod, monthName, res, styleOf, summarize } from "../lib/data";
-import { Card, type Col, Crown, SortTable, Table, Tile } from "../components/ui";
+import { Card, type Col, Crown, Pill, SortTable, Tile } from "../components/ui";
 
 const GOLD = "#f2b10f";
 const AXIS = { stroke: "#8a7d63", fontSize: 11 };
 const TIP = { contentStyle: { background: "#120f0a", border: "1px solid #5a4417", borderRadius: 8 }, labelStyle: { color: "#d8c9a6" } };
-const dubaiDay = (iso: string) => new Date(iso).toLocaleDateString("ru-RU", { timeZone: "Asia/Dubai", day: "2-digit", month: "2-digit" });
-
-/** Holding time buckets — the full spread, not a median (owner rule). */
-const BUCKETS: Array<[string, number]> = [["до 4 ч", 4], ["4–12 ч", 12], ["12–24 ч", 24], ["1–3 д", 72], ["3–7 д", 168], ["больше 7 д", Infinity]];
 
 const OUTCOMES: Array<{ reason: Filter["reason"]; label: string; tone: string }> = [
   { reason: "take_profit", label: "Цели", tone: "text-emerald-400" },
@@ -63,7 +59,15 @@ function DayArchive({ closed }: { closed: Signal[] }) {
   );
 }
 
-type MonthRow = { month: string } & ReturnType<typeof summarize>;
+/** Month by the OPENING date (owner 2026-11-14: «позиции, которые были открыты в этом месяце»); results of the closed ones. */
+type MonthRow = { month: string; signals: number; open: number; rows: Signal[] } & ReturnType<typeof summarize>;
+/** Every Dubai day from the first to the last key (empty days included, so the charts read as a calendar). */
+function dayRange(from: string, to: string): string[] {
+  const out: string[] = [];
+  for (let t = Date.parse(`${from}T00:00:00Z`); t <= Date.parse(`${to}T00:00:00Z`); t += 86_400_000) out.push(new Date(t).toISOString().slice(0, 10));
+  return out;
+}
+const dayLabel = (key: string) => `${key.slice(8, 10)}.${key.slice(5, 7)}`;
 
 export function Overview({ data, period, setPeriod, mode, go }: { data: Data; period: Period; setPeriod: (p: Period) => void; mode: Mode; go: (t: Tab, f?: Partial<Filter>) => void }) {
   const last = data.status?.stream.lastPrice ?? null;
@@ -74,19 +78,22 @@ export function Overview({ data, period, setPeriod, mode, go }: { data: Data; pe
   const style = (st: Style) => summarize(closed.filter((s) => styleOf(patterns, s.patternKey) === st));
   const openMove = data.open.map((s) => liveMove(s, last) ?? 0).reduce((a, b) => a + b, 0);
 
+  // Owner 2026-11-14: both charts on a continuous calendar of Dubai days — from the first signal of the period (or the
+  // first day of the chosen month) to today / the month end; a day without closes is 0, the curve stays flat.
   const byClose = [...closed].filter((s) => s.closedAt).sort((a, b) => Date.parse(a.closedAt!) - Date.parse(b.closedAt!));
+  const dayMap = new Map<string, { v: number; n: number }>();
+  for (const s of byClose) { const k = dubaiDayKey(s.closedAt!); const x = dayMap.get(k) ?? { v: 0, n: 0 }; dayMap.set(k, { v: x.v + res(s), n: x.n + 1 }); }
+  const todayKey = dubaiDayKey(new Date().toISOString());
+  const firstSignal = [...data.open, ...data.closed].map((s) => dubaiDayKey(s.detectedAt)).sort()[0] ?? null;
+  const isMonth = /^\d{4}-\d{2}$/.test(period);
+  const monthEnd = isMonth ? (() => { const [yy, mm] = period.split("-").map(Number) as [number, number]; return new Date(Date.UTC(yy, mm, 0)).toISOString().slice(0, 10); })() : null;
+  const startKey = isMonth ? `${period}-01` : period === "all" ? firstSignal : dubaiDayKey(new Date(Date.now() - Number(period) * 86_400_000).toISOString());
+  const endKey = monthEnd && monthEnd < todayKey ? monthEnd : todayKey;
+  const days = startKey && byClose.length ? dayRange(startKey < (dubaiDayKey(byClose[0]!.closedAt!)) ? startKey : dubaiDayKey(byClose[0]!.closedAt!), endKey) : [];
   let acc = 0;
-  const equity = byClose.map((s) => ({ t: dubaiDay(s.closedAt!), v: Number((acc += res(s)).toFixed(2)) }));
-  const dayMap = new Map<string, number>();
-  for (const s of byClose) { const d = dubaiDay(s.closedAt!); dayMap.set(d, (dayMap.get(d) ?? 0) + res(s)); }
-  const daily = [...dayMap].map(([day, v]) => ({ day, v: Number(v.toFixed(2)) }));
+  const daily = days.map((k) => { const x = dayMap.get(k); acc += x?.v ?? 0; return { day: dayLabel(k), v: Number((x?.v ?? 0).toFixed(2)), n: x?.n ?? 0, acc: Number(acc.toFixed(2)) }; });
 
   const holds = closed.map((s) => heldMs(s)).sort((a, b) => a - b);
-  const buckets = BUCKETS.map(([name, maxH], i) => {
-    const minH = i ? BUCKETS[i - 1]![1] : 0;
-    const sm = summarize(closed.filter((s) => { const h = heldMs(s) / 3_600_000; return h >= minH && h < maxH; }));
-    return { name, ...sm };
-  });
   const winRate = (s: { winRate: number | null }) => (s.winRate == null ? "—" : `${num(s.winRate, 0)}%`);
   // Counters (as CAB / Nihilist): signals today (Dubai), all signals, open now, time in a trade (shortest – longest).
   const today = dubaiDayKey(new Date().toISOString());
@@ -97,13 +104,19 @@ export function Overview({ data, period, setPeriod, mode, go }: { data: Data; pe
   const avgPeak = peaks.length ? peaks.reduce((a, b) => a + b, 0) / peaks.length : null;
   const reached = (x: number) => closed.filter((s) => s.mfePct >= x).length;
   const label = (k: string) => patterns.find((p) => p.key === k)?.label ?? k;
-  // Statistics by month (all closed trades of the mode, Dubai months); a row sets the period.
+  // Statistics by month of OPENING (Dubai); a click lists the month's positions (owner 2026-11-14), the period stays.
+  const [openMonth, setOpenMonth] = useState<string | null>(null);
   const months = new Map<string, Signal[]>();
-  for (const s of data.closed) if (s.closedAt) { const k = dubaiMonth(s.closedAt); months.set(k, [...(months.get(k) ?? []), s]); }
-  const monthRows: MonthRow[] = [...months].map(([month, xs]) => ({ month, ...summarize(xs) }));
+  for (const s of allSignals) { const k = dubaiMonth(s.detectedAt); months.set(k, [...(months.get(k) ?? []), s]); }
+  const monthRows: MonthRow[] = [...months].map(([month, xs]) => ({
+    month, signals: xs.length, open: xs.filter((s) => !s.closedAt).length, rows: xs, ...summarize(xs.filter((s) => s.closedAt)),
+  }));
+  const shownMonth = monthRows.find((r) => r.month === openMonth) ?? null;
   const monthCols: Col<MonthRow>[] = [
     { head: "Месяц", cell: (r) => <span className="capitalize text-foreground">{monthName(r.month)}</span>, sort: (r) => r.month },
-    { head: "Сделок", cell: (r) => r.n, sort: (r) => r.n },
+    { head: "Сигналов", cell: (r) => r.signals, sort: (r) => r.signals },
+    { head: "Закрыто", cell: (r) => r.n, sort: (r) => r.n },
+    { head: "Открыто", cell: (r) => r.open, sort: (r) => r.open },
     { head: "Винрейт", cell: (r) => winRate(r), sort: (r) => r.winRate },
     { head: "Сумма", cell: (r) => <span className={`font-medium ${tone(r.sum)}`}>{signed(r.sum, 1)}</span>, sort: (r) => r.sum },
     { head: "Среднее", cell: (r) => <span className={tone(r.avg)}>{signed(r.avg)}</span>, sort: (r) => r.avg },
@@ -111,12 +124,25 @@ export function Overview({ data, period, setPeriod, mode, go }: { data: Data; pe
     { head: "Худшая", cell: (r) => signed(r.worst), sort: (r) => r.worst },
   ];
 
+  const posCols: Col<Signal>[] = [
+    { head: "#", cell: (s) => s.id, sort: (s) => s.id },
+    { head: "Открыта", cell: (s) => time(s.detectedAt), sort: (s) => Date.parse(s.detectedAt) },
+    { head: "Паттерн", cell: (s) => label(s.patternKey), sort: (s) => label(s.patternKey) },
+    { head: "Напр.", cell: (s) => <Pill kind={s.direction === "long" ? "long" : "short"}>{dir(s.direction)}</Pill>, sort: (s) => s.direction },
+    { head: "Вход", cell: (s) => price(s.entryPrice), sort: (s) => s.entryPrice },
+    { head: "Закрыта", cell: (s) => (s.closedAt ? time(s.closedAt) : <span className="text-gold">открыта</span>), sort: (s) => (s.closedAt ? Date.parse(s.closedAt) : Infinity) },
+    { head: "Активна", cell: (s) => (s.closedAt ? duration(heldMs(s)) : `${duration(heldMs(s))} (сейчас)`), sort: (s) => heldMs(s) },
+    { head: "Итог", cell: (s) => (s.closedAt ? REASON[s.closeReason ?? ""] ?? "—" : "в сделке"), sort: (s) => s.closeReason ?? "" },
+    { head: "Движение", cell: (s) => { const v = s.closedAt ? res(s) : liveMove(s, last); return <span className={`font-semibold ${tone(v)}`}>{signed(v)}</span>; }, sort: (s) => (s.closedAt ? res(s) : liveMove(s, last)) },
+  ];
+
   return (
     <div className="space-y-4">
       <section className="hero relative overflow-hidden rounded-2xl border border-gold/30">
-        <img src={asset("brand/hero.webp")} alt="" className="absolute inset-0 h-full w-full object-cover object-[center_72%]" />
-        <div className="absolute inset-0 bg-gradient-to-r from-black via-black/70 to-transparent" />
-        <div className="relative flex min-h-[220px] flex-col justify-end gap-3 p-6 md:min-h-[260px] md:w-3/5">
+        {/* Owner 2026-11-14: the honey badger biting the snake — his face in view, on the right behind the text. */}
+        <img src={asset("brand/hero-badger.webp")} alt="" className="absolute inset-y-0 right-0 h-full w-full object-cover object-[50%_18%] md:w-[62%]" />
+        <div className="absolute inset-0 bg-gradient-to-r from-black via-black/75 to-transparent md:from-35% md:via-black/40 md:via-50% md:to-70%" />
+        <div className="relative flex min-h-[240px] flex-col justify-end gap-3 p-6 md:min-h-[300px] md:w-3/5">
           <div className="flex items-center gap-2 text-gold"><Crown className="h-6 w-8" /><span className="text-xs uppercase tracking-[0.3em]">BTC-USDT · Long · Short</span></div>
           <h1><img src={asset("brand/wordmark.webp")} alt="Bitcoin Margin Master" className="h-28 w-auto max-w-full object-contain md:h-40" /></h1>
           <p className="text-xs uppercase tracking-[0.35em] text-gold/80">Discipline · Leverage · Freedom</p>
@@ -126,6 +152,13 @@ export function Overview({ data, period, setPeriod, mode, go }: { data: Data; pe
           </div>
         </div>
       </section>
+
+      {period !== "all" && (
+        <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-gold/40 bg-gold/10 px-4 py-2 text-sm">
+          <span>Статистика ниже — только за период: <b className="capitalize">{isMonth ? monthName(period) : `${period} дней`}</b> (по дате закрытия).</span>
+          <button onClick={() => setPeriod("all")} className="rounded-md border border-gold/60 px-3 py-1 text-xs text-gold hover:bg-gold/15">Показать всё время</button>
+        </div>
+      )}
 
       <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
         <Tile label="Сигналов сегодня" value={todayN} sub="открыто за день (Дубай)" />
@@ -170,58 +203,72 @@ export function Overview({ data, period, setPeriod, mode, go }: { data: Data; pe
 
       <div className="grid gap-4 lg:grid-cols-2">
         <Card title="Накопленное движение, %">
-          {equity.length === 0 ? <p className="text-sm text-muted-foreground">Закрытых сделок пока нет.</p> : (
+          {daily.length === 0 ? <p className="text-sm text-muted-foreground">Закрытых сделок за период нет.</p> : (
             <div className="h-56">
               <ResponsiveContainer width="100%" height="100%">
-                <AreaChart data={equity}>
+                <AreaChart data={daily}>
                   <defs><linearGradient id="eq" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stopColor={GOLD} stopOpacity={0.45} /><stop offset="100%" stopColor={GOLD} stopOpacity={0} /></linearGradient></defs>
                   <CartesianGrid stroke="#2a2214" vertical={false} />
-                  <XAxis dataKey="t" {...AXIS} minTickGap={24} />
+                  <XAxis dataKey="day" {...AXIS} minTickGap={24} />
                   <YAxis {...AXIS} unit="%" />
                   <ReferenceLine y={0} stroke="#5a4417" />
-                  <Tooltip {...TIP} formatter={(v: number) => [`${v >= 0 ? "+" : ""}${v}%`, "Накоплено"]} />
-                  <Area type="monotone" dataKey="v" stroke={GOLD} strokeWidth={2} fill="url(#eq)" />
+                  <Tooltip {...TIP} formatter={(v: number) => [`${v >= 0 ? "+" : ""}${v}%`, "Накоплено к концу дня"]} />
+                  <Area type="stepAfter" dataKey="acc" stroke={GOLD} strokeWidth={2} fill="url(#eq)" isAnimationActive={false} />
                 </AreaChart>
               </ResponsiveContainer>
             </div>
           )}
         </Card>
         <Card title="Движение по дням, % (Дубай)">
-          {daily.length === 0 ? <p className="text-sm text-muted-foreground">Закрытых сделок пока нет.</p> : (
+          {daily.length === 0 ? <p className="text-sm text-muted-foreground">Закрытых сделок за период нет.</p> : (
             <div className="h-56">
               <ResponsiveContainer width="100%" height="100%">
                 <BarChart data={daily}>
                   <CartesianGrid stroke="#2a2214" vertical={false} />
-                  <XAxis dataKey="day" {...AXIS} />
+                  <XAxis dataKey="day" {...AXIS} minTickGap={16} />
                   <YAxis {...AXIS} unit="%" />
-                  <Tooltip {...TIP} formatter={(v: number) => [`${v >= 0 ? "+" : ""}${v}%`, "За день"]} />
-                  <Bar dataKey="v" radius={[3, 3, 0, 0]}>{daily.map((d) => <Cell key={d.day} fill={d.v >= 0 ? GOLD : "#e2445c"} />)}</Bar>
+                  <ReferenceLine y={0} stroke="#5a4417" />
+                  <Tooltip {...TIP} formatter={(v: number, _n, item) => [`${v >= 0 ? "+" : ""}${v}% · закрыто ${(item?.payload as { n?: number })?.n ?? 0}`, "За день"]} />
+                  <Bar dataKey="v" maxBarSize={28} radius={[3, 3, 0, 0]} isAnimationActive={false}>{daily.map((d, i) => <Cell key={i} fill={d.v >= 0 ? GOLD : "#e2445c"} />)}</Bar>
                 </BarChart>
               </ResponsiveContainer>
             </div>
           )}
         </Card>
       </div>
+      <p className="-mt-2 text-xs text-muted-foreground">Оба графика — по дню закрытия сделки (Дубай), каждый день периода; день без закрытий = 0.</p>
 
-      <div className="grid gap-4 lg:grid-cols-2">
-        <Card title="Сколько держались">
-          <p className="mb-2 text-xs text-muted-foreground">Разброс: {holds.length ? `${duration(holds[0]!)} … ${duration(holds.at(-1)!)}` : "—"}</p>
-          <Table head={["Время в сделке", "Сделок", "Среднее движение", "Винрейт"]}
-            rows={buckets.map((b) => [b.name, b.n, <span className={tone(b.avg)}>{signed(b.avg)}</span>, winRate(b)])} />
-        </Card>
-        <DayArchive closed={data.closed} />
-      </div>
+      {/* Owner 2026-11-14: «Сколько держались» removed, the day archive takes the whole width. */}
+      <DayArchive closed={data.closed} />
 
-      <Card title="По месяцам (Дубай)">
+      <Card title="По месяцам открытия (Дубай)">
         <SortTable<MonthRow> cols={monthCols} rows={monthRows} rowKey={(r) => r.month} initial={{ col: "Месяц", desc: true }}
-          onRow={(r) => setPeriod(r.month)} empty="Закрытых сделок пока нет."
+          onRow={(r) => setOpenMonth(openMonth === r.month ? null : r.month)} empty="Сигналов пока нет."
           card={(r) => (
             <div className="flex items-center justify-between">
-              <div><div className="capitalize text-sm">{monthName(r.month)}</div><div className="text-[11px] text-muted-foreground">{r.n} сделок · винрейт {winRate(r)} · среднее {signed(r.avg)}</div></div>
+              <div><div className="capitalize text-sm">{monthName(r.month)}</div><div className="text-[11px] text-muted-foreground">{r.signals} сигналов · закрыто {r.n} · открыто {r.open} · винрейт {winRate(r)}</div></div>
               <div className={`text-lg font-semibold tabular-nums ${tone(r.sum)}`}>{signed(r.sum, 1)}</div>
             </div>
           )} />
-        <p className="mt-2 text-xs text-muted-foreground">Нажми на месяц — вся статистика, история и паттерны переключатся на него.</p>
+        <p className="mt-2 text-xs text-muted-foreground">Нажми на месяц — ниже откроется список всех позиций, открытых в этом месяце. Сумма, винрейт и среднее — по закрытым из них.</p>
+        {shownMonth && (
+          <div className="mt-4 border-t border-border/70 pt-3">
+            <div className="mb-2 flex items-center justify-between">
+              <h3 className="text-sm capitalize text-gold">Позиции, открытые: {monthName(shownMonth.month)} · {shownMonth.signals}</h3>
+              <button onClick={() => setOpenMonth(null)} className="text-xs text-muted-foreground hover:text-gold">Скрыть</button>
+            </div>
+            <SortTable<Signal> cols={posCols} rows={shownMonth.rows} rowKey={(s) => s.id} initial={{ col: "Открыта", desc: true }}
+              card={(s) => { const v = s.closedAt ? res(s) : liveMove(s, last); return (
+                <div className="flex items-start justify-between gap-2">
+                  <div className="min-w-0">
+                    <div className="truncate text-sm">{label(s.patternKey)}</div>
+                    <div className="text-[11px] text-muted-foreground">{dir(s.direction)} · открыта {time(s.detectedAt)} · {s.closedAt ? `закрыта ${time(s.closedAt)} · была активна ${duration(heldMs(s))} · ${REASON[s.closeReason ?? ""] ?? "—"}` : `активна ${duration(heldMs(s))} (сейчас)`}</div>
+                  </div>
+                  <div className={`text-lg font-semibold tabular-nums ${tone(v)}`}>{signed(v)}</div>
+                </div>
+              ); }} />
+          </div>
+        )}
       </Card>
       <p className="text-center text-xs text-muted-foreground">Все результаты — чистое движение цены от входа в сторону сделки: без плеча и комиссий.</p>
     </div>
