@@ -139,10 +139,12 @@ export default function App() {
   const connected = data.status?.stream.connected ?? false;
 
   const nav = NAV.filter((n) => !n.owner || owner);
-  const current = NAV.find((n) => n.tab === tab) ?? NAV[1]!;
+  // Owner 2026-11-14: Решения, Подписчики, Bot Health — owner only; a subscriber opening such a link sees «Обзор».
+  const shown: Tab = !owner && NAV.some((n) => n.owner && n.tab === tab) ? "overview" : tab;
+  const current = nav.find((n) => n.tab === shown) ?? NAV.find((n) => n.tab === "overview")!;
   const navItem = (n: (typeof NAV)[number], big = false) => {
     const Icon = n.icon;
-    const active = tab === n.tab;
+    const active = shown === n.tab;
     return (
       <button key={n.tab} onClick={() => setTab(n.tab)}
         className={`flex w-full items-start gap-3 rounded-lg border px-3 ${big ? "py-3" : "py-2.5"} text-left text-sm transition ${active ? "border-gold/50 bg-gold/10 text-gold" : "border-transparent text-muted-foreground hover:bg-white/[0.03] hover:text-foreground"}`}>
@@ -157,7 +159,7 @@ export default function App() {
       </button>
     );
   };
-  const periodMatters = tab === "overview" || tab === "positions" || tab === "patterns";
+  const periodMatters = shown === "overview" || shown === "positions" || shown === "patterns";
 
   return (
     <div className="flex h-[100dvh] w-full overflow-hidden">
@@ -189,7 +191,7 @@ export default function App() {
           <div className="flex flex-wrap items-center gap-2">
             <span className="text-sm font-semibold tabular-nums md:hidden">{price(last)}</span>
             <LanguageToggle />
-            {owner && tab !== "subscribers" && tab !== "market" && tab !== "decisions" && tab !== "health" && tab !== "reference" && (
+            {owner && shown !== "subscribers" && shown !== "market" && shown !== "decisions" && shown !== "health" && shown !== "reference" && (
               <Segmented<Mode> value={mode} options={[["live", "Канал"], ["shadow", "Тень"]]} onChange={(m) => { setMode(m); setFilter(NO_FILTER); }} />
             )}
             {periodMatters && (
@@ -202,15 +204,15 @@ export default function App() {
         </header>
         <div id="content" className="flex-1 space-y-4 overflow-auto p-4 pb-24 md:p-6 md:pb-6">
           {error && <p className="rounded-lg border border-rose-500/40 bg-rose-500/5 p-3 text-sm text-rose-300">Нет связи с API: {error}</p>}
-          {owner && mode === "shadow" && tab !== "subscribers" && tab !== "market" && tab !== "decisions" && tab !== "health" && tab !== "reference" && <p className="rounded-lg border border-gold/30 bg-gold/5 p-2 text-center text-xs text-gold">Режим «Тень»: сигналы, которые пишутся и считаются, но не публикуются в канал.</p>}
-          {tab === "overview" && <Overview data={data} period={period} setPeriod={setPeriod} mode={mode} go={go} />}
-          {tab === "positions" && <Positions data={data} label={label} history={<History data={data} period={period} label={label} filter={filter} setFilter={setFilter} />} />}
-          {tab === "patterns" && <Patterns data={data} period={period} mode={mode} go={go} />}
-          {tab === "reference" && <Reference data={data} />}
-          {tab === "subscribers" && owner && <Subscribers />}
-          {tab === "market" && <Market data={raw} owner={owner} />}
-          {tab === "decisions" && owner && <Decisions data={raw} label={label} />}
-          {tab === "health" && owner && <Health />}
+          {owner && mode === "shadow" && shown !== "subscribers" && shown !== "market" && shown !== "decisions" && shown !== "health" && shown !== "reference" && <p className="rounded-lg border border-gold/30 bg-gold/5 p-2 text-center text-xs text-gold">Режим «Тень»: сигналы, которые пишутся и считаются, но не публикуются в канал.</p>}
+          {shown === "overview" && <Overview data={data} period={period} setPeriod={setPeriod} mode={mode} go={go} />}
+          {shown === "positions" && <Positions data={data} label={label} history={<History data={data} period={period} label={label} filter={filter} setFilter={setFilter} />} />}
+          {shown === "patterns" && <Patterns data={data} period={period} mode={mode} go={go} />}
+          {shown === "reference" && <Reference data={data} />}
+          {shown === "subscribers" && owner && <Subscribers />}
+          {shown === "market" && <Market data={raw} owner={owner} />}
+          {shown === "decisions" && owner && <Decisions data={raw} label={label} />}
+          {shown === "health" && owner && <Health />}
           <footer className="pt-6 text-center text-[10px] uppercase tracking-[0.35em] text-gold/50">Honey badger don't care · время Дубай</footer>
         </div>
       </main>
@@ -228,7 +230,7 @@ export default function App() {
         {NAV.filter((n) => n.tab === "positions" || n.tab === "overview" || n.tab === "market").map((n) => {
           const Icon = n.icon;
           return (
-            <button key={n.tab} onClick={() => setTab(n.tab)} className={`flex flex-col items-center justify-center gap-1 text-[11px] ${tab === n.tab ? "text-gold" : "text-muted-foreground"}`}>
+            <button key={n.tab} onClick={() => setTab(n.tab)} className={`flex flex-col items-center justify-center gap-1 text-[11px] ${shown === n.tab ? "text-gold" : "text-muted-foreground"}`}>
               <Icon className="h-5 w-5" />{n.tab === "positions" ? `Позиции${data.open.length ? ` · ${data.open.length}` : ""}` : n.label}
             </button>
           );
