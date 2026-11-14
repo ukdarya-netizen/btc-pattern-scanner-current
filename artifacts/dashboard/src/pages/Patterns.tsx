@@ -7,15 +7,17 @@ const count = (xs: Signal[], reason: string) => xs.filter((s) => s.closeReason =
 /** Every pattern of the chosen mode with its results, grouped by style (scalp / intraday / swing); every column sorts. */
 export function Patterns({ data, period, mode, go }: { data: Data; period: Period; mode: Mode; go: (t: Tab, f?: Partial<Filter>) => void }) {
   const all = data.status?.patterns ?? [];
-  // Owner 2026-11-14: switched-off patterns (range 4h, ABNeon / Stealth 15m / 1h / 4h) only while they have trades in the history.
+  // Owner 2026-11-14: the working patterns only; switched-off ones (range 4h, ABNeon / Stealth 15m / 1h / 4h) are not in the
+  // lists — those with past trades sit apart at the bottom, as history.
   const hasTrades = (p: Pattern) => data.closed.some((s) => s.patternKey === p.key) || data.open.some((s) => s.patternKey === p.key);
-  const patterns = all.filter((p) => (mode === "live") === p.live && (!p.off || hasTrades(p)));
+  const patterns = all.filter((p) => (mode === "live") === p.live && !p.off);
+  const retired = all.filter((p) => (mode === "live") === p.live && p.off && hasTrades(p));
   const closed = inPeriod(data.closed, period);
   const xsOf = (p: Pattern) => closed.filter((s) => s.patternKey === p.key);
   const sm = (p: Pattern) => summarize(xsOf(p));
   const avg = (p: Pattern, f: (s: Signal) => number) => { const xs = xsOf(p); return xs.length ? xs.reduce((a, s) => a + f(s), 0) / xs.length : null; };
   const cols: Col<Pattern>[] = [
-    { head: "Паттерн", cell: (p) => <span className="text-foreground">{p.label}{p.off ? <span className="ml-2 text-[10px] uppercase text-muted-foreground">выключен</span> : null}</span>, sort: (p) => p.label },
+    { head: "Паттерн", cell: (p) => <span className="text-foreground">{p.label}</span>, sort: (p) => p.label },
     { head: "Напр.", cell: (p) => <Pill kind={p.direction === "long" ? "long" : "short"}>{dir(p.direction)}</Pill>, sort: (p) => p.direction },
     { head: "ТФ", cell: (p) => p.tf ?? "—", sort: (p) => p.tf ?? "" },
     { head: "Закрыто", cell: (p) => sm(p).n, sort: (p) => sm(p).n },
@@ -53,6 +55,19 @@ export function Patterns({ data, period, mode, go }: { data: Data; period: Perio
           </Card>
         );
       })}
+      {retired.length > 0 && (
+        <Card title={`Выключены · только история сделок · ${retired.length}`}>
+          <SortTable<Pattern> cols={cols} rows={retired} rowKey={(p) => p.key} initial={{ col: "Сумма", desc: true }}
+            onRow={(p) => go("history", { pattern: p.key })}
+            card={(p) => { const m = sm(p); return (
+              <div className="flex items-start justify-between gap-2">
+                <div className="min-w-0"><div className="text-sm font-medium text-foreground">{p.label}</div><div className="mt-1 text-[11px] text-muted-foreground">закрыто {m.n}</div></div>
+                <div className={`text-lg font-semibold tabular-nums ${tone(m.sum)}`}>{signed(m.sum, 1)}</div>
+              </div>
+            ); }} />
+          <p className="mt-2 text-xs text-muted-foreground">Эти паттерны больше не дают сигналов (14.11: рейндж только 1D, ABNeon / Stealth только 1D); здесь — их прошлые сделки.</p>
+        </Card>
+      )}
       {patterns.length === 0 && <Card title="Паттерны"><p className="text-sm text-muted-foreground">В этом режиме паттернов нет.</p></Card>}
       <p className="text-center text-xs text-muted-foreground">Сортировка — нажми на заголовок столбца. Нажми на паттерн — его сделки в истории. Среднее и сумма — чистое движение цены, без плеча и комиссий.</p>
     </div>

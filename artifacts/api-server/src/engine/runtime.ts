@@ -49,7 +49,7 @@ export async function startEngine(): Promise<void> {
     lastCandleCloseAt: scannerStatus.lastCandleCloseAt,
     missingFlow: scannerStatus.missingFlow,
     patternCount: PATTERNS.length,
-    livePatternCount: PATTERNS.filter((p) => p.live).length,
+    livePatternCount: PATTERNS.filter((p) => p.live && !p.off).length,
   }));
   startTelegramSubscriptions();
   startOpsMonitor(() => scannerStatus);

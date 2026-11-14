@@ -70,7 +70,7 @@ router.get("/btc/health", ownerOnly, async (_req, res) => {
     telegram,
     reports,
     openSignals: openSignalCount(),
-    patterns: { total: PATTERNS.length, live: PATTERNS.filter((p) => p.live).length },
+    patterns: { total: PATTERNS.filter((p) => !p.off).length, live: PATTERNS.filter((p) => p.live && !p.off).length },
   });
 });
 
