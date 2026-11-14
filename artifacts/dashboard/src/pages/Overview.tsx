@@ -2,7 +2,7 @@ import { Area, AreaChart, Bar, BarChart, CartesianGrid, Cell, ReferenceLine, Res
 import { REASON, STYLE_LABEL, type Signal, type Style, asset, dir, duration, heldMs, liveMove, num, price, signed, time, tone } from "../lib/api";
 import { useState } from "react";
 import { ChevronLeft, ChevronRight } from "lucide-react";
-import { type Data, type Filter, type Mode, NO_FILTER, type Period, type Tab, dubaiDayKey, dubaiMonth, inPeriod, monthName, res, styleOf, summarize } from "../lib/data";
+import { type Data, type Filter, type Mode, NO_FILTER, type Period, type Tab, dubaiDayEnd, dubaiDayKey, dubaiDayStart, dubaiMonth, inPeriod, monthName, res, styleOf, summarize } from "../lib/data";
 import { Card, type Col, Crown, Pill, SortTable, Tile } from "../components/ui";
 
 const GOLD = "#f2b10f";
@@ -18,7 +18,7 @@ const OUTCOMES: Array<{ reason: Filter["reason"]; label: string; tone: string }>
 const WEEK = ["пн", "вт", "ср", "чт", "пт", "сб", "вс"];
 
 /** Month calendar of the daily result by close day (Dubai), as CAB «Архив статистики» / Nihilist «Архив по дням». */
-function DayArchive({ closed }: { closed: Signal[] }) {
+function DayArchive({ closed, openDay }: { closed: Signal[]; openDay: (key: string) => void }) {
   const now = new Date(Date.now() + 4 * 3_600_000);
   const [month, setMonth] = useState(() => `${now.getUTCFullYear()}-${String(now.getUTCMonth() + 1).padStart(2, "0")}`);
   const [y, m] = month.split("-").map(Number) as [number, number];
@@ -46,11 +46,11 @@ function DayArchive({ closed }: { closed: Signal[] }) {
           const xs = byDay.get(key) ?? [];
           const sum = xs.reduce((a, s) => a + res(s), 0);
           return (
-            <div key={key} className={`min-h-14 rounded-md border p-1 text-left ${xs.length ? (sum >= 0 ? "border-emerald-500/30 bg-emerald-500/5" : "border-rose-500/30 bg-rose-500/5") : "border-border/50"}`}>
+            <button key={key} type="button" disabled={!xs.length} onClick={() => openDay(key)} className={`min-h-14 rounded-md border p-1 text-left ${xs.length ? (sum >= 0 ? "border-emerald-500/30 bg-emerald-500/5 hover:border-emerald-400/70" : "border-rose-500/30 bg-rose-500/5 hover:border-rose-400/70") : "border-border/50 cursor-default"}`}>
               <div className="text-[10px] text-muted-foreground">{d}</div>
               {xs.length > 0 && <div className={`text-xs font-semibold tabular-nums ${tone(sum)}`}>{signed(sum, 1)}</div>}
               {xs.length > 0 && <div className="text-[10px] text-muted-foreground">{xs.length} сд.</div>}
-            </div>
+            </button>
           );
         })}
       </div>
@@ -91,7 +91,7 @@ export function Overview({ data, period, setPeriod, mode, go }: { data: Data; pe
   const endKey = monthEnd && monthEnd < todayKey ? monthEnd : todayKey;
   const days = startKey && byClose.length ? dayRange(startKey < (dubaiDayKey(byClose[0]!.closedAt!)) ? startKey : dubaiDayKey(byClose[0]!.closedAt!), endKey) : [];
   let acc = 0;
-  const daily = days.map((k) => { const x = dayMap.get(k); acc += x?.v ?? 0; return { day: dayLabel(k), v: Number((x?.v ?? 0).toFixed(2)), n: x?.n ?? 0, acc: Number(acc.toFixed(2)) }; });
+  const daily = days.map((k) => { const x = dayMap.get(k); acc += x?.v ?? 0; return { key: k, day: dayLabel(k), v: Number((x?.v ?? 0).toFixed(2)), n: x?.n ?? 0, acc: Number(acc.toFixed(2)) }; });
 
   const holds = closed.map((s) => heldMs(s)).sort((a, b) => a - b);
   const winRate = (s: { winRate: number | null }) => (s.winRate == null ? "—" : `${num(s.winRate, 0)}%`);
@@ -124,6 +124,8 @@ export function Overview({ data, period, setPeriod, mode, go }: { data: Data; pe
     { head: "Худшая", cell: (r) => signed(r.worst), sort: (r) => r.worst },
   ];
 
+  // Owner 2026-11-14: every tile opens the history with its own filter and a title (as CAB).
+  const openDay = (key: string) => go("history", { status: "closed", basis: "closed", from: dubaiDayStart(key), to: dubaiDayEnd(key), title: `Закрыто ${key.slice(8, 10)}.${key.slice(5, 7)}`, note: "сделки, закрытые в этот день (Дубай)" });
   const posCols: Col<Signal>[] = [
     { head: "#", cell: (s) => s.id, sort: (s) => s.id },
     { head: "Открыта", cell: (s) => time(s.detectedAt), sort: (s) => Date.parse(s.detectedAt) },
@@ -148,7 +150,7 @@ export function Overview({ data, period, setPeriod, mode, go }: { data: Data; pe
           <p className="text-xs uppercase tracking-[0.35em] text-gold/80">Discipline · Leverage · Freedom</p>
           <div className="flex flex-wrap items-end gap-6 pt-1">
             <div><div className="text-[10px] uppercase tracking-widest text-muted-foreground">BTC-USDT</div><div className="text-3xl font-semibold tabular-nums text-white">{price(last)}</div></div>
-            <div><div className="text-[10px] uppercase tracking-widest text-muted-foreground">{mode === "live" ? "Открыто в канале" : "Открыто в тени"}</div><div className={`text-xl font-semibold tabular-nums ${tone(openMove)}`}>{data.open.length} · {signed(openMove)}</div></div>
+            <button type="button" onClick={() => go("positions")} className="-m-1 rounded-md p-1 text-left hover:bg-white/5"><div className="text-[10px] uppercase tracking-widest text-muted-foreground">{mode === "live" ? "Открыто в канале" : "Открыто в тени"}</div><div className={`text-xl font-semibold tabular-nums ${tone(openMove)}`}>{data.open.length} · {signed(openMove)}</div></button>
           </div>
         </div>
       </section>
@@ -161,22 +163,22 @@ export function Overview({ data, period, setPeriod, mode, go }: { data: Data; pe
       )}
 
       <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
-        <Tile label="Сигналов сегодня" value={todayN} sub="открыто за день (Дубай)" />
-        <Tile label="Всего сигналов" value={allSignals.length} sub={`закрыто ${data.closed.length}`} />
+        <Tile label="Сигналов сегодня" value={todayN} sub="открыто за день (Дубай)" onClick={() => go("history", { status: "all", basis: "detected", from: dubaiDayStart(today), sort: "Открыта", title: "Сигналы сегодня", note: "все сигналы, открытые сегодня (Дубай)" })} />
+        <Tile label="Всего сигналов" value={allSignals.length} sub={`закрыто ${data.closed.length}`} onClick={() => go("history", { status: "all", sort: "Открыта", title: "Все сигналы", note: "открытые и закрытые" })} />
         <Tile label="Открыто сейчас" value={data.open.length} sub="все позиции" onClick={() => go("positions")} />
-        <Tile label="Время в сделке" value={holds.length ? `${duration(holds[0]!)} – ${duration(holds.at(-1)!)}` : "—"} sub="от сигнала до закрытия" />
+        <Tile label="Время в сделке" value={holds.length ? `${duration(holds[0]!)} – ${duration(holds.at(-1)!)}` : "—"} sub="от сигнала до закрытия" onClick={() => go("history", { sort: "Активна", title: "Время в сделке", note: "закрытые сделки, самые долгие сверху" })} />
       </div>
 
       <section className="gold-card p-5">
         <div className="flex flex-wrap items-end justify-between gap-4">
-          <div>
+          <button type="button" onClick={() => go("history", { title: "Все закрытые сделки", note: "из них складывается счётчик" })} className="-m-2 rounded-lg p-2 text-left hover:bg-gold/5">
             <p className="text-xs uppercase tracking-widest text-muted-foreground">Счётчик — чистое движение цены</p>
             <p className={`mt-1 text-4xl font-semibold tabular-nums ${tone(all.sum)}`}>{signed(all.sum, 2)}</p>
             <p className="mt-1 text-xs text-muted-foreground">{all.n} закрытых сделок · в среднем {signed(all.avg)} · без плеча и комиссий</p>
-          </div>
+          </button>
           <div className="grid grid-cols-2 gap-2 md:grid-cols-4">
             {OUTCOMES.map((o) => { const sm = summarize(closed.filter((s) => s.closeReason === o.reason)); return (
-              <button key={o.reason} onClick={() => go("history", { reason: o.reason })} className="rounded-lg border border-border px-3 py-2 text-left hover:border-gold/50">
+              <button key={o.reason} onClick={() => go("history", { reason: o.reason, title: o.label, note: "закрытые сделки с этим итогом" })} className="rounded-lg border border-border px-3 py-2 text-left hover:border-gold/50">
                 <div className={`text-xs ${o.tone}`}>{o.label}</div>
                 <div className="text-lg font-semibold tabular-nums">{sm.n}</div>
                 <div className={`text-xs tabular-nums ${tone(sm.sum)}`}>{signed(sm.sum, 1)}</div>
@@ -187,17 +189,17 @@ export function Overview({ data, period, setPeriod, mode, go }: { data: Data; pe
       </section>
 
       <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
-        <Tile label="Винрейт" value={winRate(all)} sub="(цели + безубыток) / (цели + безубыток + стоп)" onClick={() => go("history", { result: "win" })} />
-        <Tile label="В плюсе" value={all.wins} sub={`из ${all.n} закрытых`} onClick={() => go("history", { result: "win" })} />
-        <Tile label="Лучшая сделка" value={best ? signed(res(best)) : "—"} tone="text-emerald-400" sub={best ? `${label(best.patternKey)}` : "—"} />
-        <Tile label="Средний пик" value={signed(avgPeak, 1)} sub={`до +1%: ${reached(1)} · до +2%: ${reached(2)} · до +5%: ${reached(5)}`} />
+        <Tile label="Винрейт" value={winRate(all)} sub="(цели + безубыток) / (цели + безубыток + стоп)" onClick={() => go("history", { reasons: ["take_profit", "breakeven", "stop"], title: "Винрейт", note: "сделки, из которых он считается: цели, безубыток, стоп" })} />
+        <Tile label="В плюсе" value={all.wins} sub={`из ${all.n} закрытых`} onClick={() => go("history", { result: "win", sort: "Движение", title: "В плюсе", note: "закрытые сделки с итогом больше нуля" })} />
+        <Tile label="Лучшая сделка" value={best ? signed(res(best)) : "—"} tone="text-emerald-400" sub={best ? `${label(best.patternKey)}` : "—"} onClick={() => go("history", { sort: "Движение", title: "Лучшие сделки", note: "закрытые, по итогу сверху вниз" })} />
+        <Tile label="Средний пик" value={signed(avgPeak, 1)} sub={`до +1%: ${reached(1)} · до +2%: ${reached(2)} · до +5%: ${reached(5)}`} onClick={() => go("history", { sort: "Макс. в плюс", title: "Пик сделок", note: "закрытые, по максимальному ходу в плюс" })} />
       </div>
       <div className="grid grid-cols-2 gap-3 md:grid-cols-5">
         {(["long", "short"] as const).map((d) => { const s = side(d); return (
-          <Tile key={d} label={d === "long" ? "Лонги" : "Шорты"} value={signed(s.sum, 1)} tone={tone(s.sum)} sub={`${s.n} · винрейт ${winRate(s)}`} onClick={() => go("history", { direction: d })} />
+          <Tile key={d} label={d === "long" ? "Лонги" : "Шорты"} value={signed(s.sum, 1)} tone={tone(s.sum)} sub={`${s.n} · винрейт ${winRate(s)}`} onClick={() => go("history", { direction: d, title: d === "long" ? "Лонги" : "Шорты", note: "закрытые сделки" })} />
         ); })}
         {(["scalp", "intraday", "swing"] as const).map((st) => { const s = style(st); return (
-          <Tile key={st} label={STYLE_LABEL[st]} value={signed(s.sum, 1)} tone={tone(s.sum)} sub={`${s.n} · винрейт ${winRate(s)}`} onClick={() => go("history", { style: st })} />
+          <Tile key={st} label={STYLE_LABEL[st]} value={signed(s.sum, 1)} tone={tone(s.sum)} sub={`${s.n} · винрейт ${winRate(s)}`} onClick={() => go("history", { style: st, title: STYLE_LABEL[st], note: "закрытые сделки" })} />
         ); })}
       </div>
 
@@ -229,7 +231,7 @@ export function Overview({ data, period, setPeriod, mode, go }: { data: Data; pe
                   <YAxis {...AXIS} unit="%" />
                   <ReferenceLine y={0} stroke="#5a4417" />
                   <Tooltip {...TIP} formatter={(v: number, _n, item) => [`${v >= 0 ? "+" : ""}${v}% · закрыто ${(item?.payload as { n?: number })?.n ?? 0}`, "За день"]} />
-                  <Bar dataKey="v" maxBarSize={28} radius={[3, 3, 0, 0]} isAnimationActive={false}>{daily.map((d, i) => <Cell key={i} fill={d.v >= 0 ? GOLD : "#e2445c"} />)}</Bar>
+                  <Bar dataKey="v" maxBarSize={28} radius={[3, 3, 0, 0]} isAnimationActive={false} cursor="pointer" onClick={(e: { payload?: { key?: string; n?: number } }) => { if (e?.payload?.key && e.payload.n) openDay(e.payload.key); }}>{daily.map((d, i) => <Cell key={i} fill={d.v >= 0 ? GOLD : "#e2445c"} />)}</Bar>
                 </BarChart>
               </ResponsiveContainer>
             </div>
@@ -239,7 +241,7 @@ export function Overview({ data, period, setPeriod, mode, go }: { data: Data; pe
       <p className="-mt-2 text-xs text-muted-foreground">Оба графика — по дню закрытия сделки (Дубай), каждый день периода; день без закрытий = 0.</p>
 
       {/* Owner 2026-11-14: «Сколько держались» removed, the day archive takes the whole width. */}
-      <DayArchive closed={data.closed} />
+      <DayArchive closed={data.closed} openDay={openDay} />
 
       <Card title="По месяцам открытия (Дубай)">
         <SortTable<MonthRow> cols={monthCols} rows={monthRows} rowKey={(r) => r.month} initial={{ col: "Месяц", desc: true }}

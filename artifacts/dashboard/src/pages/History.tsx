@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { REASON, STYLE_LABEL, type Signal, dir, duration, heldMs, num, price, signed, time, tone } from "../lib/api";
+import { REASON, STYLE_LABEL, type Signal, dir, duration, heldMs, liveMove, num, price, signed, time, tone } from "../lib/api";
 import { type Data, type Filter, NO_FILTER, type Period, applyFilter, inPeriod, styleOf, summarize } from "../lib/data";
 import { Card, type Col, Pill, SortTable } from "../components/ui";
 import { SignalDetail } from "../components/SignalDetail";
@@ -11,8 +11,14 @@ const sel = "rounded-full border border-gold/30 bg-black/60 px-3 py-1 text-xs te
 export function History({ data, period, label, filter, setFilter }: { data: Data; period: Period; label: (k: string) => string; filter: Filter; setFilter: (f: Filter) => void }) {
   const [open, setOpen] = useState<number | null>(null);
   const patterns = data.status?.patterns ?? [];
-  const inP = inPeriod(data.closed, period);
+  // Owner 2026-11-14 (tiles clickable, as CAB): the status and a date window come from the tile; a date window overrides
+  // the period; open trades show their live move.
+  const last = data.status?.stream.lastPrice ?? null;
+  const status = filter.status ?? "closed";
+  const base = status === "open" ? data.open : status === "all" ? [...data.open, ...data.closed] : data.closed;
+  const inP = filter.from || filter.to || status !== "closed" ? base : inPeriod(base, period);
   const rows = applyFilter(inP, filter, patterns);
+  const move = (s: Signal) => (s.closedAt ? s.pnlPricePct : liveMove(s, last));
   // Outcome chips with counts (as Nihilist / CAB): counted with every other filter applied.
   const byReason = (r: Filter["reason"]) => applyFilter(inP, { ...filter, reason: r }, patterns);
   const sm = summarize(rows);
@@ -23,22 +29,28 @@ export function History({ data, period, label, filter, setFilter }: { data: Data
   const cols: Col<Signal>[] = [
     { head: "#", cell: (s) => s.id, sort: (s) => s.id },
     { head: "Открыта", cell: (s) => time(s.detectedAt), sort: (s) => Date.parse(s.detectedAt) },
-    { head: "Закрыта", cell: (s) => time(s.closedAt), sort: (s) => (s.closedAt ? Date.parse(s.closedAt) : null) },
+    { head: "Закрыта", cell: (s) => (s.closedAt ? time(s.closedAt) : <span className="text-gold">открыта</span>), sort: (s) => (s.closedAt ? Date.parse(s.closedAt) : Infinity) },
     { head: "Паттерн", cell: (s) => label(s.patternKey), sort: (s) => label(s.patternKey) },
     { head: "Стиль", cell: (s) => STYLE_LABEL[styleOf(patterns, s.patternKey)], sort: (s) => STYLE_LABEL[styleOf(patterns, s.patternKey)] },
     { head: "Напр.", cell: (s) => <Pill kind={s.direction === "long" ? "long" : "short"}>{dir(s.direction)}</Pill>, sort: (s) => s.direction },
     { head: "Вход", cell: (s) => price(s.entryPrice), sort: (s) => s.entryPrice },
     { head: "Выход", cell: (s) => price(s.exitPrice ?? null), sort: (s) => s.exitPrice ?? null },
-    { head: "Итог", cell: (s) => REASON[s.closeReason ?? ""] ?? s.closeReason ?? "—", sort: (s) => REASON[s.closeReason ?? ""] ?? s.closeReason ?? "" },
-    { head: "Движение", cell: (s) => <span className={`font-medium ${tone(s.pnlPricePct)}`}>{signed(s.pnlPricePct)}</span>, sort: (s) => s.pnlPricePct },
+    { head: "Итог", cell: (s) => (s.closedAt ? REASON[s.closeReason ?? ""] ?? s.closeReason ?? "—" : "в сделке"), sort: (s) => (s.closedAt ? REASON[s.closeReason ?? ""] ?? s.closeReason ?? "" : "") },
+    { head: "Движение", cell: (s) => <span className={`font-medium ${tone(move(s))}`}>{signed(move(s))}</span>, sort: (s) => move(s) },
     { head: "Макс. в плюс", cell: (s) => signed(s.mfePct), sort: (s) => s.mfePct },
     { head: "Макс. в минус", cell: (s) => signed(s.maePct), sort: (s) => s.maePct },
-    { head: "В сделке", cell: (s) => duration(heldMs(s)), sort: (s) => heldMs(s) },
+    { head: "Активна", cell: (s) => (s.closedAt ? duration(heldMs(s)) : `${duration(heldMs(s))} (сейчас)`), sort: (s) => heldMs(s) },
     // Entry metrics as CAB (owner only: users get none).
     ...(rows.some((s) => s.metrics) ? METRIC_COLS : []),
   ];
   return (
     <div className="space-y-4">
+      {filter.title && (
+        <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-gold/40 bg-gold/10 px-4 py-2 text-sm">
+          <span><b className="text-gold">{filter.title}</b>{filter.note ? <span className="text-muted-foreground"> — {filter.note}</span> : null} · {rows.length}</span>
+          <button onClick={() => setFilter(NO_FILTER)} className="rounded-md border border-gold/60 px-3 py-1 text-xs text-gold hover:bg-gold/15">Вся история</button>
+        </div>
+      )}
       <Card title="История сигналов" right={
         <div className="flex flex-wrap gap-2">
           <select className={sel} value={filter.pattern} onChange={(e) => set({ pattern: e.target.value })}>
@@ -81,7 +93,8 @@ export function History({ data, period, label, filter, setFilter }: { data: Data
           cols={cols}
           rows={rows}
           rowKey={(s) => s.id}
-          initial={{ col: "Закрыта", desc: true }}
+          key={JSON.stringify(filter)}
+          initial={{ col: filter.sort ?? (status === "closed" ? "Закрыта" : "Открыта"), desc: !filter.asc }}
           onRow={(s) => setOpen(s.id)}
           empty="Под эти фильтры сделок нет."
           card={(s) => (
@@ -89,13 +102,13 @@ export function History({ data, period, label, filter, setFilter }: { data: Data
               <div className="flex items-start justify-between gap-2">
                 <div className="min-w-0">
                   <div className="truncate text-sm font-medium text-foreground">{label(s.patternKey)}</div>
-                  <div className="mt-1 flex flex-wrap gap-1"><Pill kind={s.direction === "long" ? "long" : "short"}>{dir(s.direction)}</Pill><Pill kind="gold">{STYLE_LABEL[styleOf(patterns, s.patternKey)]}</Pill><Pill>{REASON[s.closeReason ?? ""] ?? s.closeReason ?? "—"}</Pill></div>
+                  <div className="mt-1 flex flex-wrap gap-1"><Pill kind={s.direction === "long" ? "long" : "short"}>{dir(s.direction)}</Pill><Pill kind="gold">{STYLE_LABEL[styleOf(patterns, s.patternKey)]}</Pill><Pill>{s.closedAt ? REASON[s.closeReason ?? ""] ?? s.closeReason ?? "—" : "в сделке"}</Pill></div>
                 </div>
-                <div className={`text-xl font-semibold tabular-nums ${tone(s.pnlPricePct)}`}>{signed(s.pnlPricePct)}</div>
+                <div className={`text-xl font-semibold tabular-nums ${tone(move(s))}`}>{signed(move(s))}</div>
               </div>
               <EntryLine s={s} />
               <div className="mt-2 flex justify-between text-[11px] text-muted-foreground">
-                <span>#{s.id} · {time(s.detectedAt)} → {time(s.closedAt)}</span><span>{duration(heldMs(s))}</span>
+                <span>#{s.id} · открыта {time(s.detectedAt)} → {s.closedAt ? `закрыта ${time(s.closedAt)}` : "в сделке"}</span><span>{s.closedAt ? "была активна" : "активна"} {duration(heldMs(s))}</span>
               </div>
             </>
           )}

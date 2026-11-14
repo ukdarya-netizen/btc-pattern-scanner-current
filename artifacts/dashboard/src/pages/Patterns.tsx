@@ -42,7 +42,7 @@ export function Patterns({ data, period, mode, go }: { data: Data; period: Perio
         return (
           <Card key={st} title={`${STYLE_LABEL[st]} · ${list.length} паттернов`}>
             <SortTable<Pattern> cols={cols} rows={list} rowKey={(p) => p.key} initial={{ col: "Сумма", desc: true }}
-              onRow={(p) => go("history", { pattern: p.key })}
+              onRow={(p) => go("history", { pattern: p.key, title: p.label, note: "закрытые сделки паттерна" })}
               card={(p) => { const m = sm(p); return (
                 <div className="flex items-start justify-between gap-2">
                   <div className="min-w-0">
@@ -58,7 +58,7 @@ export function Patterns({ data, period, mode, go }: { data: Data; period: Perio
       {retired.length > 0 && (
         <Card title={`Выключены · только история сделок · ${retired.length}`}>
           <SortTable<Pattern> cols={cols} rows={retired} rowKey={(p) => p.key} initial={{ col: "Сумма", desc: true }}
-            onRow={(p) => go("history", { pattern: p.key })}
+            onRow={(p) => go("history", { pattern: p.key, title: p.label, note: "прошлые сделки выключенного паттерна" })}
             card={(p) => { const m = sm(p); return (
               <div className="flex items-start justify-between gap-2">
                 <div className="min-w-0"><div className="text-sm font-medium text-foreground">{p.label}</div><div className="mt-1 text-[11px] text-muted-foreground">закрыто {m.n}</div></div>

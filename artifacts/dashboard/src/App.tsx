@@ -206,7 +206,7 @@ export default function App() {
           {error && <p className="rounded-lg border border-rose-500/40 bg-rose-500/5 p-3 text-sm text-rose-300">Нет связи с API: {error}</p>}
           {owner && mode === "shadow" && shown !== "subscribers" && shown !== "market" && shown !== "decisions" && shown !== "health" && shown !== "reference" && <p className="rounded-lg border border-gold/30 bg-gold/5 p-2 text-center text-xs text-gold">Режим «Тень»: сигналы, которые пишутся и считаются, но не публикуются в канал.</p>}
           {shown === "overview" && <Overview data={data} period={period} setPeriod={setPeriod} mode={mode} go={go} />}
-          {shown === "positions" && <Positions data={data} label={label} history={<History data={data} period={period} label={label} filter={filter} setFilter={setFilter} />} />}
+          {shown === "positions" && <Positions data={data} label={label} go={go} history={<History data={data} period={period} label={label} filter={filter} setFilter={setFilter} />} />}
           {shown === "patterns" && <Patterns data={data} period={period} mode={mode} go={go} />}
           {shown === "reference" && <Reference data={data} />}
           {shown === "subscribers" && owner && <Subscribers />}

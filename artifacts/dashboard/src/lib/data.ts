@@ -13,7 +13,16 @@ export type Data = {
 
 export type Mode = "live" | "shadow";
 export type Reason = "" | "take_profit" | "stop" | "breakeven" | "timeout";
-export type Filter = { pattern: string; direction: string; style: "" | Style; result: "all" | "win" | "loss" | "flat"; reason: Reason };
+/**
+ * History filter. Owner 2026-11-14 (every statistics tile clickable, as CAB): a tile opens the history with its own
+ * filter and a title of what is shown — status (closed / open / all), a date window on the opening or the closing
+ * time (overrides the period), a set of outcomes (win rate), the sort column.
+ */
+export type Filter = {
+  pattern: string; direction: string; style: "" | Style; result: "all" | "win" | "loss" | "flat"; reason: Reason;
+  status?: "closed" | "open" | "all"; from?: string; to?: string; basis?: "detected" | "closed";
+  reasons?: Reason[]; sort?: string; asc?: boolean; title?: string; note?: string;
+};
 export const NO_FILTER: Filter = { pattern: "", direction: "", style: "", result: "all", reason: "" };
 
 export type Tab = "positions" | "overview" | "history" | "patterns" | "market" | "reference" | "subscribers" | "decisions" | "health";
@@ -31,6 +40,9 @@ export function applyFilter(rows: Signal[], f: Filter, patterns: Pattern[]): Sig
     (!f.direction || s.direction === f.direction) &&
     (!f.style || styleOf(patterns, s.patternKey) === f.style) &&
     (!f.reason || s.closeReason === f.reason) &&
+    (!f.reasons?.length || f.reasons.includes((s.closeReason ?? "") as Reason)) &&
+    (!f.from || Date.parse((f.basis === "closed" ? s.closedAt : s.detectedAt) ?? "") >= Date.parse(f.from)) &&
+    (!f.to || Date.parse((f.basis === "closed" ? s.closedAt : s.detectedAt) ?? "") < Date.parse(f.to)) &&
     (f.result === "all" || (f.result === "win" ? res(s) > 0 : f.result === "loss" ? res(s) < 0 : res(s) === 0)));
 }
 
@@ -39,6 +51,9 @@ export const dubaiMonth = (iso: string) => {
   const d = new Date(Date.parse(iso) + 4 * 3_600_000);
   return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, "0")}`;
 };
+/** Start of a Dubai day ("2026-11-12") as an ISO time, and the next day's start. */
+export const dubaiDayStart = (key: string) => new Date(Date.parse(`${key}T00:00:00Z`) - 4 * 3_600_000).toISOString();
+export const dubaiDayEnd = (key: string) => new Date(Date.parse(`${key}T00:00:00Z`) + 20 * 3_600_000).toISOString();
 /** Day of a time in Dubai, "2026-11-12". */
 export const dubaiDayKey = (iso: string) => new Date(Date.parse(iso) + 4 * 3_600_000).toISOString().slice(0, 10);
 const MONTHS = ["январь", "февраль", "март", "апрель", "май", "июнь", "июль", "август", "сентябрь", "октябрь", "ноябрь", "декабрь"];

@@ -1,14 +1,17 @@
 import { type ReactNode, useState } from "react";
 import { REASON, STYLE_LABEL, type Signal, dir, distPct, duration, heldMs, liveMove, price, signed, time, tone } from "../lib/api";
-import { type Data, styleOf } from "../lib/data";
+import { type Data, type Tab, styleOf } from "../lib/data";
 import { Card, type Col, Pill, SortTable, Tile } from "../components/ui";
 import { SignalDetail } from "../components/SignalDetail";
 import { METRIC_COLS, EntryLine } from "../components/metricCols";
 import { BtcMainChart } from "../components/BtcMainChart";
 
 /** Open trades: clean move now, distance to the stop and to the next target, time in the trade; every column sorts. */
-export function Positions({ data, label, history }: { data: Data; label: (k: string) => string; history?: ReactNode }) {
+export function Positions({ data, label, history, go }: { data: Data; label: (k: string) => string; history?: ReactNode; go?: (t: Tab) => void }) {
   const [sel, setSel] = useState<number | null>(null);
+  // Owner 2026-11-14: the tiles are clickable (as CAB) — to the open table sorted by what the tile shows, the price to «Рынок».
+  const [openSort, setOpenSort] = useState<{ col: string; desc: boolean }>({ col: "Открыта", desc: true });
+  const toOpen = (col: string, desc = true) => { setOpenSort({ col, desc }); setTimeout(() => document.getElementById("open-positions")?.scrollIntoView({ behavior: "smooth", block: "start" }), 50); };
   const last = data.status?.stream.lastPrice ?? null;
   const patterns = data.status?.patterns ?? [];
   const recent = [...data.closed].filter((s) => s.closedAt).sort((a, b) => Date.parse(b.closedAt!) - Date.parse(a.closedAt!)).slice(0, 5);
@@ -46,18 +49,19 @@ export function Positions({ data, label, history }: { data: Data; label: (k: str
   return (
     <div className="space-y-4">
       <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
-        <Tile label="Открыто" value={data.open.length} sub={`лонгов ${data.open.filter((s) => s.direction === "long").length} · шортов ${data.open.filter((s) => s.direction === "short").length}`} />
-        <Tile label="Движение сейчас, сумма" value={signed(sum, 2)} tone={tone(sum)} sub="по всем открытым" />
-        <Tile label="В плюсе / в минусе" value={`${moves.filter((m) => m > 0).length} / ${moves.filter((m) => m < 0).length}`} />
-        <Tile label="Цена BTC" value={price(last)} sub={
+        <Tile label="Открыто" value={data.open.length} sub={`лонгов ${data.open.filter((s) => s.direction === "long").length} · шортов ${data.open.filter((s) => s.direction === "short").length}`} onClick={() => toOpen("Открыта")} />
+        <Tile label="Движение сейчас, сумма" value={signed(sum, 2)} tone={tone(sum)} sub="по всем открытым" onClick={() => toOpen("Движение")} />
+        <Tile label="В плюсе / в минусе" value={`${moves.filter((m) => m > 0).length} / ${moves.filter((m) => m < 0).length}`} onClick={() => toOpen("Движение")} />
+        <Tile label="Цена BTC" value={price(last)} onClick={go ? () => go("market") : undefined} sub={
           <span className="flex flex-wrap gap-x-2">
             {([["15m", "15м"], ["1h", "1ч"], ["4h", "4ч"], ["24h", "сутки"]] as const).map(([w, l]) => { const v = change(w); return <span key={w}>{l} <span className={tone(v)}>{signed(v)}</span></span>; })}
           </span>} />
       </div>
       {/* Owner 2026-11-14: the main BTC chart (levels and signals) here, under the tiles. */}
       <BtcMainChart />
+      <div id="open-positions" className="scroll-mt-4" />
       <Card title={`Открытые позиции · ${data.open.length}`}>
-        <SortTable<Signal> cols={cols} rows={data.open} rowKey={(s) => s.id} initial={{ col: "Открыта", desc: true }}
+        <SortTable<Signal> cols={cols} rows={data.open} rowKey={(s) => s.id} key={`${openSort.col}:${openSort.desc}`} initial={openSort}
           onRow={(s) => setSel(s.id)} empty="Сейчас открытых позиций нет."
           card={(s) => { const st = toStop(s), tg = toTarget(s), n = next(s); return (
             <>
