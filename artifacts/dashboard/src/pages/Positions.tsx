@@ -18,11 +18,14 @@ export function Positions({ data, label, history }: { data: Data; label: (k: str
   const toTarget = (s: Signal) => { const n = next(s); return n ? distPct(s, last, n.price) : null; };
   const moves = data.open.map((s) => liveMove(s, last) ?? 0);
   const sum = moves.reduce((a, b) => a + b, 0);
-  // Owner 2026-11-14: the 24h change next to the price — live price against the price 24 h ago (from the last 5m cycle).
+  // Owner 2026-11-14: price changes next to the price (15m, 1h, 4h, 24h) — the live price against the price that long
+  // ago (reference = the last 5m cycle's price and its change over the window).
   const lm = data.status?.scanner.lastMetrics;
-  const ch24 = lm?.priceChangePct?.["24h"];
-  const ref24 = lm?.price && ch24 != null ? lm.price / (1 + ch24 / 100) : null;
-  const day = last != null && ref24 ? ((last - ref24) / ref24) * 100 : ch24 ?? null;
+  const change = (w: string) => {
+    const ch = lm?.priceChangePct?.[w];
+    const ref = lm?.price && ch != null ? lm.price / (1 + ch / 100) : null;
+    return last != null && ref ? ((last - ref) / ref) * 100 : ch ?? null;
+  };
   const cols: Col<Signal>[] = [
     { head: "#", cell: (s) => s.id, sort: (s) => s.id },
     { head: "Открыта", cell: (s) => time(s.detectedAt), sort: (s) => Date.parse(s.detectedAt) },
@@ -46,7 +49,10 @@ export function Positions({ data, label, history }: { data: Data; label: (k: str
         <Tile label="Открыто" value={data.open.length} sub={`лонгов ${data.open.filter((s) => s.direction === "long").length} · шортов ${data.open.filter((s) => s.direction === "short").length}`} />
         <Tile label="Движение сейчас, сумма" value={signed(sum, 2)} tone={tone(sum)} sub="по всем открытым" />
         <Tile label="В плюсе / в минусе" value={`${moves.filter((m) => m > 0).length} / ${moves.filter((m) => m < 0).length}`} />
-        <Tile label="Цена BTC" value={price(last)} sub={<>за сутки <span className={tone(day)}>{signed(day)}</span></>} />
+        <Tile label="Цена BTC" value={price(last)} sub={
+          <span className="flex flex-wrap gap-x-2">
+            {([["15m", "15м"], ["1h", "1ч"], ["4h", "4ч"], ["24h", "сутки"]] as const).map(([w, l]) => { const v = change(w); return <span key={w}>{l} <span className={tone(v)}>{signed(v)}</span></span>; })}
+          </span>} />
       </div>
       {/* Owner 2026-11-14: the main BTC chart (levels and signals) here, under the tiles. */}
       <BtcMainChart />
