@@ -187,6 +187,16 @@ export function dominanceHistory(days = 120, now = Date.now()): DominancePoint[]
   getMarketContext(); // refreshes the dominance read when due (30 min)
   return domHistory.filter((p) => p.t >= now - days * 86_400_000);
 }
+/**
+ * Owner 2026-11-14 («половины данных нет»): right after a restart the in-memory history is empty until the background
+ * read lands, so the dashboard showed «Нет данных доминации». The market route waits for the read (at most `ms`).
+ */
+export async function dominanceHistoryReady(days = 120, ms = 8_000): Promise<DominancePoint[]> {
+  if (!domHistory.length) {
+    await Promise.race([refresh(dominance, 30 * MIN, loadDominance), new Promise((r) => setTimeout(r, ms))]).catch(() => undefined);
+  }
+  return dominanceHistory(days);
+}
 export type Dominance = { fetchedAt: string; source: "coinglass" | "coingecko"; dominancePct: number; change24hPct: number | null };
 
 async function loadDominance(): Promise<Dominance | null> {
