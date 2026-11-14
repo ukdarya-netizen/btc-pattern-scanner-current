@@ -30,6 +30,11 @@ export type Pattern = {
    * breaks, liquidation cascade on 15m). Default: the profile's timeframe.
    */
   evalTf?: "15m" | "30m" | "1h";
+  /**
+   * Owner 2026-11-14: switched off — never evaluated, no new signals (not shadow either); kept only so the history of
+   * its past signals keeps its name. Range 4h and ABNeon / Stealth 15m / 1h / 4h.
+   */
+  off?: boolean;
   evaluate: (snapshot: Snapshot) => PatternResult;
 };
 

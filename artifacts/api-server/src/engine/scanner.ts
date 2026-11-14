@@ -61,7 +61,7 @@ async function buildSnapshot(now: number, longHistory: boolean, neon = false): P
   const [flow, funding] = await Promise.all([getBtcFlow(200, now), getFundingRate()]);
   const candles = { "1m": [], "5m": c5, "15m": c15, "1h": c1h, "4h": c4h, "1d": c1d };
   scannerStatus.missingFlow = Object.entries(flow).filter(([, v]) => v === null).map(([k]) => k);
-  // Owner 2026-11-12: ABNeon / Stealth need Lucy's VSA volume (futures + spot) on 15m / 1h / 4h; at most 10 s.
+  // ABNeon / Stealth need Lucy's VSA volume (futures + spot) on 1D (owner 2026-11-14; was 15m / 1h / 4h); at most 10 s.
   const lucy = neon
     ? await Promise.race([getLucyVolume(now), new Promise<null>((res) => setTimeout(() => res(null), 10_000))]).catch(() => null)
     : null;
@@ -81,6 +81,7 @@ function triggerSeries(pattern: Pattern): { tf: Interval; step: number } {
 
 /** A pattern is evaluated only when its trigger timeframe's candle closed. */
 function due(pattern: Pattern, candleCloseAt: number): boolean {
+  if (pattern.off) return false; // owner 2026-11-14: switched-off patterns are never evaluated
   return candleCloseAt % triggerSeries(pattern).step === 0;
 }
 
@@ -158,7 +159,7 @@ export async function runCycle(currentPrice: () => Promise<number>, now = Date.n
   try {
     const duePatterns = PATTERNS.filter((pattern) => due(pattern, candleCloseAt));
     // Range (4h / 1d) and Smart Money need the long 4h / 1d history; the cascade needs only 15m / 1h.
-    // ABNeon / Stealth (owner 2026-11-12) build their zones on the long 4h history even on 15m bars.
+    // ABNeon / Stealth (owner 2026-11-14: 1D only) build their zones on the long 1D history.
     const neonDue = duePatterns.some((p) => p.key.startsWith("neon_"));
     const snapshot = await buildSnapshot(now, neonDue || duePatterns.some((p) => p.evalTf !== "15m"), neonDue);
     const lastCandle = snapshot.candles["5m"].at(-1);

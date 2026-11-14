@@ -192,7 +192,7 @@ export function systemLines(signal: Pick<SignalRow, "patternKey" | "detectedAt" 
   } else if (key.startsWith("neon_")) {
     system = "ABNeon уровни";
     pattern = bare;
-    frame = tf ?? "4h";
+    frame = tf ?? (key.includes("_1d_") ? "1D" : "4h"); // owner 2026-11-14: ABNeon / Stealth on 1D
   } else {
     system = "—";
     pattern = bare;

@@ -142,5 +142,7 @@ export const RANGE_PATTERNS: Pattern[] = (["h4", "d1"] as const).flatMap((profil
       direction,
       profile,
       live: true,
+      // Owner 2026-11-14: range signals on 1D only; the 4h ones are switched off (kept for the history's names).
+      ...(profile === "h4" ? { off: true } : {}),
       evaluate: (snapshot) => evaluateRangeSetup(snapshot, profile, setup, direction),
     }))));

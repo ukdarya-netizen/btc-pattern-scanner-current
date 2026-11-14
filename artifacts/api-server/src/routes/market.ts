@@ -73,7 +73,7 @@ router.get("/btc/market", async (_req, res) => {
  * Main BTC chart (owner 2026-11-14): BingX candles (15m · 3 days, 1h · 7 days, 4h · 90 days, 1D · 1 year) with the levels the
  * signals are built on — the Auto Range Detector range on 4h and 1D (the one the deviation and breakout signals
  * use: the active range, or the broken one still waiting for a return = deviation, else the last broken one) and
- * the ABNeon 4H zones (the bounce / Stealth levels) — and the channel signals as arrows. The same engine code as
+ * the ABNeon zones (1D since 2026-11-14; the bounce / Stealth levels) — and the channel signals as arrows. The same engine code as
  * the scanner (replayRanges over 1000 bars, computeZones over the last 600 4H bars). Production only: dev makes no
  * exchange requests (owner rule). Cached: candles 5 min, levels 10 min.
  */
@@ -113,11 +113,12 @@ async function chartLevels() {
   if (levelCache && Date.now() - levelCache.at < 10 * 60_000) return levelCache;
   const [c4h, c1d] = await Promise.all([getClosedCandles("4h", HISTORY_BARS), getClosedCandles("1d", HISTORY_BARS)]);
   const ranges = [rangeOf("4h", c4h, replayRanges(c4h)), rangeOf("1d", c1d, replayRanges(c1d))].filter((x): x is RangeLevel => x !== null);
-  // Owner 2026-11-14: exactly the zones the ABNeon / Stealth signals use (neonPatterns.zonesOf: the last 640 4H bars,
-  // none under 200 bars), drawn as her TradingView indicator does — from 300 4H bars back to now.
-  const h4 = c4h.slice(-640);
-  const zones = h4.length >= 200 ? computeZones(h4).map((z) => ({ top: z.top, bottom: z.bottom, count: z.count })) : [];
-  const zonesFrom = c4h.length >= 300 ? c4h[c4h.length - 300]!.time : c4h[0]?.time ?? null;
+  // Owner 2026-11-14: exactly the zones the ABNeon / Stealth signals use (neonPatterns.zonesOf: the last 640 1D bars
+  // since 2026-11-14 — was 4H; none under 200 bars), drawn as her TradingView indicator does — from 300 bars back.
+  // The same 1D zones on every chart timeframe.
+  const zc = c1d.slice(-640);
+  const zones = zc.length >= 200 ? computeZones(zc).map((z) => ({ top: z.top, bottom: z.bottom, count: z.count })) : [];
+  const zonesFrom = c1d.length >= 300 ? c1d[c1d.length - 300]!.time : c1d[0]?.time ?? null;
   levelCache = { at: Date.now(), ranges, zones, zonesFrom };
   return levelCache;
 }

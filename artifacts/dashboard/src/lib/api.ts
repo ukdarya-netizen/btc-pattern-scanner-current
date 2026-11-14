@@ -1,7 +1,7 @@
 import { getLang } from "./i18n";
 /** API types, PIN-aware fetch and formatters of the Bitcoin Margin Master dashboard. */
 
-export type Pattern = { key: string; label: string; direction: string; profile: string; live: boolean; tf?: string };
+export type Pattern = { key: string; label: string; direction: string; profile: string; live: boolean; tf?: string; off?: boolean };
 
 /** Trading style by the pattern's trading timeframe (owner 2026-11-12): 15m scalp, 30m / 1h intraday, 4h / 1d swing. */
 export type Style = "scalp" | "intraday" | "swing";

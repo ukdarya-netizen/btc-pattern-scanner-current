@@ -27,20 +27,27 @@ import type { Pattern, PatternResult } from "./patterns";
 import type { Snapshot } from "./snapshot";
 import { computeZones, lucyColour, wilderAtr, type Zone } from "./neonZones";
 
-export const NEON_TFS = ["15m", "1h", "4h"] as const;
+/**
+ * Owner 2026-11-14: ABNeon / Stealth on BTC — 1D only: the zones are built on the 1D candles (the last 640) and the
+ * signal is the 1D bar (profile d1). 15m / 1h / 4h are switched off (kept for the history's names). The touch band,
+ * the sweep allowance and the void rule are in the zone timeframe (now 1D), as they were in 4H.
+ */
+export const NEON_TFS = ["15m", "1h", "4h", "1d"] as const;
 type Tf = (typeof NEON_TFS)[number];
-const STYLE: Record<Tf, string> = { "15m": "скальп 15m", "1h": "интрадей 1h", "4h": "свинг 4h" };
-const TEST_BARS: Record<Tf, number> = { "15m": 8, "1h": 6, "4h": 2 };
+const STYLE: Record<Tf, string> = { "15m": "скальп 15m", "1h": "интрадей 1h", "4h": "свинг 4h", "1d": "свинг 1D" };
+const TEST_BARS: Record<Tf, number> = { "15m": 8, "1h": 6, "4h": 2, "1d": 2 };
 const TOUCH_ATR4 = 0.25, SWEEP_ATR4 = 1, STOP_ATR_TF = 0.2;
-const H4 = 14_400_000;
+/** Timeframe of the zones (owner 2026-11-14: 1D; was 4H). */
+export const ZONE_TF = "1d" as const;
+const ZONE_MS = 86_400_000;
 const BRIGHT = new Set(["O", "M", "W"]);
 
 const zoneCache = new WeakMap<Snapshot, { zones: Zone[]; atr4: number | null }>();
 function zonesOf(s: Snapshot): { zones: Zone[]; atr4: number | null } {
   const known = zoneCache.get(s);
   if (known) return known;
-  const h4 = s.candles["4h"].slice(-640);
-  const out = { zones: h4.length >= 200 ? computeZones(h4) : [], atr4: wilderAtr(h4) };
+  const zc = s.candles[ZONE_TF].slice(-640);
+  const out = { zones: zc.length >= 200 ? computeZones(zc) : [], atr4: wilderAtr(zc) };
   zoneCache.set(s, out);
   return out;
 }
@@ -84,15 +91,17 @@ export function evaluateBounce(s: Snapshot, tf: Tf, direction: Direction): Patte
   const reacts = (c: Candle) => (long ? c.close > c.open && c.close >= zone.bottom : c.close < c.open && c.close <= zone.top);
   if (!reacts(bar)) return { fires: false, reasons: ["no_reaction_bar"], detail: { method: "abneon_bounce", tf, zone: zoneOut(zone) } };
   for (let k = x; k < i; k++) if (reacts(cs[k]!)) return { fires: false, reasons: ["not_first_reaction"], detail: { method: "abneon_bounce", tf, zone: zoneOut(zone) } };
-  const testH4 = Math.floor(cs[x]!.time / H4) * H4;
-  if (s.candles["4h"].some((c) => c.time >= testH4 && (long ? c.close < zone.bottom : c.close > zone.top))) {
-    return { fires: false, reasons: ["4h_close_through_zone"], detail: { method: "abneon_bounce", tf, zone: zoneOut(zone) } };
+  // Void: a close of the zone timeframe through the zone since the test — the reaction bar itself excluded (it
+  // closes back above the bottom by definition; on 1D it is the same series as the trading one).
+  const testZ = Math.floor(cs[x]!.time / ZONE_MS) * ZONE_MS;
+  if (s.candles[ZONE_TF].some((c) => c.time >= testZ && c.time < bar.time && (long ? c.close < zone.bottom : c.close > zone.top))) {
+    return { fires: false, reasons: ["zone_close_through"], detail: { method: "abneon_bounce", tf, zone: zoneOut(zone) } };
   }
   const colourAt = colours(s, tf, cs);
   const cTest = colourAt(x), cBar = colourAt(i);
   const detail: Record<string, unknown> = {
     method: "abneon_bounce", style: STYLE[tf], tf, zone: zoneOut(zone), testAt: new Date(cs[x]!.time).toISOString(), testExtreme: ext,
-    sweep: long ? ext < zone.bottom : ext > zone.top, lucyTest: cTest, lucyReaction: cBar, atr4h: r(atr4),
+    sweep: long ? ext < zone.bottom : ext > zone.top, lucyTest: cTest, lucyReaction: cBar, zoneTf: ZONE_TF, atrZone: r(atr4),
   };
   if (cTest === null && cBar === null) return { fires: false, reasons: ["lucy_volume:no_data"], detail };
   if ((cTest ?? "N") === "N" && (cBar ?? "N") === "N") return { fires: false, reasons: ["lucy_volume_grey"], detail };
@@ -128,15 +137,17 @@ export const NEON_PATTERNS: Pattern[] = NEON_TFS.flatMap((tf) => (["long", "shor
   {
     key: `neon_bounce_${tf}_${direction}`,
     label: `ABNeon отскок · ${STYLE[tf]} · ${side(direction)}`,
-    direction, profile: "h4", live: true, // owner 2026-11-13: to the channel — she wants to see how they work
-    ...(tf === "4h" ? {} : { evalTf: tf }),
+    direction, profile: tf === "1d" ? "d1" : "h4", live: true, // owner 2026-11-13: to the channel — she wants to see how they work
+    ...(tf === "4h" || tf === "1d" ? {} : { evalTf: tf }),
+    ...(tf === "1d" ? {} : { off: true }), // owner 2026-11-14: 1D only
     evaluate: (s) => evaluateBounce(s, tf, direction),
   },
   {
     key: `neon_breakout_${tf}_${direction}`,
     label: `Stealth пробой уровня · ${STYLE[tf]} · ${side(direction)}`,
-    direction, profile: "h4", live: true, // owner 2026-11-13: to the channel — she wants to see how they work
-    ...(tf === "4h" ? {} : { evalTf: tf }),
+    direction, profile: tf === "1d" ? "d1" : "h4", live: true, // owner 2026-11-13: to the channel — she wants to see how they work
+    ...(tf === "4h" || tf === "1d" ? {} : { evalTf: tf }),
+    ...(tf === "1d" ? {} : { off: true }), // owner 2026-11-14: 1D only
     evaluate: (s) => evaluateBreakout(s, tf, direction),
   },
 ]));

@@ -27,7 +27,7 @@ router.get("/btc/status", (req, res) => {
     openSignals: openSignalCount(),
     // Owner 2026-11-12: the trading timeframe (style on the dashboard: 15m scalp, 30m / 1h intraday, 4h / 1d swing).
     // Users see the channel only (as CAB / Nihilist): shadow patterns are the owner's.
-    patterns: PATTERNS.filter((p) => owner || p.live).map((p) => ({ key: p.key, label: p.label, direction: p.direction, profile: p.profile, live: p.live, tf: p.evalTf ?? PROFILES[p.profile].timeframe })),
+    patterns: PATTERNS.filter((p) => owner || p.live).map((p) => ({ key: p.key, label: p.label, direction: p.direction, profile: p.profile, live: p.live, tf: p.evalTf ?? PROFILES[p.profile].timeframe, off: p.off ?? false })),
     profiles: PROFILES,
   });
 });

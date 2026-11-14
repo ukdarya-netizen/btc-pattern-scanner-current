@@ -7,9 +7,9 @@
  */
 import { cgGet, FUTURES_EXCHANGES, SPOT_EXCHANGES } from "./coinglass";
 
-export type LucyTf = "15m" | "1h" | "4h";
+export type LucyTf = "15m" | "1h" | "4h" | "1d";
 export type LucyVolume = Record<LucyTf, Map<number, number> | null>;
-const STEP: Record<LucyTf, number> = { "15m": 900_000, "1h": 3_600_000, "4h": 14_400_000 };
+const STEP: Record<LucyTf, number> = { "15m": 900_000, "1h": 3_600_000, "4h": 14_400_000, "1d": 86_400_000 };
 const BARS = 160;
 const cache = new Map<LucyTf, Map<number, number>>();
 
@@ -40,7 +40,7 @@ async function series(tf: LucyTf, now: number): Promise<Map<number, number> | nu
   return total;
 }
 
+/** Owner 2026-11-14: ABNeon / Stealth trade 1D only — only the 1D series is read (160 days: Welkin 20 + the 120-bar average). */
 export async function getLucyVolume(now = Date.now()): Promise<LucyVolume> {
-  const [a, b, c] = await Promise.all([series("15m", now), series("1h", now), series("4h", now)]);
-  return { "15m": a, "1h": b, "4h": c };
+  return { "15m": null, "1h": null, "4h": null, "1d": await series("1d", now) };
 }

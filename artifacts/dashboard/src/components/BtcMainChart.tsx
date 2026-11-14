@@ -163,7 +163,7 @@ export function ChartBody({ d, tf, on = DEFAULT_ON }: { d: ChartData; tf: Tf; on
                 <XAxis dataKey="i" type="number" domain={[-0.5, view.rows.length - 0.5]} {...AXIS} minTickGap={40}
                   tickFormatter={(i: number) => { const r = view.rows[Math.round(i)]; return r ? when(r.t, tf) : ""; }} />
                 <YAxis {...AXIS} orientation="right" width={62} domain={view.domain} allowDataOverflow tickFormatter={(v: number) => price(v)} />
-                {/* As her TradingView ABNeon: green under the price (support), red above (resistance), from 300 4H bars back. */}
+                {/* As her TradingView ABNeon: green under the price (support), red above (resistance), from 300 1D bars back. */}
                 {d.zones.map((z, k) => {
                   const col = z.top < view.rows[view.rows.length - 1]!.c ? GREEN : RED;
                   const x1 = d.zonesFrom != null ? view.idxOf(d.zonesFrom) : 0;
@@ -232,11 +232,11 @@ export function ChartBody({ d, tf, on = DEFAULT_ON }: { d: ChartData; tf: Tf; on
             ))}
             {!d.ranges.length && <div>Range 4h / 1D: диапазона сейчас нет.</div>}
             <div>
-              <span className="text-emerald-300">ABNeon</span>/<span className="text-rose-300">4H</span> · зоны {d.zones.length ? d.zones.map((z) => `${price(z.bottom)}–${price(z.top)}`).join(" · ") : "—"}
+              <span className="text-emerald-300">ABNeon</span> <span className="text-rose-300">1D</span> · зоны {d.zones.length ? d.zones.map((z) => `${price(z.bottom)}–${price(z.top)}`).join(" · ") : "—"}
             </div>
             <div>
-              Сплошная линия — подтверждённый диапазон (от него сигналы пробоя и девиации), пунктир — пробитый: возврат внутрь = девиация.
-              Полосы ABNeon (4H, те же, по которым бот даёт отскок и Stealth): зелёные — ниже цены (поддержка), красные — выше (сопротивление). <span className="text-emerald-300">▲</span> лонг, <span className="text-rose-300">▼</span> шорт — сигналы канала. Свечи BingX, время Дубая.
+              Сплошная линия — подтверждённый диапазон, пунктир — пробитый: возврат внутрь = девиация.
+              Range 4h — только ориентир: сигналы пробоя и девиации бот даёт по Range 1D. Полосы ABNeon — зоны с дневных свечей (те же, по которым бот даёт отскок и Stealth на 1D), одинаковые на любом таймфрейме графика: зелёные — ниже цены (поддержка), красные — выше (сопротивление). <span className="text-emerald-300">▲</span> лонг, <span className="text-rose-300">▼</span> шорт — сигналы канала. Свечи BingX, время Дубая.
             </div>
           </div>
         </>
