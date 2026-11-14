@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Activity, BookOpen, Gauge, LineChart as LineChartIcon, HeartPulse, History as HistoryIcon, Layers, LogOut, MoreHorizontal, Target, Users, X } from "lucide-react";
+import { Activity, BookOpen, Gauge, LineChart as LineChartIcon, HeartPulse, Layers, LogOut, MoreHorizontal, Target, Users, X } from "lucide-react";
 import { AuthError, type Decision, type Metrics, type OutcomeGroup, type Session, type Signal, type Status, asset, currentSession, getJson, post, price, saveSession, time } from "./lib/api";
 import { Login, Register, ResetPassword } from "./pages/Auth";
 import { type Data, type Filter, type Mode, NO_FILTER, type Period, type Tab, periodOptions } from "./lib/data";
@@ -17,9 +17,9 @@ import { LanguageToggle } from "./components/LanguageToggle";
 
 /** Navigation on the left, as in CAB and Nihilist (owner 2026-11-12). «Подписчики» and Bot Health — owner only. */
 const NAV: Array<{ tab: Tab; label: string; sub: string; icon: typeof Target; owner?: boolean }> = [
-  { tab: "positions", label: "Открытые позиции", sub: "движение · стоп · цели", icon: Target },
+  { tab: "positions", label: "Открытые позиции", sub: "движение · стоп · цели · история", icon: Target },
   { tab: "overview", label: "Обзор", sub: "общая статистика", icon: Activity },
-  { tab: "history", label: "История сигналов", sub: "закрытые сделки", icon: HistoryIcon },
+  // Owner 2026-11-14: the signal history lives on «Открытые позиции» under the open and recently closed ones (as CAB).
   { tab: "patterns", label: "Паттерны", sub: "результат каждого", icon: Layers },
   // Owner 2026-11-13: everything about the market on one tab, for everyone.
   { tab: "market", label: "Рынок", sub: "дельта · OI · фандинг · доминация · S&P 500", icon: LineChartIcon },
@@ -31,6 +31,7 @@ const NAV: Array<{ tab: Tab; label: string; sub: string; icon: typeof Target; ow
 const TABS = NAV.map((n) => [n.tab, n.label] as const);
 const tabFromHash = (): Tab => {
   const h = window.location.hash.replace("#", "") as Tab;
+  if (h === "history") return "positions"; // old links: the history is on «Открытые позиции» now
   return TABS.some(([t]) => t === h) ? h : "overview";
 };
 
@@ -83,7 +84,12 @@ export default function App() {
   const logout = (msg: string | null = null) => { saveSession(null); setSess(null); setNotice(msg); window.location.hash = "login"; };
 
   const setTab = (t: Tab) => { setTabState(t); setMenu(false); window.location.hash = t; document.getElementById("content")?.scrollTo({ top: 0 }); };
-  const go = (t: Tab, f?: Partial<Filter>) => { if (f) setFilter({ ...NO_FILTER, ...f }); setTab(t); };
+  // «history» (from Overview / Patterns) = «Открытые позиции», scrolled to the history block with the filter set.
+  const go = (t: Tab, f?: Partial<Filter>) => {
+    if (f) setFilter({ ...NO_FILTER, ...f });
+    if (t === "history") { setTab("positions"); setTimeout(() => document.getElementById("history")?.scrollIntoView({ behavior: "smooth", block: "start" }), 80); return; }
+    setTab(t);
+  };
   useEffect(() => {
     const on = () => { setPage(authPage()); setTabState(tabFromHash()); };
     window.addEventListener("hashchange", on);
@@ -151,7 +157,7 @@ export default function App() {
       </button>
     );
   };
-  const periodMatters = tab === "overview" || tab === "history" || tab === "patterns";
+  const periodMatters = tab === "overview" || tab === "positions" || tab === "patterns";
 
   return (
     <div className="flex h-[100dvh] w-full overflow-hidden">
@@ -198,8 +204,7 @@ export default function App() {
           {error && <p className="rounded-lg border border-rose-500/40 bg-rose-500/5 p-3 text-sm text-rose-300">Нет связи с API: {error}</p>}
           {owner && mode === "shadow" && tab !== "subscribers" && tab !== "market" && tab !== "decisions" && tab !== "health" && tab !== "reference" && <p className="rounded-lg border border-gold/30 bg-gold/5 p-2 text-center text-xs text-gold">Режим «Тень»: сигналы, которые пишутся и считаются, но не публикуются в канал.</p>}
           {tab === "overview" && <Overview data={data} period={period} setPeriod={setPeriod} mode={mode} go={go} />}
-          {tab === "positions" && <Positions data={data} label={label} />}
-          {tab === "history" && <History data={data} period={period} label={label} filter={filter} setFilter={setFilter} />}
+          {tab === "positions" && <Positions data={data} label={label} history={<History data={data} period={period} label={label} filter={filter} setFilter={setFilter} />} />}
           {tab === "patterns" && <Patterns data={data} period={period} mode={mode} go={go} />}
           {tab === "reference" && <Reference data={data} />}
           {tab === "subscribers" && owner && <Subscribers />}
@@ -220,11 +225,11 @@ export default function App() {
         </div>
       )}
       <nav className="fixed inset-x-0 bottom-0 z-50 grid h-16 grid-cols-4 border-t border-gold/20 bg-black/95 backdrop-blur md:hidden">
-        {NAV.filter((n) => n.tab === "positions" || n.tab === "overview" || n.tab === "history").map((n) => {
+        {NAV.filter((n) => n.tab === "positions" || n.tab === "overview" || n.tab === "market").map((n) => {
           const Icon = n.icon;
           return (
             <button key={n.tab} onClick={() => setTab(n.tab)} className={`flex flex-col items-center justify-center gap-1 text-[11px] ${tab === n.tab ? "text-gold" : "text-muted-foreground"}`}>
-              <Icon className="h-5 w-5" />{n.tab === "positions" ? `Позиции${data.open.length ? ` · ${data.open.length}` : ""}` : n.tab === "history" ? "История" : n.label}
+              <Icon className="h-5 w-5" />{n.tab === "positions" ? `Позиции${data.open.length ? ` · ${data.open.length}` : ""}` : n.label}
             </button>
           );
         })}

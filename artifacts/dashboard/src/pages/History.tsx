@@ -39,7 +39,7 @@ export function History({ data, period, label, filter, setFilter }: { data: Data
   ];
   return (
     <div className="space-y-4">
-      <Card title="История сделок" right={
+      <Card title="История сигналов" right={
         <div className="flex flex-wrap gap-2">
           <select className={sel} value={filter.pattern} onChange={(e) => set({ pattern: e.target.value })}>
             <option value="">Все паттерны</option>

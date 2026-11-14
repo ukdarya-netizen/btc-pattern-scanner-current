@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { type ReactNode, useState } from "react";
 import { REASON, STYLE_LABEL, type Signal, dir, distPct, duration, heldMs, liveMove, price, signed, time, tone } from "../lib/api";
 import { type Data, styleOf } from "../lib/data";
 import { Card, type Col, Pill, SortTable, Tile } from "../components/ui";
@@ -7,7 +7,7 @@ import { METRIC_COLS, EntryLine } from "../components/metricCols";
 import { BtcMainChart } from "../components/BtcMainChart";
 
 /** Open trades: clean move now, distance to the stop and to the next target, time in the trade; every column sorts. */
-export function Positions({ data, label }: { data: Data; label: (k: string) => string }) {
+export function Positions({ data, label, history }: { data: Data; label: (k: string) => string; history?: ReactNode }) {
   const [sel, setSel] = useState<number | null>(null);
   const last = data.status?.stream.lastPrice ?? null;
   const patterns = data.status?.patterns ?? [];
@@ -91,6 +91,8 @@ export function Positions({ data, label }: { data: Data; label: (k: string) => s
           </ul>
         )}
       </Card>
+      {/* Owner 2026-11-14: the whole signal history right here, under the recently closed (as CAB). */}
+      {history && <div id="history" className="scroll-mt-4">{history}</div>}
       {selectedAny && <SignalDetail s={selectedAny} label={label(selectedAny.patternKey)} onClose={() => setSel(null)} />}
     </div>
   );
