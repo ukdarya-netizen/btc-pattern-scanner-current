@@ -12,7 +12,11 @@ export type Profile = {
   defaultTargets: Array<{ pct: number; fraction: number }>; breakevenAfterFirstTarget: boolean; maxHoldMs: number;
 };
 export type Status = {
-  scanner: { lastCycleAt: string | null; lastCandleCloseAt: string | null; lastError: string | null; lastDurationMs: number | null; missingFlow: string[] };
+  scanner: {
+    lastCycleAt: string | null; lastCandleCloseAt: string | null; lastError: string | null; lastDurationMs: number | null; missingFlow: string[];
+    /** The last 5m cycle's market metrics (price and its 24h change are used on «Открытые позиции»). */
+    lastMetrics?: { price?: number | null; priceChangePct?: Record<string, number | null> | null } | null;
+  };
   stream: { connected: boolean; lastTickAt: string | null; lastPrice: number | null };
   openSignals: number;
   patterns: Pattern[];

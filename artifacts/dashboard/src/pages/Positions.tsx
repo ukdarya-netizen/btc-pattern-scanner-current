@@ -4,6 +4,7 @@ import { type Data, styleOf } from "../lib/data";
 import { Card, type Col, Pill, SortTable, Tile } from "../components/ui";
 import { SignalDetail } from "../components/SignalDetail";
 import { METRIC_COLS, EntryLine } from "../components/metricCols";
+import { BtcMainChart } from "../components/BtcMainChart";
 
 /** Open trades: clean move now, distance to the stop and to the next target, time in the trade; every column sorts. */
 export function Positions({ data, label }: { data: Data; label: (k: string) => string }) {
@@ -17,6 +18,11 @@ export function Positions({ data, label }: { data: Data; label: (k: string) => s
   const toTarget = (s: Signal) => { const n = next(s); return n ? distPct(s, last, n.price) : null; };
   const moves = data.open.map((s) => liveMove(s, last) ?? 0);
   const sum = moves.reduce((a, b) => a + b, 0);
+  // Owner 2026-11-14: the 24h change next to the price — live price against the price 24 h ago (from the last 5m cycle).
+  const lm = data.status?.scanner.lastMetrics;
+  const ch24 = lm?.priceChangePct?.["24h"];
+  const ref24 = lm?.price && ch24 != null ? lm.price / (1 + ch24 / 100) : null;
+  const day = last != null && ref24 ? ((last - ref24) / ref24) * 100 : ch24 ?? null;
   const cols: Col<Signal>[] = [
     { head: "#", cell: (s) => s.id, sort: (s) => s.id },
     { head: "Открыта", cell: (s) => time(s.detectedAt), sort: (s) => Date.parse(s.detectedAt) },
@@ -40,8 +46,10 @@ export function Positions({ data, label }: { data: Data; label: (k: string) => s
         <Tile label="Открыто" value={data.open.length} sub={`лонгов ${data.open.filter((s) => s.direction === "long").length} · шортов ${data.open.filter((s) => s.direction === "short").length}`} />
         <Tile label="Движение сейчас, сумма" value={signed(sum, 2)} tone={tone(sum)} sub="по всем открытым" />
         <Tile label="В плюсе / в минусе" value={`${moves.filter((m) => m > 0).length} / ${moves.filter((m) => m < 0).length}`} />
-        <Tile label="Цена BTC" value={price(last)} />
+        <Tile label="Цена BTC" value={price(last)} sub={<>за сутки <span className={tone(day)}>{signed(day)}</span></>} />
       </div>
+      {/* Owner 2026-11-14: the main BTC chart (levels and signals) here, under the tiles. */}
+      <BtcMainChart />
       <Card title={`Открытые позиции · ${data.open.length}`}>
         <SortTable<Signal> cols={cols} rows={data.open} rowKey={(s) => s.id} initial={{ col: "Открыта", desc: true }}
           onRow={(s) => setSel(s.id)} empty="Сейчас открытых позиций нет."
