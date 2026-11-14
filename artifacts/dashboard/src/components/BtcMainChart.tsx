@@ -14,11 +14,11 @@ type Sig = { id: number; at: number; direction: string; label: string; entry: nu
 export type ChartData = {
   tf: Tf; dev: boolean; spanMs?: number;
   candles: Array<{ t: number; o: number; h: number; l: number; c: number }>;
-  ranges: Range[]; zones: Array<{ top: number; bottom: number; count: number }>; signals: Sig[];
+  ranges: Range[]; zones: Array<{ top: number; bottom: number; count: number }>; zonesFrom?: number | null; signals: Sig[];
 };
 type Row = { i: number; t: number; o: number; h: number; l: number; c: number; hl: [number, number] };
 
-const GREEN = "#34d399", RED = "#f43f5e", GOLD = "#f2b10f", SKY = "#7dd3fc", NEON = "#c084fc", MUTED = "#8a7d63";
+const GREEN = "#34d399", RED = "#f43f5e", GOLD = "#f2b10f", SKY = "#7dd3fc", MUTED = "#8a7d63";
 const AXIS = { stroke: MUTED, fontSize: 10 };
 const TF_LABEL: Record<Tf, string> = { "1h": "1h · 7 дней", "4h": "4h · 90 дней", "1d": "1D · год" };
 const RANGE_COLOR: Record<Range["tf"], string> = { "4h": GOLD, "1d": SKY };
@@ -79,9 +79,15 @@ export function ChartBody({ d, tf }: { d: ChartData; tf: Tf }) {
                 <XAxis dataKey="i" type="number" domain={[-0.5, view.rows.length - 0.5]} {...AXIS} minTickGap={40}
                   tickFormatter={(i: number) => { const r = view.rows[Math.round(i)]; return r ? when(r.t, tf) : ""; }} />
                 <YAxis {...AXIS} orientation="right" width={62} domain={view.domain} allowDataOverflow tickFormatter={(v: number) => price(v)} />
-                {d.zones.map((z, k) => (
-                  <ReferenceArea key={`z${k}`} y1={z.bottom} y2={z.top} fill={NEON} fillOpacity={0.13} stroke={NEON} strokeOpacity={0.35} ifOverflow="hidden" />
-                ))}
+                {/* As her TradingView ABNeon: green under the price (support), red above (resistance), from 300 4H bars back. */}
+                {d.zones.map((z, k) => {
+                  const col = z.top < view.rows[view.rows.length - 1]!.c ? GREEN : RED;
+                  const x1 = d.zonesFrom != null ? view.idxOf(d.zonesFrom) : 0;
+                  return (
+                    <ReferenceArea key={`z${k}`} x1={x1} x2={view.rows.length - 0.5} y1={z.bottom} y2={z.top} fill={col} fillOpacity={0.16} stroke={col} strokeOpacity={0.5} ifOverflow="hidden"
+                      label={{ value: `ABNeon ${price(z.bottom)}–${price(z.top)} (${z.count})`, position: "insideLeft", fill: col, fontSize: 9 }} />
+                  );
+                })}
                 {d.ranges.flatMap((r) => {
                   const x1 = view.idxOf(r.from), x2 = view.rows.length - 1;
                   const dash = r.state === "active" ? undefined : "6 4";
@@ -134,11 +140,11 @@ export function ChartBody({ d, tf }: { d: ChartData; tf: Tf }) {
             ))}
             {!d.ranges.length && <div>Range 4h / 1D: диапазона сейчас нет.</div>}
             <div>
-              <span style={{ color: NEON }}>ABNeon 4H</span> · зоны {d.zones.length ? d.zones.map((z) => `${price(z.bottom)}–${price(z.top)}`).join(" · ") : "—"}
+              <span className="text-emerald-300">ABNeon</span>/<span className="text-rose-300">4H</span> · зоны {d.zones.length ? d.zones.map((z) => `${price(z.bottom)}–${price(z.top)}`).join(" · ") : "—"}
             </div>
             <div>
               Сплошная линия — подтверждённый диапазон (от него сигналы пробоя и девиации), пунктир — пробитый: возврат внутрь = девиация.
-              Фиолетовые полосы — уровни ABNeon (отскок и Stealth). <span className="text-emerald-300">▲</span> лонг, <span className="text-rose-300">▼</span> шорт — сигналы канала. Свечи BingX, время Дубая.
+              Полосы ABNeon (4H, те же, по которым бот даёт отскок и Stealth): зелёные — ниже цены (поддержка), красные — выше (сопротивление). <span className="text-emerald-300">▲</span> лонг, <span className="text-rose-300">▼</span> шорт — сигналы канала. Свечи BingX, время Дубая.
             </div>
           </div>
         </>

@@ -79,7 +79,7 @@ const CHART_BARS: Record<ChartTf, number> = { "1h": 168, "4h": 540, "1d": 365 };
 const deployed = () => process.env.REPLIT_DEPLOYMENT === "1" || process.env.NODE_ENV === "production";
 const candleCache = new Map<ChartTf, { at: number; candles: Candle[] }>();
 type RangeLevel = { tf: "4h" | "1d"; state: "active" | "unconfirmed" | "broken_wait" | "last"; top: number; bottom: number; from: number; note: string | null };
-let levelCache: { at: number; ranges: RangeLevel[]; zones: Array<{ top: number; bottom: number; count: number }> } | null = null;
+let levelCache: { at: number; ranges: RangeLevel[]; zones: Array<{ top: number; bottom: number; count: number }>; zonesFrom: number | null } | null = null;
 
 async function chartCandles(tf: ChartTf): Promise<Candle[]> {
   const hit = candleCache.get(tf);
@@ -108,8 +108,12 @@ async function chartLevels() {
   if (levelCache && Date.now() - levelCache.at < 10 * 60_000) return levelCache;
   const [c4h, c1d] = await Promise.all([getClosedCandles("4h", HISTORY_BARS), getClosedCandles("1d", HISTORY_BARS)]);
   const ranges = [rangeOf("4h", c4h, replayRanges(c4h)), rangeOf("1d", c1d, replayRanges(c1d))].filter((x): x is RangeLevel => x !== null);
-  const zones = computeZones(c4h.slice(-600)).map((z) => ({ top: z.top, bottom: z.bottom, count: z.count }));
-  levelCache = { at: Date.now(), ranges, zones };
+  // Owner 2026-11-14: exactly the zones the ABNeon / Stealth signals use (neonPatterns.zonesOf: the last 640 4H bars,
+  // none under 200 bars), drawn as her TradingView indicator does — from 300 4H bars back to now.
+  const h4 = c4h.slice(-640);
+  const zones = h4.length >= 200 ? computeZones(h4).map((z) => ({ top: z.top, bottom: z.bottom, count: z.count })) : [];
+  const zonesFrom = c4h.length >= 300 ? c4h[c4h.length - 300]!.time : c4h[0]?.time ?? null;
+  levelCache = { at: Date.now(), ranges, zones, zonesFrom };
   return levelCache;
 }
 
@@ -127,7 +131,7 @@ router.get("/btc/chart", async (req, res) => {
     res.json({
       tf, dev: false, spanMs: INTERVAL_MS[tf],
       candles: candles.map((c) => ({ t: c.time, o: c.open, h: c.high, l: c.low, c: c.close })),
-      ranges: levels.ranges, zones: levels.zones,
+      ranges: levels.ranges, zones: levels.zones, zonesFrom: levels.zonesFrom,
       signals: sigs.map((s) => ({
         id: s.id, at: s.detectedAt.getTime(), direction: s.direction, label: label(s.patternKey), entry: s.entryPrice,
         status: s.status, closeReason: s.closeReason, pnlPricePct: s.pnlPricePct, closedAt: s.closedAt ? s.closedAt.getTime() : null,
