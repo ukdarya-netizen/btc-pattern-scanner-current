@@ -373,15 +373,14 @@ async function deliverBatch(patternLabel: (key: string) => string): Promise<void
       } else {
         let body = delivery.text;
         let image: SignalImage | null = null;
+        const report = parseReportMark(body);
         if (body.startsWith(MARKET_MARK)) {
           // Market update (owner 2026-11-12): her picture with the text; text only if the picture is not in place.
           body = body.slice(MARKET_MARK.length);
           if (await imageFile("market-update")) image = "market-update";
-        } else if (parseReportMark(body)) {
-          // Reports (owner 2026-11-13): her picture of that report with the text; text only if the picture is not there.
-          const r = parseReportMark(body)!;
-          body = r.body;
-          if (r.kind && await imageFile(`report-${r.kind}`)) image = `report-${r.kind}`;
+        } else if (report) {
+          // Daily, weekly, and monthly reports are always text-only.
+          body = report.body;
         } else if (body.startsWith(NEW_SIGNAL)) {
           image = "new-signal";
           body = body.slice(NEW_SIGNAL.length);
