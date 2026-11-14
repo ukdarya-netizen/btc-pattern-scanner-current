@@ -69,6 +69,7 @@ export type OutcomeGroup = {
   patternKey: string; profile: string; direction: string; decision: string; reason: string;
   total: number; targetFirst: number; stopFirst: number; timeout: number; pending: number;
   targetFirstPct: number | null; avgMfePct: number | null; avgMaePct: number | null;
+  firstAt?: string | null; lastAt?: string | null;
 };
 export type Decision = { id: number; candleCloseAt: string; patternKey: string; direction: string; profile: string; decision: string; reasons: string[]; price: number | null };
 export type PathPoint = { at: string; phase: "before" | "open" | "after_close"; price: number; pctFromEntry: number };

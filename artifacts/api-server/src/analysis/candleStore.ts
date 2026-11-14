@@ -58,6 +58,8 @@ export type OutcomeGroup = {
   /** target_first ÷ (target_first + stop_first), resolved only. */
   targetFirstPct: number | null;
   avgMfePct: number | null; avgMaePct: number | null;
+  /** Owner 2026-11-14: date and time of the first and the last decision of the group (each one: /btc/decisions). */
+  firstAt: string | null; lastAt: string | null;
 };
 
 /**
@@ -98,10 +100,13 @@ export async function decisionOutcomes(days: number, pattern?: string): Promise<
     if (!g) {
       g = { patternKey: d.patternKey, profile: d.profile, direction: d.direction, decision: d.decision, reason,
         total: 0, targetFirst: 0, stopFirst: 0, timeout: 0, pending: 0, targetFirstPct: null,
-        avgMfePct: null, avgMaePct: null, mfeSum: 0, maeSum: 0, n: 0 };
+        avgMfePct: null, avgMaePct: null, firstAt: null, lastAt: null, mfeSum: 0, maeSum: 0, n: 0 };
       groups.set(key, g);
     }
     g.total++;
+    const at = d.candleCloseAt.toISOString();
+    if (!g.firstAt) g.firstAt = at;
+    g.lastAt = at; // decisions are read oldest first
     const counter: Record<OutcomeLabel, "targetFirst" | "stopFirst" | "timeout" | "pending"> = {
       target_first: "targetFirst", stop_first: "stopFirst", timeout: "timeout", pending: "pending",
     };
