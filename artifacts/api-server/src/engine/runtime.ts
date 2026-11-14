@@ -1,4 +1,5 @@
 import { logger } from "../lib/logger";
+import { startTradingRelay } from "../trading/relay";
 import { getLastPrice, startLastPriceStream } from "../market/bingx";
 import { syncCandles } from "../analysis/candleStore";
 import { deliverNext } from "../telegram/telegram";
@@ -52,6 +53,8 @@ export async function startEngine(): Promise<void> {
     livePatternCount: PATTERNS.filter((p) => p.live && !p.off).length,
   }));
   startTelegramSubscriptions();
+  // Owner 2026-11-14: channel trades to Lucy's Trading Bot (off without BTC_TRADING_* secrets).
+  startTradingRelay();
   startOpsMonitor(() => scannerStatus);
 
   stream = startLastPriceStream({
