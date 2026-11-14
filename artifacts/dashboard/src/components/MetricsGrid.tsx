@@ -41,8 +41,7 @@ const MF_ROWS: Array<[string, string, (v: number | null) => ReactNode]> = [
   ["Наклон MFI (12 баров)", "mfi_slope12", (v) => <span className={tone(v)}>{n2(1)(v)}</span>],
   ["CMF 20", "cmf20", (v) => <span className={tone(v)}>{n2(3)(v)}</span>],
   ["Наклон CMF (12)", "cmf_slope12", (v) => <span className={tone(v)}>{n2(3)(v)}</span>],
-  // Owner 2026-11-14: cho is the Chaikin oscillator ÷ the 20-bar average volume (a ratio, not dollars) — was shown as «$0K».
-  ["Осциллятор Чайкина (÷ ср. объём)", "cho", (v) => <span className={tone(v)}>{n2(3)(v)}</span>],
+  // Owner 2026-11-14: the Chaikin oscillator removed from the table (still recorded in the snapshots for analysis).
 ];
 
 /** Every metric the patterns see: single readings and the per-timeframe table. */

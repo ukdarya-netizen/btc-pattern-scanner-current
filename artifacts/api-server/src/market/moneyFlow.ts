@@ -132,3 +132,32 @@ export function moneyFlowMetrics(c15: Candle[], flow: FlowSeries, now: number): 
   }
   return out;
 }
+
+/**
+ * Owner 2026-11-14 (MFI / CMF on the main BTC chart): per-bar MFI 14 and CMF 20 on the aggregated CoinGlass volume
+ * (futures and spot), 1H and 4H only — the same series and formulas as the table; 15m / 1D have no such history here.
+ * From the cached hourly read (refreshed at most every 5 min, also by the scanner). Bar open time → readings.
+ */
+export function mfChartSeries(tf: "1h" | "4h", now = Date.now()): Map<number, { futMfi: number | null; futCmf: number | null; spotMfi: number | null; spotCmf: number | null }> | null {
+  refreshSlow(now);
+  if (!slow) return null;
+  const out = new Map<number, { futMfi: number | null; futCmf: number | null; spotMfi: number | null; spotCmf: number | null }>();
+  const series = (m: Map<number, number> | null) => {
+    if (!m) return null;
+    const b1 = withVolume(slow!.c1h, m);
+    return tf === "1h" ? b1 : to4h(b1);
+  };
+  const fut = series(slow.fut), spot = series(slow.spot);
+  const base = fut ?? spot;
+  if (!base) return null;
+  const idx = (bars: Bar[] | null) => new Map((bars ?? []).map((b, i) => [b.t, i]));
+  const fi = idx(fut), si = idx(spot);
+  for (const b of base) {
+    const f = fi.get(b.t), s = si.get(b.t);
+    out.set(b.t, {
+      futMfi: fut && f !== undefined ? r4(mfiAt(fut, f)) : null, futCmf: fut && f !== undefined ? r4(cmfAt(fut, f, 20)) : null,
+      spotMfi: spot && s !== undefined ? r4(mfiAt(spot, s)) : null, spotCmf: spot && s !== undefined ? r4(cmfAt(spot, s, 20)) : null,
+    });
+  }
+  return out;
+}
