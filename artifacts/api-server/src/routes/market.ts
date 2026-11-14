@@ -130,7 +130,7 @@ router.get("/btc/chart", async (req, res) => {
       ranges: levels.ranges, zones: levels.zones,
       signals: sigs.map((s) => ({
         id: s.id, at: s.detectedAt.getTime(), direction: s.direction, label: label(s.patternKey), entry: s.entryPrice,
-        status: s.status, closeReason: s.closeReason, pnlPricePct: s.pnlPricePct,
+        status: s.status, closeReason: s.closeReason, pnlPricePct: s.pnlPricePct, closedAt: s.closedAt ? s.closedAt.getTime() : null,
       })),
     });
   } catch (err) {

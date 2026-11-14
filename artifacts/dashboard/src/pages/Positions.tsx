@@ -36,7 +36,7 @@ export function Positions({ data, label }: { data: Data; label: (k: string) => s
     { head: "След. цель", cell: (s) => (next(s) ? price(next(s)!.price) : "—"), sort: (s) => next(s)?.price ?? null },
     { head: "До цели", cell: (s) => { const v = toTarget(s); return <span className="text-emerald-300/90">{v == null ? "—" : `${v.toFixed(2)}%`}</span>; }, sort: (s) => toTarget(s) },
     { head: "Цели", cell: (s) => `${s.targets.filter((t) => t.hitAt).length} / ${s.targets.length}`, sort: (s) => s.targets.filter((t) => t.hitAt).length },
-    { head: "В сделке", cell: (s) => duration(heldMs(s)), sort: (s) => heldMs(s) },
+    { head: "Активна", cell: (s) => duration(heldMs(s)), sort: (s) => heldMs(s) },
     // Entry metrics as CAB (owner only: users get none).
     ...(data.open.some((s) => s.metrics) ? METRIC_COLS : []),
   ];
@@ -68,7 +68,7 @@ export function Positions({ data, label }: { data: Data; label: (k: string) => s
                 <div><div className="text-muted-foreground">След. цель</div><div className="tabular-nums">{n ? price(n.price) : "—"}</div><div className="text-emerald-300/80">{tg == null ? "—" : `${tg.toFixed(2)}%`}</div></div>
               </div>
               <EntryLine s={s} />
-              <div className="mt-2 flex justify-between text-[11px] text-muted-foreground"><span>#{s.id} · {time(s.detectedAt)}</span><span>{duration(heldMs(s))}</span></div>
+              <div className="mt-2 flex justify-between text-[11px] text-muted-foreground"><span>#{s.id} · открыта {time(s.detectedAt)}</span><span>активна {duration(heldMs(s))}</span></div>
             </>
           ); }} />
         <p className="mt-2 text-xs text-muted-foreground">Сортировка — нажми на заголовок столбца. Движение — чистое: от входа в сторону сделки, без плеча и комиссий. Нажми на строку — путь цены, уровни, плечо и метрики на входе.</p>
@@ -82,7 +82,7 @@ export function Positions({ data, label }: { data: Data; label: (k: string) => s
                 <button onClick={() => setSel(s.id)} className="flex w-full items-center justify-between gap-3 py-2 text-left hover:text-gold">
                   <span className="min-w-0">
                     <span className="block truncate text-sm">{label(s.patternKey)}</span>
-                    <span className="text-[11px] text-muted-foreground">{dir(s.direction)} · {REASON[s.closeReason ?? ""] ?? "—"} · закрыта {time(s.closedAt)} · в позиции {duration(heldMs(s))}</span>
+                    <span className="text-[11px] text-muted-foreground">{dir(s.direction)} · {REASON[s.closeReason ?? ""] ?? "—"} · открыта {time(s.detectedAt)} · закрыта {time(s.closedAt)} · была активна {duration(heldMs(s))}</span>
                   </span>
                   <span className={`text-lg font-semibold tabular-nums ${tone(s.pnlPricePct)}`}>{signed(s.pnlPricePct)}</span>
                 </button>

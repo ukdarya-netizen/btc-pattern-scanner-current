@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { Bar, CartesianGrid, ComposedChart, ReferenceArea, ReferenceDot, ReferenceLine, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
-import { getJson, price } from "../lib/api";
+import { duration, getJson, price } from "../lib/api";
 import { Card } from "./ui";
 
 /**
@@ -10,7 +10,7 @@ import { Card } from "./ui";
  */
 type Tf = "1h" | "4h" | "1d";
 type Range = { tf: "4h" | "1d"; state: "active" | "unconfirmed" | "broken_wait" | "last"; top: number; bottom: number; from: number; note: string | null };
-type Sig = { id: number; at: number; direction: string; label: string; entry: number; status: string; closeReason: string | null; pnlPricePct: number | null };
+type Sig = { id: number; at: number; direction: string; label: string; entry: number; status: string; closeReason: string | null; pnlPricePct: number | null; closedAt?: number | null };
 export type ChartData = {
   tf: Tf; dev: boolean; spanMs?: number;
   candles: Array<{ t: number; o: number; h: number; l: number; c: number }>;
@@ -113,6 +113,10 @@ export function ChartBody({ d, tf }: { d: ChartData; tf: Tf }) {
                           <div key={s.id} className={s.direction === "long" ? "text-emerald-300" : "text-rose-300"}>
                             {s.direction === "long" ? "▲" : "▼"} {s.label} · вход {price(s.entry)}
                             {s.status === "closed" && s.pnlPricePct != null ? ` · ${s.pnlPricePct >= 0 ? "+" : ""}${s.pnlPricePct.toFixed(2)}%` : s.status === "open" ? " · открыт" : ""}
+                            {/* Owner 2026-11-14: opening date and how long the signal was active (open: active now). */}
+                            <div className="text-[#d8c9a6]">
+                              открыт {when(s.at, "1h")} · {s.closedAt ? `был активен ${duration(s.closedAt - s.at)}` : `активен ${duration(Date.now() - s.at)}`}
+                            </div>
                           </div>
                         ))}
                       </div>
