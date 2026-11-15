@@ -7,7 +7,6 @@ import type { Metrics } from "../engine/snapshot";
 import { logger } from "../lib/logger";
 import { imageFile, sendMessage, sendSignalPhoto, SIGNAL_CHANNEL, splitSignalCaption, TelegramError, type SignalImage } from "./transport";
 import { MARKET_MARK, parseReportMark } from "../stats/reports";
-import { bilingual } from "./bilingual";
 
 const MAX_ATTEMPTS = 8;
 const NEW_SIGNAL = "__BTC_NEW_SIGNAL__\n";
@@ -338,8 +337,14 @@ async function deliverBatch(patternLabel: (key: string) => string): Promise<void
       `SELECT u.chat_id AS "chatId" FROM btc_users u WHERE ${recipientSql("$2")} AND u.notify_since <= $1`,
       [event.createdAt, ownerEmail()],
     );
-    // Owner 2026-11-13: Russian and English in one message.
-    const body = bilingual(formatEvent(signal, event, patternLabel(signal.patternKey)));
+    // Owner 2026-11-15: the last target closes the position — one message («🏁 ПОЗИЦИЯ ЗАКРЫТА · 🟢 ПРОФИТ: все цели
+    // достигнуты»), not a «🎯 Цель N» before it with the same picture (it looked like a duplicate).
+    if (event.kind === "target_hit" && Number((event.detail as Record<string, unknown>).index ?? -1) === targetsOf(signal).length - 1) {
+      await db.update(btcSignalEventsTable).set({ telegramSentAt: new Date() }).where(eq(btcSignalEventsTable.id, event.id));
+      continue;
+    }
+    // Owner 2026-11-15: Russian only (the English copy of 2026-11-13 removed).
+    const body = formatEvent(signal, event, patternLabel(signal.patternKey));
     const eventDetail = event.detail as Record<string, unknown>;
     const selectedImage = eventImage(event.kind, eventDetail);
     const marker = selectedImage === "new-signal" ? NEW_SIGNAL

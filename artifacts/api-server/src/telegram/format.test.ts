@@ -81,7 +81,6 @@ test("entry metrics as CAB: OI, CVD, takers, volume, liquidations, funding BingX
 });
 
 test("position updates carry the market now (OI, CVD, takers, funding …); without fresh metrics no block", async () => {
-  const { bilingual } = await import("./bilingual");
   const { setLiveMetrics, liveMetrics, LIVE_METRICS_FRESH_MS } = await import("../engine/liveMetrics");
   const m: any = {
     price: 97000, priceChangePct: { "1h": 0.4 }, oiChangePct: { "15m": 0.1, "1h": 0.3 }, spotCvdUsd: { "15m": 1e6 }, futCvdUsd: {},
@@ -94,7 +93,7 @@ test("position updates carry the market now (OI, CVD, takers, funding …); with
     assert.match(t, /OI: 15m \+0\.10%/);
     assert.match(t, /Фандинг \(8ч\): BingX \+0\.0100%/);
     assert.ok(t.indexOf("Рынок сейчас") < t.lastIndexOf("#"), "metrics before the hashtags");
-    assert.match(bilingual(t), /📊 Market now \(CoinGlass, all exchanges\)/);
+    assert.doesNotMatch(t, /English|Market now/);
     const bare = formatEvent(signal, ev(kind, 97000, { ...detail }, 3), "Пробой рейнджа 4H");
     assert.doesNotMatch(bare, /Рынок сейчас/);
   }
