@@ -57,23 +57,19 @@ export async function sendMessage(chatId: string, text: string): Promise<void> {
   await telegramCall("sendMessage", { chat_id: chatId, text, disable_web_page_preview: true });
 }
 
-export type ReportImageKind = "daily" | "weekly" | "monthly";
-export type SignalImage = "new-signal" | "take-profit" | "stop-loss" | "position-update" | "market-update" | `report-${ReportImageKind}`;
+export type SignalImage = "new-signal" | "take-profit" | "stop-loss" | "position-update" | "market-update";
 
 /**
- * The picture next to the bundle: <name>.jpg / .jpeg / .png (market-update and the reports are the owner's own files).
- * Reports (owner 2026-11-13: the pictures she uploaded): report-daily, daily-report, daily_report, report_daily, then
- * a common «report» picture.
+ * Telegram images are limited to signal events and the morning market update.
  */
 export async function imageFile(image: SignalImage): Promise<{ bytes: Buffer; type: string; name: string } | null> {
-  const m = /^report-(daily|weekly|monthly)$/.exec(image);
-  const names = m ? [`report-${m[1]}`, `${m[1]}-report`, `${m[1]}_report`, `report_${m[1]}`, "report"] : [image];
-  for (const name of names) {
-    for (const [ext, type] of [["jpg", "image/jpeg"], ["jpeg", "image/jpeg"], ["png", "image/png"]] as const) {
-      try {
-        return { bytes: await readFile(new URL(`./${name}.${ext}`, import.meta.url)), type, name: `${name}.${ext}` };
-      } catch { /* next */ }
-    }
+  const candidates = image === "stop-loss"
+    ? [["png", "image/png"], ["jpg", "image/jpeg"], ["jpeg", "image/jpeg"]] as const
+    : [["jpg", "image/jpeg"], ["jpeg", "image/jpeg"], ["png", "image/png"]] as const;
+  for (const [ext, type] of candidates) {
+    try {
+      return { bytes: await readFile(new URL(`./${image}.${ext}`, import.meta.url)), type, name: `${image}.${ext}` };
+    } catch { /* next */ }
   }
   return null;
 }
