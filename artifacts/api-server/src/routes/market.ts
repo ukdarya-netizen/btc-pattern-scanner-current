@@ -6,7 +6,7 @@
  */
 import { Router } from "express";
 import { pool, db, btcMarketSnapshotsTable, btcSignalsTable } from "@workspace/db";
-import { and, desc, eq, gte } from "drizzle-orm";
+import { and, desc, eq, gte, or } from "drizzle-orm";
 import { getClosedCandles, INTERVAL_MS, type Candle } from "../market/bingx";
 import { replayRanges, type RangeReplay } from "../engine/rangeDetector";
 import { HISTORY_BARS } from "../engine/rangePatterns";
@@ -163,9 +163,12 @@ router.get("/btc/chart", async (req, res) => {
     const candles = all.slice(-CHART_BARS[tf]);
     const ind = chartIndicators(tf, all);
     const from = candles[0]?.time ?? Date.now();
-    // Channel signals only (live), as the users see them.
+    // Channel signals only (live), as the users see them. Owner 2026-11-15: every signal whose entry or close falls in
+    // the window, and every open one — the chart shows where it fired and where it closed.
     const sigs = await db.select().from(btcSignalsTable)
-      .where(and(eq(btcSignalsTable.live, true), gte(btcSignalsTable.detectedAt, new Date(from))))
+      .where(and(eq(btcSignalsTable.live, true), or(
+        gte(btcSignalsTable.detectedAt, new Date(from)), gte(btcSignalsTable.closedAt, new Date(from)), eq(btcSignalsTable.status, "open"),
+      )))
       .orderBy(btcSignalsTable.detectedAt);
     const label = (key: string) => PATTERNS.find((p) => p.key === key)?.label ?? key;
     res.json({
@@ -175,6 +178,7 @@ router.get("/btc/chart", async (req, res) => {
       signals: sigs.map((s) => ({
         id: s.id, at: s.detectedAt.getTime(), direction: s.direction, label: label(s.patternKey), entry: s.entryPrice,
         status: s.status, closeReason: s.closeReason, pnlPricePct: s.pnlPricePct, closedAt: s.closedAt ? s.closedAt.getTime() : null,
+        exit: s.exitPrice,
       })),
     });
   } catch (err) {

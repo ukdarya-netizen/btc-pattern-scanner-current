@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { Bar, CartesianGrid, Cell, ComposedChart, Line, ReferenceArea, ReferenceDot, ReferenceLine, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
-import { duration, getJson, price } from "../lib/api";
+import { REASON, duration, getJson, price } from "../lib/api";
 import { Card } from "./ui";
 
 /**
@@ -12,7 +12,7 @@ import { Card } from "./ui";
  */
 type Tf = "15m" | "1h" | "4h" | "1d";
 type Range = { tf: "4h" | "1d"; state: "active" | "unconfirmed" | "broken_wait" | "last"; top: number; bottom: number; from: number; note: string | null };
-type Sig = { id: number; at: number; direction: string; label: string; entry: number; status: string; closeReason: string | null; pnlPricePct: number | null; closedAt?: number | null };
+type Sig = { id: number; at: number; direction: string; label: string; entry: number; status: string; closeReason: string | null; pnlPricePct: number | null; closedAt?: number | null; exit?: number | null };
 export type ChartData = {
   tf: Tf; dev: boolean; spanMs?: number;
   candles: Array<{ t: number; o: number; h: number; l: number; c: number } & Record<string, number | null>>;
@@ -66,6 +66,17 @@ function CandleShape(props: { x?: number; y?: number; width?: number; height?: n
     <g>
       <line x1={cx} x2={cx} y1={y} y2={y + height} stroke={color} strokeWidth={1} />
       <rect x={cx - bw / 2} y={top} width={bw} height={Math.max(1, bot - top)} fill={color} />
+    </g>
+  );
+}
+
+/** Owner 2026-11-15: where a signal closed — a cross at the exit price, coloured by the outcome. */
+const EXIT_COLOR: Record<string, string> = { take_profit: GREEN, stop: RED, breakeven: SKY, timeout: "#fbbf24" };
+function ExitMark({ cx = 0, cy = 0, color }: { cx?: number; cy?: number; color: string }) {
+  return (
+    <g>
+      <circle cx={cx} cy={cy} r={6} fill="#0b0906" stroke={color} strokeWidth={1.6} />
+      <path d={`M${cx - 3} ${cy - 3} L${cx + 3} ${cy + 3} M${cx + 3} ${cy - 3} L${cx - 3} ${cy + 3}`} stroke={color} strokeWidth={1.6} />
     </g>
   );
 }
@@ -141,10 +152,17 @@ export function ChartBody({ d, tf, on = DEFAULT_ON }: { d: ChartData; tf: Tf; on
       for (let i = rows.length - 1; i >= 0; i--) if (rows[i]!.t <= t) return i;
       return 0;
     };
-    // A signal in the still-forming candle sits on the last closed one.
-    const sigs = d.signals.map((s) => ({ ...s, i: Math.min(rows.length - 1, idxOf(s.at)) }));
+    // A signal in the still-forming candle sits on the last closed one. Owner 2026-11-15: the entry at its price on the
+    // signal candle, the close at the exit price on the close candle; a signal opened before the window starts at its left edge.
+    const t0 = rows[0]!.t, lastI = rows.length - 1;
+    const sigs = d.signals.map((s) => {
+      const closedIn = s.closedAt != null && s.exit != null && s.closedAt >= t0;
+      return { ...s, i: Math.min(lastI, idxOf(s.at)), entryIn: s.at >= t0, closedIn, ci: closedIn ? Math.min(lastI, idxOf(s.closedAt!)) : null };
+    }).filter((s) => s.entryIn || s.closedIn || s.status === "open");
     const last = rows[rows.length - 1]!.c;
     let lo = Math.min(...rows.map((r) => r.l)), hi = Math.max(...rows.map((r) => r.h));
+    // Entry and exit prices stay in view while within 15% of the price.
+    for (const s of sigs) for (const v of [s.entry, s.closedIn ? s.exit : null]) if (typeof v === "number" && Math.abs(v - last) / last < 0.15) { lo = Math.min(lo, v); hi = Math.max(hi, v); }
     // The ranges stay in view when they are near the price (within 12%); far ABNeon zones are clipped.
     for (const r of d.ranges) for (const v of [r.top, r.bottom]) if (Math.abs(v - last) / last < 0.12) { lo = Math.min(lo, v); hi = Math.max(hi, v); }
     // Switched-on lines stay in view while within 20% of the price (a far EMA 200 would squash the candles).
@@ -191,16 +209,28 @@ export function ChartBody({ d, tf, on = DEFAULT_ON }: { d: ChartData; tf: Tf; on
                   <Line key={o.id} dataKey={o.key} stroke={o.color} strokeWidth={1.3} strokeDasharray={o.dash} dot={false} connectNulls isAnimationActive={false} />
                 ))}
                 <Bar dataKey="hl" isAnimationActive={false} shape={(p: unknown) => <CandleShape {...(p as object)} />} />
+                {/* Owner 2026-11-15: every signal — entry (arrow at the entry price), the way to the close (dashed), the close
+                    (cross at the exit price, coloured by the outcome); an open one runs to the last candle. */}
                 {view.sigs.map((s) => {
-                  const r = view.rows[s.i]!;
                   const long = s.direction === "long";
-                  return <ReferenceDot key={s.id} x={s.i} y={long ? r.l : r.h} r={0} ifOverflow="visible" shape={(p: { cx?: number; cy?: number }) => <Arrow cx={p.cx} cy={p.cy} long={long} />} />;
+                  const x1 = s.entryIn ? s.i : -0.5;
+                  const x2 = s.closedIn ? s.ci! : view.rows.length - 1;
+                  const y2 = s.closedIn ? s.exit! : s.entry;
+                  const col = s.closedIn ? EXIT_COLOR[s.closeReason ?? ""] ?? MUTED : long ? GREEN : RED;
+                  return [
+                    <ReferenceLine key={`p${s.id}`} segment={[{ x: x1, y: s.entry }, { x: x2, y: y2 }]} stroke={col} strokeWidth={1.2} strokeDasharray="4 3" strokeOpacity={0.85} ifOverflow="hidden" />,
+                    s.entryIn ? <ReferenceDot key={`e${s.id}`} x={s.i} y={s.entry} r={0} ifOverflow="hidden" shape={(p: { cx?: number; cy?: number }) => (
+                      <g><circle cx={p.cx} cy={p.cy} r={2.5} fill={long ? GREEN : RED} /><Arrow cx={p.cx} cy={p.cy} long={long} /></g>
+                    )} /> : null,
+                    s.closedIn ? <ReferenceDot key={`x${s.id}`} x={s.ci!} y={s.exit!} r={0} ifOverflow="hidden" shape={(p: { cx?: number; cy?: number }) => <ExitMark cx={p.cx} cy={p.cy} color={col} />} /> : null,
+                  ];
                 })}
                 <Tooltip cursor={{ stroke: MUTED, strokeDasharray: "3 3" }}
                   content={({ active, payload }) => {
                     const row = active && payload?.[0] ? (payload[0].payload as Row) : null;
                     if (!row) return null;
-                    const here = view.sigs.filter((s) => s.i === row.i);
+                    const here = view.sigs.filter((s) => s.entryIn && s.i === row.i);
+                    const closedHere = view.sigs.filter((s) => s.closedIn && s.ci === row.i);
                     return (
                       <div className="rounded-lg border border-[#5a4417] bg-[#120f0a] px-3 py-2 text-xs">
                         <div className="text-[#d8c9a6]">{when(row.t, tf)}</div>
@@ -215,6 +245,12 @@ export function ChartBody({ d, tf, on = DEFAULT_ON }: { d: ChartData; tf: Tf; on
                             <div className="text-[#d8c9a6]">
                               открыт {when(s.at, "1h")} · {s.closedAt ? `был активен ${duration(s.closedAt - s.at)}` : `активен ${duration(Date.now() - s.at)}`}
                             </div>
+                          </div>
+                        ))}
+                        {closedHere.map((s) => (
+                          <div key={`c${s.id}`} style={{ color: EXIT_COLOR[s.closeReason ?? ""] ?? MUTED }}>
+                            ✕ закрыт: {s.label} · выход {price(s.exit ?? null)} · {REASON[s.closeReason ?? ""] ?? "—"}{s.pnlPricePct != null ? ` · ${s.pnlPricePct >= 0 ? "+" : ""}${s.pnlPricePct.toFixed(2)}%` : ""}
+                            <div className="text-[#d8c9a6]">закрыт {when(s.closedAt!, "1h")} · вход {price(s.entry)}</div>
                           </div>
                         ))}
                       </div>
@@ -237,7 +273,7 @@ export function ChartBody({ d, tf, on = DEFAULT_ON }: { d: ChartData; tf: Tf; on
             </div>
             <div>
               Сплошная линия — подтверждённый диапазон, пунктир — пробитый: возврат внутрь = девиация.
-              Range 4h — только ориентир: сигналы пробоя и девиации бот даёт по Range 1D. Полосы ABNeon — зоны с дневных свечей (те же, по которым бот даёт отскок и Stealth на 1D), одинаковые на любом таймфрейме графика: зелёные — ниже цены (поддержка), красные — выше (сопротивление). <span className="text-emerald-300">▲</span> лонг, <span className="text-rose-300">▼</span> шорт — сигналы канала. Свечи BingX, время Дубая.
+              Range 4h — только ориентир: сигналы пробоя и девиации бот даёт по Range 1D. Полосы ABNeon — зоны с дневных свечей (те же, по которым бот даёт отскок и Stealth на 1D), одинаковые на любом таймфрейме графика: зелёные — ниже цены (поддержка), красные — выше (сопротивление). <span className="text-emerald-300">▲</span> лонг, <span className="text-rose-300">▼</span> шорт — вход сигнала канала по цене входа; пунктир — путь до закрытия; ✕ — закрытие по цене выхода: <span className="text-emerald-300">цели</span>, <span className="text-rose-300">стоп</span>, <span className="text-sky-300">безубыток</span>, <span className="text-amber-300">время</span>. У открытого сигнала пунктир идёт до последней свечи. Свечи BingX, время Дубая.
             </div>
           </div>
         </>
