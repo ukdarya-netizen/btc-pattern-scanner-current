@@ -112,6 +112,28 @@ export function Overview({ data, period, setPeriod, mode, go }: { data: Data; pe
     month, signals: xs.length, open: xs.filter((s) => !s.closedAt).length, rows: xs, ...summarize(xs.filter((s) => s.closedAt)),
   }));
   const shownMonth = monthRows.find((r) => r.month === openMonth) ?? null;
+  // Owner 2026-11-15: the opened month also gives its statistics by pattern (positions opened that month).
+  type PatRow = { key: string; signals: number; open: number } & ReturnType<typeof summarize>;
+  const byPattern = new Map<string, Signal[]>();
+  for (const s of shownMonth?.rows ?? []) byPattern.set(s.patternKey, [...(byPattern.get(s.patternKey) ?? []), s]);
+  const patRows: PatRow[] = [...byPattern].map(([key, xs]) => ({ key, signals: xs.length, open: xs.filter((s) => !s.closedAt).length, ...summarize(xs.filter((s) => s.closedAt)) }));
+  const patCols: Col<PatRow>[] = [
+    { head: "Паттерн", cell: (r) => <span className="text-foreground">{label(r.key)}</span>, sort: (r) => label(r.key) },
+    { head: "Сигналов", cell: (r) => r.signals, sort: (r) => r.signals },
+    { head: "Закрыто", cell: (r) => r.n, sort: (r) => r.n },
+    { head: "Открыто", cell: (r) => r.open, sort: (r) => r.open },
+    { head: "Винрейт", cell: (r) => winRate(r), sort: (r) => r.winRate },
+    { head: "Сумма", cell: (r) => <span className={`font-medium ${tone(r.sum)}`}>{signed(r.sum, 1)}</span>, sort: (r) => r.sum },
+    { head: "Среднее", cell: (r) => <span className={tone(r.avg)}>{signed(r.avg)}</span>, sort: (r) => r.avg },
+    { head: "Лучшая", cell: (r) => signed(r.best), sort: (r) => r.best },
+    { head: "Худшая", cell: (r) => signed(r.worst), sort: (r) => r.worst },
+  ];
+  const toggleMonth = (m: string) => {
+    const next = openMonth === m ? null : m;
+    setOpenMonth(next);
+    // On a phone the opened block is below the whole month list — scroll to it.
+    if (next) setTimeout(() => document.getElementById("month-open")?.scrollIntoView({ behavior: "smooth", block: "start" }), 80);
+  };
   const monthCols: Col<MonthRow>[] = [
     { head: "Месяц", cell: (r) => <span className="capitalize text-foreground">{monthName(r.month)}</span>, sort: (r) => r.month },
     { head: "Сигналов", cell: (r) => r.signals, sort: (r) => r.signals },
@@ -245,20 +267,31 @@ export function Overview({ data, period, setPeriod, mode, go }: { data: Data; pe
 
       <Card title="По месяцам открытия (Дубай)">
         <SortTable<MonthRow> cols={monthCols} rows={monthRows} rowKey={(r) => r.month} initial={{ col: "Месяц", desc: true }}
-          onRow={(r) => setOpenMonth(openMonth === r.month ? null : r.month)} empty="Сигналов пока нет."
+          onRow={(r) => toggleMonth(r.month)} empty="Сигналов пока нет."
           card={(r) => (
             <div className="flex items-center justify-between">
               <div><div className="capitalize text-sm">{monthName(r.month)}</div><div className="text-[11px] text-muted-foreground">{r.signals} сигналов · закрыто {r.n} · открыто {r.open} · винрейт {winRate(r)}</div></div>
               <div className={`text-lg font-semibold tabular-nums ${tone(r.sum)}`}>{signed(r.sum, 1)}</div>
             </div>
           )} />
-        <p className="mt-2 text-xs text-muted-foreground">Нажми на месяц — ниже откроется список всех позиций, открытых в этом месяце. Сумма, винрейт и среднее — по закрытым из них.</p>
+        <p className="mt-2 text-xs text-muted-foreground">Нажми на месяц — ниже откроется его статистика по паттернам и список всех позиций, открытых в этом месяце. Сумма, винрейт и среднее — по закрытым из них.</p>
         {shownMonth && (
-          <div className="mt-4 border-t border-border/70 pt-3">
+          <div id="month-open" className="mt-4 scroll-mt-4 border-t border-border/70 pt-3">
             <div className="mb-2 flex items-center justify-between">
-              <h3 className="text-sm capitalize text-gold">Позиции, открытые: {monthName(shownMonth.month)} · {shownMonth.signals}</h3>
+              <h3 className="text-sm capitalize text-gold">По паттернам: {monthName(shownMonth.month)}</h3>
               <button onClick={() => setOpenMonth(null)} className="text-xs text-muted-foreground hover:text-gold">Скрыть</button>
             </div>
+            <SortTable<PatRow> cols={patCols} rows={patRows} rowKey={(r) => r.key} initial={{ col: "Сумма", desc: true }}
+              card={(r) => (
+                <div className="flex items-start justify-between gap-2">
+                  <div className="min-w-0">
+                    <div className="truncate text-sm">{label(r.key)}</div>
+                    <div className="text-[11px] text-muted-foreground">{r.signals} сигналов · закрыто {r.n} · открыто {r.open} · винрейт {winRate(r)} · среднее {signed(r.avg)}</div>
+                  </div>
+                  <div className={`text-lg font-semibold tabular-nums ${tone(r.sum)}`}>{signed(r.sum, 1)}</div>
+                </div>
+              )} />
+            <h3 className="mb-2 mt-4 text-sm capitalize text-gold">Позиции, открытые: {monthName(shownMonth.month)} · {shownMonth.signals}</h3>
             <SortTable<Signal> cols={posCols} rows={shownMonth.rows} rowKey={(s) => s.id} initial={{ col: "Открыта", desc: true }}
               card={(s) => { const v = s.closedAt ? res(s) : liveMove(s, last); return (
                 <div className="flex items-start justify-between gap-2">
