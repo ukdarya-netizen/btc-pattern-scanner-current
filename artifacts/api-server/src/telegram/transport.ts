@@ -18,6 +18,15 @@ export class TelegramError extends Error {
     super(`Telegram API error ${code}`);
   }
 }
+/**
+ * No answer from Telegram in time (owner 2026-11-15: duplicates). The message may well have been delivered — sending
+ * it again is what made the copies, so a timed-out delivery is not repeated.
+ */
+export class TelegramTimeout extends Error {
+  constructor(method: string) { super(`Telegram ${method}: no answer in time`); }
+}
+const timeoutOr = (err: unknown, method: string) =>
+  err instanceof Error && (err.name === "TimeoutError" || err.name === "AbortError") ? new TelegramTimeout(method) : new Error("Telegram network request failed");
 
 export async function telegramCall<T>(method: string, payload: object): Promise<T> {
   const token = process.env.TELEGRAM_BOT_TOKEN;
@@ -28,9 +37,10 @@ export async function telegramCall<T>(method: string, payload: object): Promise<
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(payload),
-      signal: AbortSignal.timeout(method === "getUpdates" ? 40_000 : 10_000),
+      signal: AbortSignal.timeout(method === "getUpdates" ? 40_000 : 30_000),
     });
-  } catch {
+  } catch (err) {
+    if (method !== "getUpdates") throw timeoutOr(err, method);
     // Native fetch errors may contain the credential-bearing URL.
     throw new Error("Telegram network request failed");
   }
@@ -87,10 +97,10 @@ export async function sendSignalPhoto(
     response = await fetch(`https://api.telegram.org/bot${token}/sendPhoto`, {
       method: "POST",
       body: form,
-      signal: AbortSignal.timeout(15_000),
+      signal: AbortSignal.timeout(60_000),
     });
-  } catch {
-    throw new Error("Telegram network request failed");
+  } catch (err) {
+    throw timeoutOr(err, "sendPhoto");
   }
   const body = await response.json() as {
     ok: boolean; error_code?: number; parameters?: { retry_after?: number };

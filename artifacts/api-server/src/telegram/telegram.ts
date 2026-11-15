@@ -5,7 +5,7 @@ import { PROFILES, type ProfileKey } from "../config/profiles";
 import { PATTERNS } from "../engine/patterns";
 import type { Metrics } from "../engine/snapshot";
 import { logger } from "../lib/logger";
-import { imageFile, sendMessage, sendSignalPhoto, SIGNAL_CHANNEL, splitSignalCaption, TelegramError, type SignalImage } from "./transport";
+import { imageFile, sendMessage, sendSignalPhoto, SIGNAL_CHANNEL, splitSignalCaption, TelegramError, TelegramTimeout, type SignalImage } from "./transport";
 import { MARKET_MARK, parseReportMark } from "../stats/reports";
 
 const MAX_ATTEMPTS = 8;
@@ -358,10 +358,15 @@ async function deliverBatch(patternLabel: (key: string) => string): Promise<void
     ]).onConflictDoNothing();
   }
 
-  const pending = await db.select().from(btcTelegramDeliveriesTable).where(and(
-    eq(btcTelegramDeliveriesTable.status, "pending"),
-    lte(btcTelegramDeliveriesTable.nextAttemptAt, new Date()),
-  )).orderBy(asc(btcTelegramDeliveriesTable.id)).limit(20);
+  // Owner 2026-11-15 (duplicates): the due rows are claimed atomically before sending — an overlapping instance
+  // (the old and the new one during a publish) skips them; a sender that died is retried after the lease.
+  const { rows: claimed } = await pool.query<{ id: number; event_id: number; chat_id: string; channel: boolean; text: string; attempts: number }>(
+    `UPDATE btc_telegram_deliveries d SET next_attempt_at = now() + interval '10 minutes'
+      WHERE d.id IN (SELECT id FROM btc_telegram_deliveries
+                      WHERE status = 'pending' AND next_attempt_at <= now() ORDER BY id LIMIT 20 FOR UPDATE SKIP LOCKED)
+      RETURNING d.id, d.event_id, d.chat_id, d.channel, d.text, d.attempts`,
+  );
+  const pending = claimed.sort((x, y) => x.id - y.id).map((r) => ({ id: r.id, eventId: r.event_id, chatId: r.chat_id, channel: r.channel, text: r.text, attempts: r.attempts }));
   for (const delivery of pending) {
     if (!delivery.channel) {
       const sub = await pool.query(`SELECT 1 FROM btc_users u WHERE u.chat_id = $1 AND ${recipientSql("$2")}`, [delivery.chatId, ownerEmail()]);
@@ -405,7 +410,8 @@ async function deliverBatch(patternLabel: (key: string) => string): Promise<void
         }
         if (image) {
           const { caption, remainder } = splitSignalCaption(body);
-          await sendSignalPhoto(delivery.chatId, caption, image);
+          // A photo Telegram did not confirm in time is taken as sent (resending made copies); the text follows.
+          await sendSignalPhoto(delivery.chatId, caption, image).catch((e) => { if (!(e instanceof TelegramTimeout)) throw e; });
           await db.update(btcTelegramDeliveriesTable).set({ text: `${PHOTO_SENT}${remainder}` })
             .where(eq(btcTelegramDeliveriesTable.id, delivery.id));
           if (remainder) await sendMessage(delivery.chatId, remainder);
@@ -416,6 +422,13 @@ async function deliverBatch(patternLabel: (key: string) => string): Promise<void
       await db.update(btcTelegramDeliveriesTable).set({ status: "sent", sentAt: new Date() })
         .where(eq(btcTelegramDeliveriesTable.id, delivery.id));
     } catch (err) {
+      if (err instanceof TelegramTimeout) {
+        // Probably delivered: not sent again (that was the copy).
+        await db.update(btcTelegramDeliveriesTable).set({ status: "sent", sentAt: new Date() })
+          .where(eq(btcTelegramDeliveriesTable.id, delivery.id));
+        logger.warn({ deliveryId: delivery.id }, "Telegram did not answer in time — not resent");
+        continue;
+      }
       const attempts = delivery.attempts + 1;
       const blocked = !delivery.channel && err instanceof TelegramError && err.code === 403;
       if (blocked) {
