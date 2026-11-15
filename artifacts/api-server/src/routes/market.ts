@@ -57,8 +57,10 @@ router.get("/btc/market", async (_req, res) => {
         FROM btc_market_snapshots
         WHERE candle_close_at > now() - interval '48 hours' AND extract(minute FROM candle_close_at) = 0
         ORDER BY candle_close_at`),
-      spxHistory().catch(() => []),
-      dominanceHistoryReady().catch(() => []),
+      // Owner 2026-11-15: dev makes no outside requests — S&P 500 (Yahoo / Stooq) and the dominance fallback
+      // (CoinGecko) only in the published app.
+      deployed() ? spxHistory().catch(() => []) : [],
+      deployed() ? dominanceHistoryReady().catch(() => []) : [],
     ]);
     // Owner 2026-11-13: BTC dominance and S&P 500 by day (one chart), last 120 days.
     res.json({ candleCloseAt: at, metrics: m, fearGreed: fg.latest, fearGreedHistory: fg.history, hours: hours.rows,
