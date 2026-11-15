@@ -12,7 +12,8 @@ import { Card } from "./ui";
  */
 type Tf = "15m" | "1h" | "4h" | "1d";
 type Range = { tf: "4h" | "1d"; state: "active" | "unconfirmed" | "broken_wait" | "last"; top: number; bottom: number; from: number; note: string | null };
-type Sig = { id: number; at: number; direction: string; label: string; entry: number; status: string; closeReason: string | null; pnlPricePct: number | null; closedAt?: number | null; exit?: number | null };
+type Sig = { id: number; at: number; direction: string; label: string; entry: number; status: string; closeReason: string | null; pnlPricePct: number | null; closedAt?: number | null; exit?: number | null;
+  stop?: number | null; targets?: Array<{ price: number; hit: boolean }> };
 export type ChartData = {
   tf: Tf; dev: boolean; spanMs?: number;
   candles: Array<{ t: number; o: number; h: number; l: number; c: number } & Record<string, number | null>>;
@@ -70,21 +71,46 @@ function CandleShape(props: { x?: number; y?: number; width?: number; height?: n
   );
 }
 
-/** Owner 2026-11-15: where a signal closed — a cross at the exit price, coloured by the outcome. */
-const EXIT_COLOR: Record<string, string> = { take_profit: GREEN, stop: RED, breakeven: SKY, timeout: "#fbbf24" };
-function ExitMark({ cx = 0, cy = 0, color }: { cx?: number; cy?: number; color: string }) {
+/**
+ * Owner 2026-11-15 («сделать красивой визуализацией: где какой сигнал открылся, где закрылся»): a closed trade is a
+ * box from its entry to its close, between the entry and the exit price, tinted by the outcome; the entry is a
+ * round badge with the direction, the close a ring with the outcome sign and the result next to it. An open trade
+ * is a box to the last candle with its live result, and its levels — entry, stop, targets — run to the right edge.
+ */
+const SLATE = "#94a3b8", AMBER = "#fbbf24", INK = "#0b0906";
+const EXIT_COLOR: Record<string, string> = { take_profit: GREEN, stop: RED, breakeven: SLATE, timeout: AMBER };
+const signed2 = (v: number) => `${v >= 0 ? "+" : ""}${v.toFixed(2)}%`;
+/** Text with a dark halo, readable over candles. */
+function Halo({ x, y, children, fill, anchor = "start", size = 10, weight = 600 }: { x: number; y: number; children: string; fill: string; anchor?: "start" | "middle" | "end"; size?: number; weight?: number }) {
+  return <text x={x} y={y} fill={fill} fontSize={size} fontWeight={weight} textAnchor={anchor} dominantBaseline="middle" stroke={INK} strokeWidth={3} paintOrder="stroke" style={{ fontVariantNumeric: "tabular-nums" }}>{children}</text>;
+}
+/** Level tag at the right end of a line, with a halo (above or below the line). */
+function LineTag({ viewBox, text, color, below = false, faded = false }: { viewBox?: { x?: number; y?: number; width?: number }; text: string; color: string; below?: boolean; faded?: boolean }) {
+  const x = (viewBox?.x ?? 0) + (viewBox?.width ?? 0) - 4, y = (viewBox?.y ?? 0) + (below ? 8 : -8);
+  return <g opacity={faded ? 0.55 : 1}><Halo x={x} y={y} fill={color} anchor="end" size={10}>{text}</Halo></g>;
+}
+/** Entry: a filled badge with the direction arrow inside. */
+function EntryBadge({ cx = 0, cy = 0, long }: { cx?: number; cy?: number; long: boolean }) {
+  const c = long ? GREEN : RED;
+  const tri = long ? `M${cx} ${cy - 3.2} L${cx + 3.2} ${cy + 2.2} L${cx - 3.2} ${cy + 2.2} Z` : `M${cx} ${cy + 3.2} L${cx + 3.2} ${cy - 2.2} L${cx - 3.2} ${cy - 2.2} Z`;
+  return <g><circle cx={cx} cy={cy} r={6.5} fill={c} stroke={INK} strokeWidth={1.5} /><path d={tri} fill={INK} /></g>;
+}
+/** Close: a ring in the outcome colour with its sign (✓ targets, ✕ stop, = break-even, clock = time) and the result. */
+function ExitBadge({ cx = 0, cy = 0, reason, pnl, labelUp }: { cx?: number; cy?: number; reason: string; pnl: number | null; labelUp: boolean }) {
+  const c = EXIT_COLOR[reason] ?? MUTED;
+  const sign = reason === "take_profit" ? <path d={`M${cx - 2.8} ${cy + 0.2} L${cx - 0.8} ${cy + 2.4} L${cx + 3} ${cy - 2.4}`} stroke={c} strokeWidth={1.8} fill="none" strokeLinecap="round" strokeLinejoin="round" />
+    : reason === "stop" ? <path d={`M${cx - 2.5} ${cy - 2.5} L${cx + 2.5} ${cy + 2.5} M${cx + 2.5} ${cy - 2.5} L${cx - 2.5} ${cy + 2.5}`} stroke={c} strokeWidth={1.8} strokeLinecap="round" />
+    : reason === "breakeven" ? <path d={`M${cx - 2.8} ${cy - 1.3} H${cx + 2.8} M${cx - 2.8} ${cy + 1.3} H${cx + 2.8}`} stroke={c} strokeWidth={1.5} strokeLinecap="round" />
+    : <path d={`M${cx} ${cy - 2.8} V${cy} H${cx + 2.4}`} stroke={c} strokeWidth={1.5} fill="none" strokeLinecap="round" />;
   return (
     <g>
-      <circle cx={cx} cy={cy} r={6} fill="#0b0906" stroke={color} strokeWidth={1.6} />
-      <path d={`M${cx - 3} ${cy - 3} L${cx + 3} ${cy + 3} M${cx + 3} ${cy - 3} L${cx - 3} ${cy + 3}`} stroke={color} strokeWidth={1.6} />
+      <circle cx={cx} cy={cy} r={6.5} fill={INK} stroke={c} strokeWidth={1.8} />
+      {sign}
+      {pnl != null && <Halo x={cx} y={cy + (labelUp ? -13 : 13)} fill={c} anchor="middle">{signed2(pnl)}</Halo>}
     </g>
   );
 }
 
-function Arrow({ cx = 0, cy = 0, long }: { cx?: number; cy?: number; long: boolean }) {
-  const d = long ? `M${cx} ${cy + 6} l-5 9 h10 z` : `M${cx} ${cy - 6} l-5 -9 h10 z`;
-  return <path d={d} fill={long ? GREEN : RED} stroke="#0b0906" strokeWidth={0.8} />;
-}
 
 /** One indicator pane under the price, on the same candles (cursor synced with the price chart). */
 function Pane({ id, rows, tf }: { id: PaneId; rows: Row[]; tf: Tf }) {
@@ -144,7 +170,8 @@ function Pane({ id, rows, tf }: { id: PaneId; rows: Row[]; tf: Tf }) {
 }
 
 /** The chart itself (separate so it renders from given data). */
-export function ChartBody({ d, tf, on = DEFAULT_ON }: { d: ChartData; tf: Tf; on?: string[] }) {
+export type SigShow = "all" | "open" | "none";
+export function ChartBody({ d, tf, on = DEFAULT_ON, show = "all" }: { d: ChartData; tf: Tf; on?: string[]; show?: SigShow }) {
   const view = useMemo(() => {
     const rows: Row[] = d.candles.map((k, i) => ({ i, ...k, hl: [k.l, k.h] }));
     const idxOf = (t: number) => {
@@ -158,11 +185,11 @@ export function ChartBody({ d, tf, on = DEFAULT_ON }: { d: ChartData; tf: Tf; on
     const sigs = d.signals.map((s) => {
       const closedIn = s.closedAt != null && s.exit != null && s.closedAt >= t0;
       return { ...s, i: Math.min(lastI, idxOf(s.at)), entryIn: s.at >= t0, closedIn, ci: closedIn ? Math.min(lastI, idxOf(s.closedAt!)) : null };
-    }).filter((s) => s.entryIn || s.closedIn || s.status === "open");
+    }).filter((s) => (s.entryIn || s.closedIn || s.status === "open") && (show === "all" || (show === "open" && s.status === "open")));
     const last = rows[rows.length - 1]!.c;
     let lo = Math.min(...rows.map((r) => r.l)), hi = Math.max(...rows.map((r) => r.h));
     // Entry and exit prices stay in view while within 15% of the price.
-    for (const s of sigs) for (const v of [s.entry, s.closedIn ? s.exit : null]) if (typeof v === "number" && Math.abs(v - last) / last < 0.15) { lo = Math.min(lo, v); hi = Math.max(hi, v); }
+    for (const s of sigs) for (const v of [s.entry, s.closedIn ? s.exit : null, s.status === "open" ? s.stop : null, ...(s.status === "open" ? (s.targets ?? []).map((x) => x.price) : [])]) if (typeof v === "number" && Math.abs(v - last) / last < 0.15) { lo = Math.min(lo, v); hi = Math.max(hi, v); }
     // The ranges stay in view when they are near the price (within 12%); far ABNeon zones are clipped.
     for (const r of d.ranges) for (const v of [r.top, r.bottom]) if (Math.abs(v - last) / last < 0.12) { lo = Math.min(lo, v); hi = Math.max(hi, v); }
     // Switched-on lines stay in view while within 20% of the price (a far EMA 200 would squash the candles).
@@ -170,8 +197,9 @@ export function ChartBody({ d, tf, on = DEFAULT_ON }: { d: ChartData; tf: Tf; on
     for (const r of rows) for (const k of keys) { const v = r[k]; if (typeof v === "number" && Math.abs(v - last) / last < 0.2) { lo = Math.min(lo, v); hi = Math.max(hi, v); } }
     const pad = (hi - lo) * 0.04;
     return { rows, sigs, domain: [lo - pad, hi + pad] as [number, number], idxOf };
-  }, [d, on]);
+  }, [d, on, show]);
 
+  const last = view.rows[view.rows.length - 1]!.c;
   return (
         <>
           <div className="h-80 md:h-[460px]">
@@ -209,21 +237,48 @@ export function ChartBody({ d, tf, on = DEFAULT_ON }: { d: ChartData; tf: Tf; on
                   <Line key={o.id} dataKey={o.key} stroke={o.color} strokeWidth={1.3} strokeDasharray={o.dash} dot={false} connectNulls isAnimationActive={false} />
                 ))}
                 <Bar dataKey="hl" isAnimationActive={false} shape={(p: unknown) => <CandleShape {...(p as object)} />} />
-                {/* Owner 2026-11-15: every signal — entry (arrow at the entry price), the way to the close (dashed), the close
-                    (cross at the exit price, coloured by the outcome); an open one runs to the last candle. */}
+                {/* Trades under the markers: closed boxes tinted by the outcome, open ones by the live result. */}
                 {view.sigs.map((s) => {
-                  const long = s.direction === "long";
-                  const x1 = s.entryIn ? s.i : -0.5;
-                  const x2 = s.closedIn ? s.ci! : view.rows.length - 1;
-                  const y2 = s.closedIn ? s.exit! : s.entry;
-                  const col = s.closedIn ? EXIT_COLOR[s.closeReason ?? ""] ?? MUTED : long ? GREEN : RED;
-                  return [
-                    <ReferenceLine key={`p${s.id}`} segment={[{ x: x1, y: s.entry }, { x: x2, y: y2 }]} stroke={col} strokeWidth={1.2} strokeDasharray="4 3" strokeOpacity={0.85} ifOverflow="hidden" />,
-                    s.entryIn ? <ReferenceDot key={`e${s.id}`} x={s.i} y={s.entry} r={0} ifOverflow="hidden" shape={(p: { cx?: number; cy?: number }) => (
-                      <g><circle cx={p.cx} cy={p.cy} r={2.5} fill={long ? GREEN : RED} /><Arrow cx={p.cx} cy={p.cy} long={long} /></g>
-                    )} /> : null,
-                    s.closedIn ? <ReferenceDot key={`x${s.id}`} x={s.ci!} y={s.exit!} r={0} ifOverflow="hidden" shape={(p: { cx?: number; cy?: number }) => <ExitMark cx={p.cx} cy={p.cy} color={col} />} /> : null,
+                  const open = s.status === "open" && !s.closedIn;
+                  const x1 = s.entryIn ? s.i - 0.5 : -0.5;
+                  const x2 = open ? view.rows.length - 0.5 : s.ci! + 0.5;
+                  const y2 = open ? last : s.exit!;
+                  const live = open ? (s.direction === "long" ? 1 : -1) * (last / s.entry - 1) * 100 : null;
+                  // The box is the money: green profit, red loss, grey about zero; the ring tells how it closed.
+                  const res = open ? live! : s.pnlPricePct ?? 0;
+                  const col = Math.abs(res) < 0.3 ? SLATE : res > 0 ? GREEN : RED;
+                  if (!open && !s.closedIn) return null;
+                  return <ReferenceArea key={`b${s.id}`} x1={x1} x2={x2} y1={Math.min(s.entry, y2)} y2={Math.max(s.entry, y2)} fill={col} fillOpacity={open ? 0.16 : 0.1}
+                    stroke={col} strokeOpacity={open ? 0.7 : 0.35} strokeDasharray={open ? "4 3" : undefined} ifOverflow="hidden" />;
+                })}
+                {/* Open positions: their levels to the right edge — entry, stop, targets (a hit target fades, ✓). */}
+                {view.sigs.filter((s) => s.status === "open" && !s.closedIn).flatMap((s) => {
+                  const x1 = s.entryIn ? s.i : -0.5, x2 = view.rows.length - 0.5, long = s.direction === "long";
+                  const lines = [
+                    <ReferenceLine key={`oe${s.id}`} segment={[{ x: x1, y: s.entry }, { x: x2, y: s.entry }]} stroke={GOLD} strokeWidth={1.3} ifOverflow="hidden"
+                      label={<LineTag text={`${long ? "ЛОНГ" : "ШОРТ"} · вход ${price(s.entry)}`} color={GOLD} below={!long} />} />,
                   ];
+                  if (s.stop != null) lines.push(<ReferenceLine key={`os${s.id}`} segment={[{ x: x1, y: s.stop }, { x: x2, y: s.stop }]} stroke={RED} strokeWidth={1.1} strokeDasharray="6 4" ifOverflow="hidden"
+                    label={<LineTag text={`стоп ${price(s.stop)}`} color={RED} below={long} />} />);
+                  (s.targets ?? []).forEach((tg, k) => lines.push(<ReferenceLine key={`ot${s.id}-${k}`} segment={[{ x: x1, y: tg.price }, { x: x2, y: tg.price }]} stroke={GREEN} strokeWidth={1} strokeDasharray="2 4" strokeOpacity={tg.hit ? 0.35 : 0.9} ifOverflow="hidden"
+                    label={<LineTag text={`цель ${k + 1}${tg.hit ? " ✓" : ""} ${price(tg.price)}`} color={GREEN} below={!long} faded={tg.hit} />} />));
+                  return lines;
+                })}
+                {/* Markers on top: entry badge, close ring with the result; an open one gets its live result by the last candle. */}
+                {view.sigs.flatMap((s) => {
+                  const long = s.direction === "long";
+                  const out = [];
+                  if (s.entryIn) out.push(<ReferenceDot key={`e${s.id}`} x={s.i} y={s.entry} r={0} ifOverflow="hidden" shape={(p: { cx?: number; cy?: number }) => <EntryBadge cx={p.cx} cy={p.cy} long={long} />} />);
+                  if (s.closedIn) {
+                    const up = (s.exit! >= s.entry) === true;
+                    out.push(<ReferenceDot key={`x${s.id}`} x={s.ci!} y={s.exit!} r={0} ifOverflow="hidden"
+                      shape={(p: { cx?: number; cy?: number }) => <ExitBadge cx={p.cx} cy={p.cy} reason={s.closeReason ?? ""} pnl={s.pnlPricePct} labelUp={up} />} />);
+                  } else if (s.status === "open") {
+                    const live = (long ? 1 : -1) * (last / s.entry - 1) * 100;
+                    out.push(<ReferenceDot key={`l${s.id}`} x={view.rows.length - 1} y={last} r={0} ifOverflow="hidden"
+                      shape={(p: { cx?: number; cy?: number }) => <Halo x={(p.cx ?? 0) - 8} y={(p.cy ?? 0) + (live >= 0 === long ? -12 : 12)} fill={live >= 0 ? GREEN : RED} anchor="end" size={11} weight={700}>{`${signed2(live)} сейчас`}</Halo>} />);
+                  }
+                  return out;
                 })}
                 <Tooltip cursor={{ stroke: MUTED, strokeDasharray: "3 3" }}
                   content={({ active, payload }) => {
@@ -273,7 +328,7 @@ export function ChartBody({ d, tf, on = DEFAULT_ON }: { d: ChartData; tf: Tf; on
             </div>
             <div>
               Сплошная линия — подтверждённый диапазон, пунктир — пробитый: возврат внутрь = девиация.
-              Range 4h — только ориентир: сигналы пробоя и девиации бот даёт по Range 1D. Полосы ABNeon — зоны с дневных свечей (те же, по которым бот даёт отскок и Stealth на 1D), одинаковые на любом таймфрейме графика: зелёные — ниже цены (поддержка), красные — выше (сопротивление). <span className="text-emerald-300">▲</span> лонг, <span className="text-rose-300">▼</span> шорт — вход сигнала канала по цене входа; пунктир — путь до закрытия; ✕ — закрытие по цене выхода: <span className="text-emerald-300">цели</span>, <span className="text-rose-300">стоп</span>, <span className="text-sky-300">безубыток</span>, <span className="text-amber-300">время</span>. У открытого сигнала пунктир идёт до последней свечи. Свечи BingX, время Дубая.
+              Range 4h — только ориентир: сигналы пробоя и девиации бот даёт по Range 1D. Полосы ABNeon — зоны с дневных свечей (те же, по которым бот даёт отскок и Stealth на 1D), одинаковые на любом таймфрейме графика: зелёные — ниже цены (поддержка), красные — выше (сопротивление). Сигналы канала: кружок со стрелкой — вход (<span className="text-emerald-300">зелёный — лонг</span>, <span className="text-rose-300">красный — шорт</span>), кольцо — закрытие с итогом: <span className="text-emerald-300">✓ цели</span>, <span className="text-rose-300">✕ стоп</span>, <span className="text-slate-300">= безубыток</span>, <span className="text-amber-300">◷ время</span>. Прямоугольник — сделка от входа до выхода: зелёный — прибыль, красный — убыток, серый — около нуля. Открытая позиция — пунктирный прямоугольник до последней свечи с текущим итогом, её вход, стоп и цели тянутся до правого края. Свечи BingX, время Дубая.
             </div>
           </div>
         </>
@@ -283,6 +338,8 @@ export function ChartBody({ d, tf, on = DEFAULT_ON }: { d: ChartData; tf: Tf; on
 export function BtcMainChart() {
   const [tf, setTf] = useState<Tf>("4h");
   const [on, setOn] = useState<string[]>(loadOn);
+  const [show, setShowState] = useState<SigShow>(() => { try { const v = localStorage.getItem("btc-chart-sig"); return v === "open" || v === "none" ? v : "all"; } catch { return "all"; } });
+  const setShow = (v: SigShow) => { setShowState(v); try { localStorage.setItem("btc-chart-sig", v); } catch { /* storage unavailable */ } };
   const toggle = (id: string) => setOn((cur) => { const next = cur.includes(id) ? cur.filter((x) => x !== id) : [...cur, id]; saveOn(next); return next; });
   const [d, setD] = useState<ChartData | null>(null);
   const [err, setErr] = useState<string | null>(null);
@@ -325,7 +382,14 @@ export function BtcMainChart() {
               );
             })}
           </div>
-          <ChartBody d={d} tf={tf} on={on} />
+          <div className="mb-2 flex items-center gap-1 text-[11px]">
+            <span className="mr-1 text-muted-foreground">Сигналы:</span>
+            {([["all", "все"], ["open", "открытые"], ["none", "скрыть"]] as Array<[SigShow, string]>).map(([v, l]) => (
+              <button key={v} type="button" onClick={() => setShow(v)}
+                className={`rounded-full border px-2 py-0.5 ${show === v ? "border-gold/70 bg-gold/15 text-gold" : "border-white/10 text-muted-foreground hover:text-foreground"}`}>{l}</button>
+            ))}
+          </div>
+          <ChartBody d={d} tf={tf} on={on} show={show} />
         </>
       )}
     </Card>

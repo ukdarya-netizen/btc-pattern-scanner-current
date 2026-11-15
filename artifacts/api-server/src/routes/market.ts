@@ -181,6 +181,11 @@ router.get("/btc/chart", async (req, res) => {
         id: s.id, at: s.detectedAt.getTime(), direction: s.direction, label: label(s.patternKey), entry: s.entryPrice,
         status: s.status, closeReason: s.closeReason, pnlPricePct: s.pnlPricePct, closedAt: s.closedAt ? s.closedAt.getTime() : null,
         exit: s.exitPrice,
+        // Owner 2026-11-15: an open position shows its levels on the chart — stop and targets (hit ones marked).
+        ...(s.status === "open" ? {
+          stop: s.stopPrice,
+          targets: ((s.targets as Array<{ price: number; hitAt?: string | number | null }>) ?? []).map((t) => ({ price: t.price, hit: t.hitAt != null })),
+        } : {}),
       })),
     });
   } catch (err) {
