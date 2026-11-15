@@ -12,7 +12,7 @@ import { PATTERNS } from "../engine/patterns";
 import { onDemandReport } from "../stats/reports";
 import type { ReportKind } from "../stats/reportFormat";
 import { accessStatus, isOwnerChat, isOwnerEmail, ownerChatId, userByChatId, userById, type UserRow } from "../lib/users";
-import { SIGNAL_CHANNEL, answerCallback, editMessage, sendMessageKb, telegramCall, type InlineKeyboard, type TelegramUpdate } from "./transport";
+import { SIGNAL_CHANNEL, answerCallback, editMessage, sendMessageKb, splitText, telegramCall, type InlineKeyboard, type TelegramUpdate } from "./transport";
 
 const TZ = "Asia/Dubai";
 const CHANNEL_URL = `https://t.me/${SIGNAL_CHANNEL.replace(/^@/, "")}`;
@@ -167,6 +167,15 @@ type Kind = ReportKind;
 const PERIOD: Record<Kind, true> = { daily: true, weekly: true, monthly: true };
 const label = (key: string) => PATTERNS.find((p) => p.key === key)?.label ?? key;
 export const reportText = (kind: Kind, now = Date.now()) => onDemandReport(kind, label, now);
+/** A month report can pass Telegram's 4096 limit (owner 2026-11-15): parts cut at line ends, buttons under the last. */
+async function sendReport(chatId: string, kind: Kind): Promise<void> {
+  let rest = await reportText(kind);
+  while (rest) {
+    const { part, rest: next } = splitText(rest);
+    rest = next;
+    await sendMessageKb(chatId, part, rest ? undefined : reportKeyboard());
+  }
+}
 
 // ---------------- owner ----------------
 export async function notifyOwnerRegistration(
@@ -251,7 +260,7 @@ async function handleCallback(cq: NonNullable<TelegramUpdate["callback_query"]>)
   if (!ok) { await sendMessageKb(chatId, welcomeText(), welcomeKeyboard()); return; }
   if (data.startsWith("report_")) {
     const kind = data.slice(7) as Kind;
-    if (kind in PERIOD) await sendMessageKb(chatId, await reportText(kind), reportKeyboard());
+    if (kind in PERIOD) await sendReport(chatId, kind);
   } else if (data === "unsubscribe_confirm") {
     await editMessage(chatId, msg.message_id, UNSUBSCRIBE_CONFIRM, unsubscribeKeyboard());
   } else if (data === "unsubscribe_yes") {
@@ -317,7 +326,7 @@ async function handleMessage(m: NonNullable<TelegramUpdate["message"]>, admin: (
       await sendMessageKb(chatId, UNSUBSCRIBE_CONFIRM, unsubscribeKeyboard());
       return;
     case "/daily": case "/weekly": case "/monthly":
-      await sendMessageKb(chatId, await reportText(def.command.slice(1) as Kind), reportKeyboard());
+      await sendReport(chatId, def.command.slice(1) as Kind);
       return;
   }
 }

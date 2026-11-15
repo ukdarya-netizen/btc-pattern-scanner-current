@@ -5,7 +5,7 @@ import { PROFILES, type ProfileKey } from "../config/profiles";
 import { PATTERNS } from "../engine/patterns";
 import type { Metrics } from "../engine/snapshot";
 import { logger } from "../lib/logger";
-import { imageFile, sendMessage, sendSignalPhoto, SIGNAL_CHANNEL, splitSignalCaption, TelegramError, TelegramTimeout, type SignalImage } from "./transport";
+import { imageFile, sendMessage, sendSignalPhoto, SIGNAL_CHANNEL, splitSignalCaption, splitText, TelegramError, TelegramTimeout, type SignalImage } from "./transport";
 import { MARKET_MARK, parseReportMark } from "../stats/reports";
 
 const MAX_ATTEMPTS = 8;
@@ -14,6 +14,21 @@ const TAKE_PROFIT = "__BTC_TAKE_PROFIT__\n";
 const STOP_LOSS = "__BTC_STOP_LOSS__\n";
 const POSITION_UPDATE = "__BTC_POSITION_UPDATE__\n";
 const PHOTO_SENT = "__BTC_PHOTO_SENT__\n";
+
+/**
+ * A text over Telegram's 4096 limit (a month report) goes in parts cut at line ends (owner 2026-11-15). After each
+ * part the row keeps only what is left, so a retry never sends a part twice; a part Telegram did not confirm in time
+ * is taken as sent (as the photo).
+ */
+async function sendText(deliveryId: number, chatId: string, text: string): Promise<void> {
+  let rest = text;
+  while (rest) {
+    const { part, rest: next } = splitText(rest);
+    await sendMessage(chatId, part).catch((e) => { if (!(e instanceof TelegramTimeout)) throw e; });
+    rest = next;
+    if (rest) await db.update(btcTelegramDeliveriesTable).set({ text: `${PHOTO_SENT}${rest}` }).where(eq(btcTelegramDeliveriesTable.id, deliveryId));
+  }
+}
 
 function fmt(price: number): string {
   return price >= 1000 ? price.toFixed(1) : price.toPrecision(6);
@@ -379,7 +394,7 @@ async function deliverBatch(patternLabel: (key: string) => string): Promise<void
     try {
       if (delivery.text.startsWith(PHOTO_SENT)) {
         const remainder = delivery.text.slice(PHOTO_SENT.length);
-        if (remainder) await sendMessage(delivery.chatId, remainder);
+        if (remainder) await sendText(delivery.id, delivery.chatId, remainder);
       } else {
         let body = delivery.text;
         let image: SignalImage | null = null;
@@ -414,9 +429,9 @@ async function deliverBatch(patternLabel: (key: string) => string): Promise<void
           await sendSignalPhoto(delivery.chatId, caption, image).catch((e) => { if (!(e instanceof TelegramTimeout)) throw e; });
           await db.update(btcTelegramDeliveriesTable).set({ text: `${PHOTO_SENT}${remainder}` })
             .where(eq(btcTelegramDeliveriesTable.id, delivery.id));
-          if (remainder) await sendMessage(delivery.chatId, remainder);
+          if (remainder) await sendText(delivery.id, delivery.chatId, remainder);
         } else {
-          await sendMessage(delivery.chatId, body);
+          await sendText(delivery.id, delivery.chatId, body);
         }
       }
       await db.update(btcTelegramDeliveriesTable).set({ status: "sent", sentAt: new Date() })

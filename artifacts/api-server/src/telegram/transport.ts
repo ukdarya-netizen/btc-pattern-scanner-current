@@ -13,6 +13,15 @@ export function splitSignalCaption(text: string): { caption: string; remainder: 
   };
 }
 
+/** Telegram text limit is 4096 — a long text (a month report) goes in parts cut at line ends (owner 2026-11-15). */
+export const TELEGRAM_TEXT_LIMIT = 4096;
+export function splitText(text: string, limit = TELEGRAM_TEXT_LIMIT): { part: string; rest: string } {
+  if (text.length <= limit) return { part: text, rest: "" };
+  let at = text.lastIndexOf("\n", limit);
+  if (at < 1) at = limit;
+  return { part: text.slice(0, at), rest: text.slice(at + (text[at] === "\n" ? 1 : 0)) };
+}
+
 export class TelegramError extends Error {
   constructor(public code: number, public retryAfter = 0) {
     super(`Telegram API error ${code}`);

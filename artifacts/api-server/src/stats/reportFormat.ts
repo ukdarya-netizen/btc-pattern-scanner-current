@@ -90,19 +90,13 @@ export function formatReport(s: Schedule, rows: ReportRow[], label: (key: string
     lines.push(s.kind === "daily" ? "Закрытых сделок за день нет." : "Закрытых сделок за период нет.");
     return lines.join("\n");
   }
-  const withList = s.kind === "daily";
+  // Owner 2026-11-15: every report (day, week, month) lists each closed trade with the pattern it came from.
   for (const g of GROUPS) {
     const xs = rows.filter((r) => r.closeReason === g.reason);
     if (!xs.length) continue;
     lines.push(`${g.title}: ${xs.length} | ${pct(sum(xs))}`);
-    if (withList) {
-      for (const r of [...xs].sort((a, b) => res(b) - res(a)))
-        lines.push(`  • ${side(r.direction)} ${pct(res(r))} | пик ${pct(r.mfePct ?? 0)} | в позиции ${durationText(held(r))} | ${label(r.patternKey)}`);
-    } else {
-      const ms = xs.map(held);
-      const lo = durationText(Math.min(...ms)), hi = durationText(Math.max(...ms));
-      lines.push(`  • в позиции: ${lo === hi ? lo : `${lo} – ${hi}`}`);
-    }
+    for (const r of [...xs].sort((a, b) => res(b) - res(a)))
+      lines.push(`  • ${side(r.direction)} ${pct(res(r))} | пик ${pct(r.mfePct ?? 0)} | в позиции ${durationText(held(r))} | ${label(r.patternKey)}`);
   }
   const n = (reason: string) => rows.filter((r) => r.closeReason === reason).length;
   const wins = n("take_profit") + n("breakeven"), denom = wins + n("stop");
@@ -113,10 +107,6 @@ export function formatReport(s: Schedule, rows: ReportRow[], label: (key: string
   for (const r of rows) by.set(r.patternKey, [...(by.get(r.patternKey) ?? []), r]);
   lines.push("", "По паттернам:");
   for (const [k, xs] of [...by].sort((a, b) => sum(b[1]) - sum(a[1]))) lines.push(`• ${label(k)}: ${xs.length} · ${pct(sum(xs))}`);
-  if (!withList && rows.length > 3) {
-    lines.push("", "🏆 Лучшие 3:");
-    for (const r of [...rows].sort((a, b) => res(b) - res(a)).slice(0, 3)) lines.push(`• ${side(r.direction)} ${pct(res(r))} | ${label(r.patternKey)} | в позиции ${durationText(held(r))}`);
-  }
   lines.push("", "Результат — чистое движение цены: без плеча и комиссий.");
   return lines.join("\n");
 }

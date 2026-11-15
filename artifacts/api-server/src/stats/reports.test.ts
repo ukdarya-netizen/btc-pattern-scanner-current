@@ -19,7 +19,7 @@ test("schedule as CAB / Nihilist (Dubai): daily 22:00, weekly Sunday 10:00, mont
   assert.ok(reportEventId(d) < 0 && reportEventId(d) !== reportEventId(w));
 });
 
-test("daily lists every closed trade with its time in position; weekly gives ranges and the best 3; clean move", () => {
+test("every report lists each closed trade with its pattern and time in position; clean move", () => {
   const t0 = new Date("2026-11-12T06:00:00Z");
   const r = (pnl: number, reason: string, hours: number, dir = "long") => ({
     direction: dir, patternKey: "p1", pnlPricePct: pnl, mfePct: pnl + 1, closeReason: reason,
@@ -33,9 +33,9 @@ test("daily lists every closed trade with its time in position; weekly gives ran
   assert.match(d, /без плеча и комиссий/);
   assert.doesNotMatch(d, /марж|<[a-z]/i);
   const w = formatReport(latestSchedule("weekly", at("2026-11-12T10:00:00Z")), rows, label);
-  assert.match(w, /в позиции: 5ч 0м/);
-  assert.match(w, /🏆 Лучшие 3:/);
-  assert.doesNotMatch(w, /пик \+/);
+  assert.match(w, /  • лонг \+4\.00% \| пик \+5\.00% \| в позиции 5ч 0м \| Пробой рейнджа 4H/);
+  assert.match(w, /  • шорт \+1\.00% .*\| Пробой рейнджа 4H/);
+  assert.doesNotMatch(w, /🏆/);
   const empty = formatReport(latestSchedule("daily", at("2026-11-12T18:30:00Z")), [], label);
   assert.match(empty, /Закрытых сделок за день нет/);
 });

@@ -171,3 +171,12 @@ test("reports (owner 2026-11-13): report kind in the queued text; reports go as 
   assert.deepEqual(parseReportMark("__BTC_REPORT__\nold"), { kind: null, body: "old" });
   assert.equal(parseReportMark("__BTC_MARKET_UPDATE__\nx"), null);
 });
+
+test("long text (owner 2026-11-15): parts at line ends, none over 4096", async () => {
+  const { splitText } = await import("./transport");
+  const text = Array.from({ length: 120 }, (_, i) => `  • лонг +1.00% | пик +2.00% | в позиции 5ч 0м | паттерн ${i}`).join("\n");
+  const parts: string[] = [];
+  for (let rest = text; rest;) { const r = splitText(rest); parts.push(r.part); rest = r.rest; }
+  assert.ok(parts.length > 1 && parts.every((p) => p.length <= 4096));
+  assert.equal(parts.join("\n"), text);
+});
