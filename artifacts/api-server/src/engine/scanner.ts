@@ -15,7 +15,7 @@ import { trackSignal } from "../tracker/tracker";
 import { PATTERNS, type Pattern, type PatternResult } from "./patterns";
 import { HISTORY_BARS } from "./rangePatterns";
 import { levelsAtEntry } from "./levels";
-import { recordTrajectory } from "../tracker/trajectory";
+import { recordAfterClose, recordTrajectory } from "../tracker/trajectory";
 import { setLiveMetrics } from "./liveMetrics";
 import { computeMetrics, type Metrics, type Snapshot } from "./snapshot";
 import { entryStudy } from "./entryStudy";
@@ -191,6 +191,8 @@ export async function runCycle(currentPrice: () => Promise<number>, now = Date.n
     }).onConflictDoNothing();
     // Owner 2026-11-12: trajectory points of every signal (15m … 72h, then daily, and the close) from these metrics.
     await recordTrajectory(snapshot.metrics, now).catch((err) => logger.warn({ err }, "trajectory pass failed"));
+    // Owner 2026-11-16: what the price did after a stop / break-even close (1h … 7 days).
+    await recordAfterClose(snapshot.metrics, now).catch((err) => logger.warn({ err }, "after-close pass failed"));
     for (const pattern of duePatterns) {
       let decision: "fired" | "rejected" | "suppressed" = "rejected";
       let reasons: string[] = [];

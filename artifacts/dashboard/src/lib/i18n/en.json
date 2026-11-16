@@ -142,7 +142,7 @@
  "Гистограмма MACD на 4h": "MACD histogram on 4h",
  "Две цели: на первой закрывается 50% и стоп переносится в точку входа (безубыток), на второй — остаток.": "Two targets: at the first, 50% is closed and the stop moves to entry (break-even); at the second — the rest.",
  "Движение": "Move",
- "Движение от входа в сторону сделки по 5-минутным снимкам: серым — 6 ч до входа, золотом — в сделке, пунктиром — 72 ч после закрытия.": "Move from entry in the trade's direction on 5-minute snapshots: grey — 6 h before entry, gold — in the trade, dashed — 72 h after the close.",
+ "Движение от входа в сторону сделки по 5-минутным снимкам: серым — 6 ч до входа, золотом — в сделке, пунктиром — 7 дней после закрытия.": "Move from entry in the trade's direction on 5-minute snapshots: grey — 6 h before entry, gold — in the trade, dashed — 7 days after the close.",
  "Движение по дням, % (Дубай)": "Move by day, % (Dubai)",
  "Движение сейчас, сумма": "Move now, total",
  "Движение — чистое: от входа в сторону сделки, без плеча и комиссий; при частичных целях — взвешено по долям. Сортировка — нажми на заголовок столбца. Нажми на строку — путь цены и метрики на входе.": "The move is clean: from entry in the trade's direction, no leverage, no fees; with partial targets — weighted by the parts. Sort — click a column header. Click a row — price path and entry metrics.",
@@ -777,5 +777,18 @@
  "{0} сейчас": "{0} now",
  "ЛОНГ · вход {0}": "LONG · entry {0}",
  "ШОРТ · вход {0}": "SHORT · entry {0}",
- "стоп {0}": "stop {0}"
+ "стоп {0}": "stop {0}",
+ "После закрытия по стопу или в безубыток (1h … 7 дней)": "After a stop / break-even close (1h … 7 days)",
+ "Через": "After",
+ "От входа": "From entry",
+ "От выхода": "From exit",
+ "Лучшее после закрытия": "Best after the close",
+ "Худшее после закрытия": "Worst after the close",
+ "Цели после закрытия": "Targets after the close",
+ "Стоп после закрытия": "Stop after the close",
+ "WI": "WI",
+ "RSI 1h": "RSI 1h",
+ "OI 1h": "OI 1h",
+ "«Лучшее / худшее» — от входа в сторону сделки, по 15-минутным свечам с момента закрытия. «Цели» и «стоп» — когда цена впервые дошла до них после закрытия (стоп — исходный).": "«Best / worst» — from the entry in the trade's direction, on 15-minute candles since the close. «Targets» and «stop» — when the price first reached them after the close (the initial stop).",
+ "После закрытия по стопу или в безубыток: снимки через 1h, 4h, 12h, 24h, 48h, 72h, 5 и 7 дней — цена от входа и от выхода, лучшее и худшее движение после закрытия, дошла ли цена до целей или исходного стопа, все метрики рынка.": "After a stop / break-even close: snapshots at 1h, 4h, 12h, 24h, 48h, 72h, 5 and 7 days — the price from the entry and from the exit, the best and worst move after the close, whether the price reached the targets or the initial stop, all market metrics."
 }

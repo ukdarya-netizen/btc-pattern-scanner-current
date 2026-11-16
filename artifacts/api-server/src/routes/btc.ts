@@ -182,7 +182,7 @@ router.get("/btc/metrics/history", ownerOnly, async (req, res) => {
 
 /**
  * Owner 2026-11-09: the whole path of one signal for analysis — every 5m market snapshot (price and the full
- * metric set: flow, OI, liquidations, MFI / Chaikin, context) from 6 h before the entry to 72 h after the close
+ * metric set: flow, OI, liquidations, MFI / Chaikin, context) from 6 h before the entry to 7 days after the close
  * (or until now while open), with the price move from the entry in the trade's direction.
  */
 router.get("/btc/signals/:id/path", async (req, res) => {
@@ -193,7 +193,8 @@ router.get("/btc/signals/:id/path", async (req, res) => {
     const owner = isOwnerReq(req);
     if (!sig || (!owner && !sig.live)) { res.status(404).json({ error: "not_found" }); return; }
     const from = new Date(sig.detectedAt.getTime() - 6 * 3_600_000);
-    const to = new Date(Math.min(Date.now(), (sig.closedAt ?? new Date()).getTime() + 72 * 3_600_000));
+    // Owner 2026-11-16: 7 days after the close (was 72 h) — what the price did after a stop / break-even.
+    const to = new Date(Math.min(Date.now(), (sig.closedAt ?? new Date()).getTime() + 7 * 24 * 3_600_000));
     const rows = await db.select().from(btcMarketSnapshotsTable)
       .where(and(gte(btcMarketSnapshotsTable.candleCloseAt, from), lte(btcMarketSnapshotsTable.candleCloseAt, to)))
       .orderBy(btcMarketSnapshotsTable.candleCloseAt);

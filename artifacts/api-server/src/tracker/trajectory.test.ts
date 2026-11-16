@@ -35,3 +35,23 @@ test("trajectory point: clean move in the trade's direction, trade state, market
   assert.equal(c.pctFromEntry, -1);
   assert.equal(c.closeReason, "stop");
 });
+
+test("after the close: points 1h … 7 days; the move since the close, targets and the stop reached after it", async () => {
+  const { dueAfterClose, afterClosePoint } = await import("./trajectory");
+  assert.equal(dueAfterClose(30 * M), null);
+  assert.equal(dueAfterClose(H + 3 * M), "1h");
+  assert.equal(dueAfterClose(5 * D + 10 * M), "5d");
+  assert.equal(dueAfterClose(7 * D + 20 * M), null);
+  const closedAt = new Date(Date.UTC(2026, 10, 16, 12));
+  const r = { id: 1, direction: "long", entryPrice: 65308.1, exitPrice: 65308.1, initialStopPrice: 61462.6, closedAt, closeReason: "breakeven",
+    targets: [{ price: 65441 }, { price: 74021.5 }], keys: [] };
+  const bars = [
+    { t: new Date(closedAt.getTime()), h: 65400, l: 64800 },
+    { t: new Date(closedAt.getTime() + 15 * M), h: 66000, l: 65200 },
+  ];
+  const p = afterClosePoint(r, bars, { price: 65900 } as never, closedAt.getTime() + H, "1h") as Record<string, any>;
+  assert.equal(p.targetsReached[0].at, bars[1]!.t.toISOString());
+  assert.equal(p.targetsReached[1].at, null);
+  assert.equal(p.initialStopReached, null);
+  assert.ok(p.bestPctSinceClose > 1 && p.worstPctSinceClose < -0.7);
+});

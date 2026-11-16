@@ -4,6 +4,12 @@ import { type Metrics, type PathPoint, type Signal, REASON, dir, duration, getJs
 import { MetricsGrid } from "./MetricsGrid";
 import { Card, Pill } from "./ui";
 
+type AfterPoint = {
+  label: string; at: string; closeReason: string; price: number; pctFromEntry: number; pctFromExit: number;
+  bestPctSinceClose: number; worstPctSinceClose: number; targetsReached: Array<{ price: number; at: string | null }>;
+  initialStopReached: string | null; market: Partial<Metrics>;
+};
+const AFTER_ORDER = ["1h", "4h", "12h", "24h", "48h", "72h", "5d", "7d"];
 type TrajPoint = { label: string; at: string; elapsedMs: number; price: number; pctFromEntry: number; peakPct: number; worstPct: number; status: string; market: Partial<Metrics> };
 const ORDER = (l: string) => (l === "close" ? 1e9 : l.endsWith("m") ? parseInt(l) : parseInt(l) * 60);
 
@@ -14,15 +20,18 @@ export function SignalDetail({ s, label, onClose }: { s: Signal; label: string; 
   const [points, setPoints] = useState<PathPoint[] | null>(null);
   const [err, setErr] = useState<string | null>(null);
   const [traj, setTraj] = useState<TrajPoint[]>([]);
+  const [after, setAfter] = useState<AfterPoint[]>([]);
   useEffect(() => {
     let alive = true;
-    setPoints(null); setErr(null); setTraj([]);
+    setPoints(null); setErr(null); setTraj([]); setAfter([]);
     getJson<{ points: PathPoint[]; signal: Signal }>(`/api/btc/signals/${s.id}/path`)
       .then((r) => {
         if (!alive) return;
         setPoints(r.points);
         const t = (r.signal?.metrics as { trajectory?: Record<string, TrajPoint> } | null)?.trajectory ?? {};
         setTraj(Object.values(t).sort((a, b) => ORDER(a.label) - ORDER(b.label)));
+        const a = (r.signal?.metrics as { afterClose?: Record<string, AfterPoint> } | null)?.afterClose ?? {};
+        setAfter(Object.values(a).sort((x, y) => AFTER_ORDER.indexOf(x.label) - AFTER_ORDER.indexOf(y.label)));
       })
       .catch((e) => { if (alive) setErr(e instanceof Error ? e.message : String(e)); });
     return () => { alive = false; };
@@ -71,7 +80,7 @@ export function SignalDetail({ s, label, onClose }: { s: Signal; label: string; 
           </ResponsiveContainer>
         )}
       </div>
-      <p className="mb-3 mt-1 text-xs text-muted-foreground">Движение от входа в сторону сделки по 5-минутным снимкам: серым — 6 ч до входа, золотом — в сделке, пунктиром — 72 ч после закрытия.</p>
+      <p className="mb-3 mt-1 text-xs text-muted-foreground">Движение от входа в сторону сделки по 5-минутным снимкам: серым — 6 ч до входа, золотом — в сделке, пунктиром — 7 дней после закрытия.</p>
       {traj.length > 0 && (
         <div className="mb-4 overflow-x-auto">
           <div className="mb-1 text-xs uppercase tracking-wider text-muted-foreground">Снимки сигнала (15m … 72h, далее раз в сутки, и на закрытии)</div>
@@ -95,6 +104,33 @@ export function SignalDetail({ s, label, onClose }: { s: Signal; label: string; 
               </tr>
             ))}</tbody>
           </table>
+        </div>
+      )}
+      {after.length > 0 && (
+        <div className="mb-4 overflow-x-auto">
+          <div className="mb-1 text-xs uppercase tracking-wider text-muted-foreground">После закрытия по стопу или в безубыток (1h … 7 дней)</div>
+          <table className="w-full text-xs tabular-nums">
+            <thead><tr className="text-left text-muted-foreground">{["Через", "Время", "Цена", "От входа", "От выхода", "Лучшее после закрытия", "Худшее после закрытия", "Цели после закрытия", "Стоп после закрытия", "OI 1h", "CVD спот 1h", "Тейкер фьюч 1h", "WI", "RSI 1h"].map((h) => <th key={h} className="whitespace-nowrap px-2 py-1 font-medium">{h}</th>)}</tr></thead>
+            <tbody>{after.map((p) => (
+              <tr key={p.label} className="border-t border-border/60">
+                <td className="px-2 py-1">{p.label}</td>
+                <td className="px-2 py-1">{time(p.at)}</td>
+                <td className="px-2 py-1">{price(p.price)}</td>
+                <td className="px-2 py-1">{signed(p.pctFromEntry)}</td>
+                <td className="px-2 py-1">{signed(p.pctFromExit)}</td>
+                <td className="px-2 py-1">{signed(p.bestPctSinceClose)}</td>
+                <td className="px-2 py-1">{signed(p.worstPctSinceClose)}</td>
+                <td className="px-2 py-1 whitespace-nowrap">{p.targetsReached.map((t, i) => `ц${i + 1} ${t.at ? `✓ ${time(t.at)}` : "—"}`).join(" · ")}</td>
+                <td className="px-2 py-1 whitespace-nowrap">{p.initialStopReached ? `✓ ${time(p.initialStopReached)}` : "—"}</td>
+                <td className="px-2 py-1">{signed(p.market.oiChangePct?.["1h"])}</td>
+                <td className="px-2 py-1">{usd(p.market.spotCvdUsd?.["1h"])}</td>
+                <td className="px-2 py-1">{signed(p.market.futTakerNetPct?.["1h"])}</td>
+                <td className="px-2 py-1">{num(p.market.whaleIndex, 1)}</td>
+                <td className="px-2 py-1">{num(p.market.indicators?.["1h"]?.rsi14 ?? null, 1)}</td>
+              </tr>
+            ))}</tbody>
+          </table>
+          <p className="mt-1 text-xs text-muted-foreground">«Лучшее / худшее» — от входа в сторону сделки, по 15-минутным свечам с момента закрытия. «Цели» и «стоп» — когда цена впервые дошла до них после закрытия (стоп — исходный).</p>
         </div>
       )}
       {s.metrics ? <MetricsGrid m={s.metrics} /> : <p className="text-sm text-muted-foreground">Метрики на входе не сохранены.</p>}
