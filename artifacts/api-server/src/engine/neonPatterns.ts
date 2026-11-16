@@ -16,6 +16,8 @@
  *   volume: the test bar or the reaction bar not grey by Lucy's VSA rule;
  *   stop: below the test low (or the zone bottom, the lower) − 0.2 × ATR of the trading timeframe;
  *   targets: the next zones above (bottom of each), 50 / 50; without a zone above — 1.5R and 3R; B.U. after the first.
+ *   Owner 2026-11-16 (BTC long 65308 → target 1 at +0.20 %, stop −5.89 %): a zone closer to the entry than the stop
+ *   (< 1R) is not a target — the signal still goes out (its entry metrics are wanted), the targets are the zones after it.
  * Stealth (ABNeon level breakout), both sides: the bar that just closed opened at or under a zone top and closed above
  *   it on bright Lucy volume (O / M / W); stop below the zone bottom (or the bar low, the lower) − 0.2 × ATR(tf);
  *   targets: the next zones above, as the bounce. A short is the mirror below a zone bottom.
@@ -62,15 +64,24 @@ function colours(s: Snapshot, tf: Tf, cs: Candle[]): (i: number) => string | nul
   return (i) => (usd ? lucyColour(vol, i) : null);
 }
 
-/** Targets: the next zones beyond the entry (their near edge), 50 / 50; otherwise 1.5R / 3R. */
-function targetsFor(direction: Direction, entry: number, stop: number, zones: Zone[]) {
+/** A target is at least this many risks (entry → stop) away; a nearer zone is skipped (owner 2026-11-16). */
+export const MIN_TARGET_R = 1;
+/** Targets: the next zones beyond the entry (their near edge) at least 1R away, 50 / 50; otherwise 1.5R / 3R. */
+export function targetsFor(direction: Direction, entry: number, stop: number, zones: Zone[]) {
   const dir = direction === "long" ? 1 : -1;
-  const ahead = zones.map((z) => (direction === "long" ? z.bottom : z.top))
-    .filter((p) => (p - entry) * dir > 0).sort((a, b) => (a - b) * dir);
   const risk = Math.abs(entry - stop);
+  const beyond = zones.map((z) => (direction === "long" ? z.bottom : z.top))
+    .filter((p) => (p - entry) * dir > 0).sort((a, b) => (a - b) * dir);
+  const ahead = beyond.filter((p) => (p - entry) * dir >= MIN_TARGET_R * risk);
+  const skipped = beyond.filter((p) => (p - entry) * dir < MIN_TARGET_R * risk);
   const t1 = ahead[0] ?? entry + dir * 1.5 * risk;
   const t2 = ahead[1] ?? (ahead[0] !== undefined ? entry + dir * 2 * Math.abs(t1 - entry) : entry + dir * 3 * risk);
-  return { targets: [{ price: t1, fraction: 0.5 }, { price: t2, fraction: 0.5 }], source: ahead.length ? "zones" : "r_multiple", rr1: risk > 0 ? Math.abs(t1 - entry) / risk : null };
+  return {
+    targets: [{ price: t1, fraction: 0.5 }, { price: t2, fraction: 0.5 }], source: ahead.length ? "zones" : "r_multiple",
+    rr1: risk > 0 ? Math.abs(t1 - entry) / risk : null,
+    // The nearest zone ahead is kept in the detail even when it is too close to be a target (entry metrics).
+    nearZone: beyond[0] ?? null, nearZoneR: beyond[0] !== undefined && risk > 0 ? Math.abs(beyond[0] - entry) / risk : null, skippedZones: skipped,
+  };
 }
 
 export function evaluateBounce(s: Snapshot, tf: Tf, direction: Direction): PatternResult {
@@ -109,7 +120,7 @@ export function evaluateBounce(s: Snapshot, tf: Tf, direction: Direction): Patte
   const stop = long ? Math.min(ext, zone.bottom) - STOP_ATR_TF * atrTf : Math.max(ext, zone.top) + STOP_ATR_TF * atrTf;
   const t = targetsFor(direction, bar.close, stop, zones);
   const levels = { stop, targets: t.targets };
-  return { fires: true, reasons: ["ok"], levels, detail: { ...detail, atrTf: r(atrTf), targetsSource: t.source, rr1: r(t.rr1), levels } };
+  return { fires: true, reasons: ["ok"], levels, detail: { ...detail, atrTf: r(atrTf), targetsSource: t.source, rr1: r(t.rr1), nearZone: r(t.nearZone), nearZoneR: r(t.nearZoneR), skippedZones: t.skippedZones.map((p) => r(p)), levels } };
 }
 
 export function evaluateBreakout(s: Snapshot, tf: Tf, direction: Direction): PatternResult {
@@ -129,7 +140,7 @@ export function evaluateBreakout(s: Snapshot, tf: Tf, direction: Direction): Pat
   const stop = long ? Math.min(bar.low, zone.bottom) - STOP_ATR_TF * atrTf : Math.max(bar.high, zone.top) + STOP_ATR_TF * atrTf;
   const t = targetsFor(direction, bar.close, stop, zones.filter((z) => z !== zone));
   const levels = { stop, targets: t.targets };
-  return { fires: true, reasons: ["ok"], levels, detail: { ...detail, atrTf: r(atrTf), targetsSource: t.source, rr1: r(t.rr1), levels } };
+  return { fires: true, reasons: ["ok"], levels, detail: { ...detail, atrTf: r(atrTf), targetsSource: t.source, rr1: r(t.rr1), nearZone: r(t.nearZone), nearZoneR: r(t.nearZoneR), skippedZones: t.skippedZones.map((p) => r(p)), levels } };
 }
 
 const side = (d: Direction) => (d === "long" ? "лонг" : "шорт");

@@ -727,7 +727,7 @@
  "Отскок: цена протестировала уровень и дневная свеча развернулась от него. Пробой: дневная свеча закрылась за уровнем.": "Bounce: price tested a level and the daily candle turned from it. Breakout: a daily candle closed beyond a level.",
  "Вход подтверждается объёмом по всем крупным биржам.": "The entry is confirmed by volume across all major exchanges.",
  "Стоп: за уровнем.": "Stop: beyond the level.",
- "Цели: следующие уровни; если их нет — 1.5R и 3R.": "Targets: the next levels; if there are none — 1.5R and 3R.",
+ "Цели: следующие уровни не ближе расстояния до стопа (уровень ближе — не цель); если таких нет — 1.5R и 3R.": "Targets: the next levels at least as far as the stop (a nearer level is not a target); if there are none — 1.5R and 3R.",
  "Цена вернулась в ордер-блок на 4h или 1D — зону, откуда раньше начался сильный ход.": "Price came back into an order block on 4h or 1D — the zone a strong move started from.",
  "На 30m / 1h в этой зоне сломалась структура (CHoCH) в сторону сделки — сигнал на свече слома.": "On 30m / 1h the structure broke (CHoCH) in this zone in the trade's direction — the signal is on the break candle.",
  "Стоп: за крайней точкой реакции в блоке.": "Stop: beyond the extreme of the reaction in the block.",

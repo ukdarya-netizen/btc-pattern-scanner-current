@@ -72,3 +72,14 @@ test("owner 2026-11-14: only the 1D ABNeon / Stealth are on (profile d1); 15m / 
   assert.ok(PATTERNS.filter((p) => p.key.startsWith("d1_")).every((p) => !p.off));
   assert.equal(new Set(PATTERNS.map((p) => p.key)).size, PATTERNS.length);
 });
+
+test("targets: a zone closer than 1R is skipped (owner 2026-11-16, BTC 65308 → 65441)", async () => {
+  const { targetsFor } = await import("./neonPatterns");
+  const z = (bottom: number, top: number) => ({ bottom, top, count: 3 }) as never;
+  const t = targetsFor("long", 65308.1, 61462.6, [z(65441, 66200), z(74021.5, 75000), z(83000, 84000)]);
+  assert.equal(t.targets[0]!.price, 74021.5);
+  assert.equal(t.targets[1]!.price, 83000);
+  assert.deepEqual(t.skippedZones, [65441]);
+  const short = targetsFor("short", 100, 104, [z(97, 98), z(90, 91)]);
+  assert.equal(short.targets[0]!.price, 91);
+});
