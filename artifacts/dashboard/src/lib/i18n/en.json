@@ -790,5 +790,14 @@
  "RSI 1h": "RSI 1h",
  "OI 1h": "OI 1h",
  "«Лучшее / худшее» — от входа в сторону сделки, по 15-минутным свечам с момента закрытия. «Цели» и «стоп» — когда цена впервые дошла до них после закрытия (стоп — исходный).": "«Best / worst» — from the entry in the trade's direction, on 15-minute candles since the close. «Targets» and «stop» — when the price first reached them after the close (the initial stop).",
- "После закрытия по стопу или в безубыток: снимки через 1h, 4h, 12h, 24h, 48h, 72h, 5 и 7 дней — цена от входа и от выхода, лучшее и худшее движение после закрытия, дошла ли цена до целей или исходного стопа, все метрики рынка.": "After a stop / break-even close: snapshots at 1h, 4h, 12h, 24h, 48h, 72h, 5 and 7 days — the price from the entry and from the exit, the best and worst move after the close, whether the price reached the targets or the initial stop, all market metrics."
+ "После закрытия по стопу или в безубыток: снимки через 1h, 4h, 12h, 24h, 48h, 72h, 5 и 7 дней — цена от входа и от выхода, лучшее и худшее движение после закрытия, дошла ли цена до целей или исходного стопа, все метрики рынка.": "After a stop / break-even close: snapshots at 1h, 4h, 12h, 24h, 48h, 72h, 5 and 7 days — the price from the entry and from the exit, the best and worst move after the close, whether the price reached the targets or the initial stop, all market metrics.",
+ "Проверка приёма в Люси": "Lucy signal reception test",
+ "Отправит одну новую запись с уровнями сигнала #13. История #13 в BTC останется закрытой; эта копия не будет синхронизироваться с BTC. Если Люси откроет позицию, управляйте ею в Люси.": "Sends one new signal using #13's levels. The BTC history entry remains closed; this copy will not sync with BTC. Manage any position opened by Lucy directly in Lucy.",
+ "Попытка уже началась. Повтор заблокирован, чтобы не отправить дубликат.": "An attempt has started. Retry is blocked to prevent a duplicate.",
+ "Люси подтвердила сохранение сигнала.": "Lucy confirmed that it stored the signal.",
+ "Ответ не получен. Неизвестно, дошёл ли сигнал; повтор заблокирован.": "No response received. It is unknown whether the signal arrived; retry is blocked.",
+ "HTTP-ответ получен, но сохранение не подтверждено. Повтор заблокирован.": "An HTTP response was received, but storage was not confirmed. Retry is blocked.",
+ "Люси не подтвердила приём. Повтор заблокирован.": "Lucy did not confirm receipt. Retry is blocked.",
+ "Отправляю…": "Sending…",
+ "Отправить #13 в Люси как новый": "Send #13 to Lucy as a new signal"
 }
